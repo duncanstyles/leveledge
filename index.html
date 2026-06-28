@@ -1,0 +1,1919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Phantom - Precision Diagnostics v5.2.01</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; color: #eee; font-family: sans-serif; text-align: center; }
+        #ui-layer { position: absolute; top: 20px; width: 100%; z-index: 10; pointer-events: none; }
+        h1 { color: #D4AF37; letter-spacing: 2px; margin: 0; }
+        .instructions { font-size: 0.8rem; color: #666; margin-bottom: 15px; }
+        
+        button {
+            pointer-events: auto; background-color: #D4AF37; color: #111; border: none;
+            padding: 10px 25px; font-size: 1rem; font-weight: bold;
+            border-radius: 50px; cursor: pointer; transition: 0.2s; margin: 5px;
+        }
+        button:hover { background-color: #f1c40f; transform: scale(1.05); }
+        .secondary-btn { background-color: #444; color: #fff; font-size: 0.8rem; }
+        .secondary-btn:hover { background-color: #666; }
+        
+        #zeroArmBtn { background-color: #00ffcc; color: #111; display: none; width: 140px; margin: 0; }
+        #zeroArmBtn:hover { background-color: #00ccaa; }
+
+        #cancelArmBtn { background-color: #990000; color: #fff; display: none; border: 2px solid #ff3333; width: 140px; margin: 0; }
+        #cancelArmBtn:hover { background-color: #ff3333; }
+
+        #top-left-controls {
+            position: absolute; top: 15px; left: 15px;
+            display: flex; flex-direction: column; gap: 12px; align-items: center; z-index: 30; pointer-events: auto;
+        }
+        .icon-btn {
+            background: rgba(0,0,0,0.6); border: 1px solid #444; border-radius: 50%;
+            width: 44px; height: 44px; display: flex; justify-content: center; align-items: center;
+            cursor: pointer; font-size: 1.2rem; transition: 0.2s; color: #fff; padding: 0;
+        }
+        .icon-btn svg, .icon-btn * { pointer-events: none; }
+        .icon-btn:hover { background: rgba(50,50,50,0.8); transform: scale(1.1); }
+        .bt-disconnected { border-color: #ff3333; }
+        .bt-connected { border-color: #00ffcc; }
+
+        #hw-info-container { display: flex; flex-direction: column; text-align: center; font-family: monospace; }
+        #battery-display { color:#00ffcc; font-weight:bold; font-size:0.9rem; display:none; }
+        #fw-version-display { color:#666; font-size:0.65rem; display:none; margin-top:2px; font-weight: bold; }
+
+        input[type=number], select {
+            padding: 8px; border-radius: 8px; border: 1px solid #D4AF37;
+            background: #222; color: #D4AF37; font-size: 1rem; font-weight: bold; text-align: center;
+        }
+        input[type=checkbox] { transform: scale(1.3); vertical-align: middle; cursor: pointer; }
+
+        #swing-state { font-size: 1.2rem; font-weight: bold; color: #00ffcc; margin-top: 15px; display: none; }
+        #live-countdown { font-size: 2.8rem; font-weight: bold; color: #fff; margin-top: 5px; font-family: monospace; display: none; text-shadow: 0 0 10px rgba(0,0,0,0.8); }
+        
+        #calibration-container {
+            width: 80%; max-width: 300px; height: 10px; background: #333; border-radius: 5px;
+            margin: 10px auto 0 auto; display: none; overflow: hidden; border: 1px solid #D4AF37;
+            pointer-events: none;
+        }
+        @keyframes flashRed { 0% { background-color: #ff3333; } 50% { background-color: #660000; } 100% { background-color: #ff3333; } }
+        #calibration-bar {
+            width: 0%; height: 100%; background: #ff3333; transition: width 0.05s linear;
+            animation: flashRed 0.6s infinite;
+        }
+
+        #toast-notification {
+            position: fixed; top: -60px; left: 50%; transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.95); border: 1px solid #D4AF37; color: #00ffcc;
+            padding: 12px 26px; border-radius: 50px; font-family: monospace; font-size: 0.9rem;
+            z-index: 100; pointer-events: none; box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+            transition: top 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s; opacity: 0;
+        }
+        #toast-notification.show { top: 25px; opacity: 1; }
+
+        #history-panel {
+            position: absolute; right: -420px; top: 0; width: 400px; height: 100vh;
+            background: rgba(15,15,15,0.92); border-left: 2px solid #D4AF37;
+            overflow-y: auto; padding: 70px 15px 20px 15px; box-sizing: border-box;
+            text-align: left; pointer-events: auto; z-index: 15;
+            transition: right 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+            box-shadow: -10px 0 30px rgba(0,0,0,0.5);
+        }
+        #history-panel.open { right: 0; }
+        
+        #playback-panel { 
+            display: none; background: #222; padding: 15px; border-radius: 8px; 
+            margin-bottom: 15px; text-align: center; border: 1px solid #00ffcc;
+        }
+        .scrubber-axis { margin: 12px 0 8px 0; display: flex; flex-direction: column; gap: 4px; }
+        .scrubber-axis label { font-family: monospace; font-size: 0.75rem; color: #888; text-transform: uppercase; }
+        .timeline-scrubber { width: 100%; -webkit-appearance: none; background: #444; height: 6px; border-radius: 4px; outline: none; }
+        .timeline-scrubber::-webkit-slider-thumb {
+            -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #00ffcc; cursor: pointer; transition: 0.1s;
+        }
+        .timeline-scrubber::-webkit-slider-thumb:hover { transform: scale(1.2); background: #fff; }
+
+        .history-item { border-bottom: 1px solid #444; padding-bottom: 12px; margin-bottom: 12px; }
+        .history-title { color: #D4AF37; font-weight: bold; font-size: 1.1rem; margin-bottom: 5px; }
+        .history-stat { color: #ddd; font-family: monospace; font-size: 0.9rem; line-height: 1.4; }
+        
+        details summary { cursor: pointer; color: #f1c40f; outline: none; margin: 8px 0 5px 0; font-size: 0.85rem; font-weight: bold; }
+        details ul { margin: 0; padding-left: 20px; font-size: 0.85rem; line-height: 1.5; }
+
+        #settings-modal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.0); z-index: 20; display: none;
+            flex-direction: column; align-items: center; justify-content: center; pointer-events: none;
+            backdrop-filter: blur(0px); transition: background-color 0.3s, backdrop-filter 0.3s;
+        }
+        #settings-modal.open { display: flex; background-color: rgba(0,0,0,0.8); backdrop-filter: blur(4px); pointer-events: auto; }
+        
+        .settings-container {
+            background: #1a1a1a; border: 2px solid #D4AF37; border-radius: 15px;
+            padding: 25px; width: 90%; max-width: 550px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 15px; text-align: left;
+            box-shadow: 0px 10px 40px rgba(0,0,0,0.9);
+            transform: scale(0.85); opacity: 0; transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s;
+            max-height: 90vh; overflow-y: auto;
+        }
+        #settings-modal.open .settings-container { transform: scale(1); opacity: 1; }
+        
+        .settings-header { grid-column: span 2; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        .settings-header h2 { color: #D4AF37; margin: 0; letter-spacing: 2px; font-size: 1.3rem; }
+        .close-btn { background: #ff3300; padding: 5px 15px; margin: 0; }
+        .close-btn:hover { background: #ff6633; }
+        
+        .settings-category-title {
+            grid-column: span 2; color: #00ffcc; font-size: 0.8rem; font-weight: bold;
+            letter-spacing: 1.5px; border-bottom: 1px dashed #444; padding-bottom: 3px; margin-top: 10px; text-transform: uppercase;
+        }
+        .setting-item { display: flex; flex-direction: column; }
+        .setting-item label { color: #888; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 4px; }
+        .setting-item input, .setting-item select { width: 100%; box-sizing: border-box; }
+        .setting-checkbox { flex-direction: row; align-items: center; justify-content: space-between; grid-column: span 1; }
+
+        #live-readout {
+            position: absolute; bottom: 0; left: 0; width: 100%; 
+            background: rgba(0,0,0,0.85); border-top: 2px solid #D4AF37;
+            display: flex; justify-content: space-evenly; align-items: center;
+            padding: 20px 0; z-index: 10; pointer-events: none;
+            font-family: monospace;
+        }
+        .live-stat { display: flex; flex-direction: column; align-items: center; }
+        .live-label { color: #888; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; }
+        .live-val { color: #00ffcc; font-size: 1.8rem; font-weight: bold; margin-top: 5px; }
+        .star-rating { letter-spacing: 1px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="toast-notification">Notification Text</div>
+
+    <div id="top-left-controls">
+        <button id="btToggleBtn" class="icon-btn bt-disconnected" title="Connect/Disconnect Sensor">
+            <svg id="bt-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff3333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="2" y1="2" x2="22" y2="22"></line>
+                <polyline points="12 1 17.5 6.5 13.5 10.5"></polyline>
+                <polyline points="6.5 6.5 10.5 10.5"></polyline>
+                <polyline points="12 23 17.5 17.5 12 12"></polyline>
+            </svg>
+        </button>
+        <button id="toggleSoundBtn" class="icon-btn" title="Toggle Audio">🔊</button>
+        <button id="openSettingsBtn" class="icon-btn" title="Settings">⚙️</button>
+        
+        <button id="toggleBallBtn" class="icon-btn" title="Toggle Ball">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+            </svg>
+        </button>
+
+        <button id="toggleGhostBtn" class="icon-btn" title="Toggle Wireframe Ghost">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
+                <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
+                <line x1="12" y1="22.08" x2="12" y2="12"></line>
+            </svg>
+        </button>
+        <button id="flipViewBtn" class="icon-btn" title="Flip View">🔄</button>
+        <button id="toggleHistoryBtn" class="icon-btn" title="Show/Hide Log">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <line x1="16" y1="13" x2="8" y2="13"></line>
+                <line x1="16" y1="17" x2="8" y2="17"></line>
+                <line x1="10" y1="9" x2="8" y2="9"></line>
+            </svg>
+        </button>
+
+        <div id="hw-info-container">
+            <div id="battery-display">🔋 --%</div>
+            <div id="fw-version-display">Ver: -- </div>
+        </div>
+    </div>
+
+    <div id="settings-modal">
+        <div class="settings-container">
+            <div class="settings-header">
+                <h2>ENGINE CONFIG</h2>
+                <button id="closeSettingsBtn" class="close-btn">CLOSE</button>
+            </div>
+            
+            <div class="settings-category-title">Training Profile Level</div>
+            <div class="setting-item" style="grid-column: span 2;">
+                <label for="difficultySelect">Select Difficulty Tier:</label>
+                <select id="difficultySelect">
+                    <option value="novice">Novice (2m, 4m, 6m, 8m) - White</option>
+                    <option value="intermediate" selected>Intermediate (3m, 6m, 9m, 12m) - Bronze</option>
+                    <option value="advanced">Advanced (4m, 8m, 12m, 16m) - Silver</option>
+                    <option value="expert">Expert (5m, 10m, 15m, 20m) - Gold</option>
+                </select>
+            </div>
+
+            <div class="settings-category-title">Hardware Physics & Edge Computing</div>
+            <div class="setting-item">
+                <label for="radiusInput">True Swing Radius (cm):</label>
+                <input type="number" id="radiusInput" value="127" min="50" max="250" step="1">
+            </div>
+            <div class="setting-item">
+                <label for="offsetYInput">Sensor Offset Y (cm):</label>
+                <input type="number" id="offsetYInput" value="5.5" min="0" max="15.0" step="0.1">
+            </div>
+            <div class="setting-item">
+                <label for="massInput">Mallet Mass (g):</label>
+                <input type="number" id="massInput" value="1000" min="500" max="2500" step="50">
+            </div>
+            <div class="setting-item">
+                <label for="timeoutInput">Auto-Sleep Timeout (mins, 0=off):</label>
+                <input type="number" id="timeoutInput" value="5" min="0" max="60" step="1">
+            </div>
+
+            <div class="settings-category-title">Firmware Trigger Tuning</div>
+            <div class="setting-item">
+                <label for="impactInput">Impact Jerk Thresh. (ΔG):</label>
+                <input type="number" id="impactInput" value="4.0" min="1.0" max="15.0" step="0.5">
+            </div>
+            <div class="setting-item">
+                <label for="sweetSpotInput">Sweet Spot ±(cm):</label>
+                <input type="number" id="sweetSpotInput" value="1.5" min="0.1" max="15.0" step="0.1">
+            </div>
+            <div class="setting-item" style="grid-column: span 2;">
+                <button id="btnUpdateFW" class="secondary-btn" style="width: 100%; margin: 0; padding: 10px;">Sync Config to Hardware</button>
+            </div>
+
+            <div class="settings-category-title">Sensory Alerts & Diagnostics</div>
+            <div class="setting-item">
+                <label for="audioThreshInput">Audio Deviation Alert (cm):</label>
+                <input type="number" id="audioThreshInput" value="2.0" min="0.1" max="15.0" step="0.1">
+            </div>
+            <div class="setting-item setting-checkbox">
+                <label for="metronomeCheck" style="margin:0;">Metronome Mode:</label>
+                <input type="checkbox" id="metronomeCheck">
+            </div>
+            <div class="setting-item">
+                <label for="metronomeBpm">Metronome (BPM):</label>
+                <input type="number" id="metronomeBpm" value="60" min="20" max="240" step="1">
+            </div>
+            <div class="setting-item setting-checkbox" style="grid-column: span 2;">
+                <label for="ledGuidanceCheck" style="margin:0; color:#D4AF37;">Enable Real-Time LED Guidance:</label>
+                <input type="checkbox" id="ledGuidanceCheck" checked>
+            </div>
+
+            <div class="settings-category-title">Timeline & Graphics</div>
+            <div class="setting-item">
+                <label for="durationInput">Follow-Thru Record (s):</label>
+                <input type="number" id="durationInput" value="1.0" min="0.1" max="5.0" step="0.1">
+            </div>
+            <div class="setting-item">
+                <label for="practiceInput">Practice Mode Timeout (s):</label>
+                <input type="number" id="practiceInput" value="10.0" min="1.0" max="30.0" step="0.5">
+            </div>
+            <div class="setting-item">
+                <label for="flatMagInput">Force->Drop Visualizer (x):</label>
+                <input type="number" id="flatMagInput" value="4.0" min="1.0" max="30.0" step="0.5">
+            </div>
+            <div class="setting-item setting-checkbox" style="grid-column: span 2;">
+                <label for="showTraceCheck" style="margin:0;">Show 3D Swing Trace:</label>
+                <input type="checkbox" id="showTraceCheck" checked>
+            </div>
+            
+            <div class="setting-item" style="grid-column: span 2; margin-top: 15px;">
+                <button id="btnResetFW" class="secondary-btn" style="width: 100%; background: #990000; margin: 0;">REMOTE SENSOR REBOOT</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="history-panel">
+        <h2 style="color: #fff; margin-top:0; letter-spacing: 1px;">SWING LOG</h2>
+        
+        <div id="playback-panel">
+            <div style="color: #00ffcc; font-size: 0.9rem; font-weight: bold; margin-bottom: 5px; letter-spacing: 1px;">REPLAY MONITOR</div>
+            
+            <div class="scrubber-axis">
+                <label id="scrubberLabel">Frame: 0 / 0</label>
+                <input type="range" id="replayScrubber" class="timeline-scrubber" min="0" value="0" step="1">
+            </div>
+
+            <div style="display:flex; gap:8px; justify-content:center;">
+                <button id="pauseBtn" class="secondary-btn" style="width: 30%; margin: 0;">⏸ PAUSE</button>
+                <button id="slowMoBtn" class="secondary-btn" style="width: 35%; margin: 0;">🐌 SLOW: OFF</button>
+                <button id="exitReplayBtn" class="secondary-btn" style="width: 30%; margin: 0; background-color: #990000;">🛑 STOP</button>
+            </div>
+        </div>
+
+        <div id="history-list">
+            <div style="color: #666; font-size: 0.8rem; font-style: italic;">No swings recorded yet. Zero the mount and take a shot!</div>
+        </div>
+        <button id="resetMaxBtn" class="secondary-btn" style="width: 100%; margin: 20px 0; background: #990000; border-radius: 5px;">CLEAR DATA</button>
+    </div>
+
+    <div id="ui-layer">
+        <h1>SMART PHANTOM</h1>
+        <div class="instructions">Version 5.2.01 (FW Req: 5.2.11) </div>
+        
+        <div id="control-panel" style="pointer-events: auto; width: 300px; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
+            <div style="display: flex; gap: 15px; align-items: center; justify-content: center;">
+                <button id="zeroArmBtn">READY</button>
+                <button id="cancelArmBtn">CANCEL</button>
+                <label id="singleSwingLabel" style="display:none; color:#D4AF37; font-size:0.85rem; font-weight:bold; cursor:pointer;" title="Check to stop recording after exactly 1 pass">
+                    <input type="checkbox" id="singleSwingCheck" style="transform: scale(1.1); margin-right:5px; vertical-align: middle;"> Single Swing
+                </label>
+            </div>
+            <div id="swing-state">READY</div>
+            <div id="live-countdown">0s</div>
+            <div id="calibration-container"><div id="calibration-bar"></div></div>
+        </div>
+    </div>
+
+    <div id="live-readout" style="display:none;">
+        <div class="live-stat">
+            <span class="live-label">Tempo</span>
+            <span id="live-tempo" class="live-val" style="color:#f1c40f;">-- BPM</span>
+        </div>
+        <div class="live-stat">
+            <span class="live-label">Applied</span>
+            <span id="live-applied" class="live-val">-- N</span>
+        </div>
+        <div class="live-stat">
+            <span class="live-label">Speed</span>
+            <span id="live-speed" class="live-val">0.0 m/s</span>
+        </div>
+        <div class="live-stat">
+            <span class="live-label">Force</span>
+            <span id="live-force" class="live-val">1.0 G</span>
+        </div>
+        <div class="live-stat">
+            <span class="live-label">Deviation</span>
+            <span id="live-dev" class="live-val">-- cm</span>
+        </div>
+    </div>
+
+    <script>
+        const MIN_SUPPORTED_FW = "5.1.0";
+
+        let pivotBaseY = 24.6; 
+        let globalHwTime = 0; 
+
+        let appState = 0; 
+        let armedUiStartTime = 0;
+        let state4UiStartTime = 0; 
+        let goTimeout; 
+        let ignoreSpeedFrames = 0; 
+
+        let lastRawQuat = new THREE.Quaternion(); 
+        let baseQuatInverse = new THREE.Quaternion(); 
+
+        let stabilityStartTime = 0;
+        let lastStableQuat = new THREE.Quaternion();
+        let calibrationHoldTimeMs = 0;
+        let lastJsTime = 0;
+
+        let lastBatteryCheckTime = 0;
+        let lastBatteryVal = -1;
+        let chargeRatePerMs = 0;
+
+        let bluetoothDevice = null; 
+        let commandChar = null; 
+
+        let preRollBuffer = [];
+        let prevMagnitude = 1.0; 
+
+        let posHistory = []; 
+        let currentAbsoluteSpeed = 0; 
+        
+        const STRIKE_PLANE_Z = 13.8; 
+        let prevFaceZ = 0;
+        let prevZ = 0;
+        let isForwardSwing = true;
+        let lastForwardPassTime = 0; 
+
+        let targetQuaternion = new THREE.Quaternion();
+        let currentQuaternion = new THREE.Quaternion();
+        
+        let finalReviewPivotQuat = new THREE.Quaternion();
+        let finalReviewPivotPos = new THREE.Vector3(0, pivotBaseY, 0); 
+        let finalReviewExtension = 0; 
+
+        let rewindStartTime = 0;
+        let rewindStartQuat = new THREE.Quaternion();
+        let rewindStartPos = new THREE.Vector3();
+        let rewindStartExt = 0;
+        
+        let isBallEnabled = true;
+        let isGhostEnabled = true; 
+        let isViewFlipped = false; 
+
+        let swingCount = 0;
+        let currentSwingMaxSpeed = 0;
+        let currentSwingMaxG = 0;
+        let currentSwingDeviation = 0; 
+        let currentSwingDist = 0;
+        let lastComputedTempo = 0; 
+        let maxTwist = 0;
+
+        let currentSwingDwell = 0;
+        let currentSwingAoA = 0;
+        window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0 }; 
+        
+        let castData = [];
+        let idealPlane = null;
+        let impactLasers = []; 
+
+        let impactDetected = false;
+        let impactThreshold = 4.0; 
+        let audioThreshold = 2.0; 
+        let sensorOffsetY = 5.5; 
+        let nextMetronomeTime = 0;
+        
+        let isLive = true;
+        let recordedFrames = []; 
+        let swingDatabase = []; 
+        let playbackMode = false;
+        let playbackIndex = 0;
+        let isPaused = false;
+        let isSlowMo = false;
+        let lastPlaybackTime = 0;
+        
+        const MAX_TRAIL_POINTS = 5000; 
+        let trailIndex = 0;
+        const trailPositions = new Float32Array(MAX_TRAIL_POINTS * 3);
+        const trailColors = new Float32Array(MAX_TRAIL_POINTS * 3);
+
+        let audioCtx;
+        let oscillator;
+        let gainNode;
+        let isAudioInitialized = false;
+        let isSoundEnabled = true;
+
+        let mainMalletMesh = null;
+        let ghostMalletMesh = null;
+
+        const SERVICE_UUID = "19b30000-e8f2-537e-4f6c-d104768a1214";
+        const CHARACTERISTIC_UUID = "19b30001-e8f2-537e-4f6c-d104768a1214";
+        const COMMAND_UUID = "19b30002-e8f2-537e-4f6c-d104768a1214";
+        const STRIKE_UUID = "19b30003-e8f2-537e-4f6c-d104768a1214";
+
+        const settingsElements = [
+            'radiusInput', 'massInput', 'sweetSpotInput', 'lawnSpeedInput',
+            'impactInput', 'metronomeCheck', 'metronomeBpm', 'audioThreshInput',
+            'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect'
+        ];
+
+        const difficultyMatrix = {
+            novice:       { name: "Novice",       distances: [2, 4, 6, 8],    starColor: "#ffffff", starChar: "★" },
+            intermediate: { name: "Intermediate", distances: [3, 6, 9, 12],   starColor: "#cd7f32", starChar: "★" },
+            advanced:     { name: "Advanced",     distances: [4, 8, 12, 16],  starColor: "#c0c0c0", starChar: "★" },
+            expert:       { name: "Expert",       distances: [5, 10, 15, 20], starColor: "#d4af37", starChar: "★" }
+        };
+
+        window.addEventListener('beforeunload', () => {
+            if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) {
+                bluetoothDevice.gatt.disconnect();
+            }
+        });
+
+        function getStarRating(offsetCm, angleDeg) {
+            let activeTier = document.getElementById('difficultySelect').value || "intermediate";
+            let profile = difficultyMatrix[activeTier];
+            let angleRad = angleDeg * (Math.PI / 180.0);
+            let checkHit = (distM) => Math.abs(offsetCm + (distM * 100.0) * Math.tan(angleRad)) <= 9.2;
+
+            let stars = "";
+            if (checkHit(profile.distances[3])) stars = profile.starChar.repeat(4);
+            else if (checkHit(profile.distances[2])) stars = profile.starChar.repeat(3);
+            else if (checkHit(profile.distances[1])) stars = profile.starChar.repeat(2);
+            else if (checkHit(profile.distances[0])) stars = profile.starChar.repeat(1);
+            
+            return { string: stars, color: profile.starColor };
+        }
+
+        function getShaftTwist(q) {
+            let v = new THREE.Vector3(0, 0, 1).applyQuaternion(q); 
+            let up = new THREE.Vector3(0, 1, 0).applyQuaternion(q); 
+            let projZ = new THREE.Vector3(0, 0, 1).projectOnPlane(up);
+            if (projZ.lengthSq() < 0.0001) return 0; 
+            projZ.normalize();
+            let angle = v.angleTo(projZ);
+            let cross = new THREE.Vector3().crossVectors(projZ, v);
+            if (cross.dot(up) < 0) angle = -angle;
+            return THREE.MathUtils.radToDeg(angle);
+        }
+
+        function showToast(text) {
+            const el = document.getElementById('toast-notification');
+            if(el) {
+                el.innerText = text;
+                el.classList.add('show');
+                setTimeout(() => { el.classList.remove('show'); }, 3500);
+            }
+        }
+
+        function saveSettings() {
+            try {
+                const settings = {};
+                settingsElements.forEach(id => {
+                    const el = document.getElementById(id);
+                    if(el) settings[id] = (el.type === 'checkbox') ? el.checked : el.value;
+                });
+                localStorage.setItem('smartPhantomSettings', JSON.stringify(settings));
+            } catch (e) { console.warn("localStorage issue."); }
+        }
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem('smartPhantomSettings');
+                if (saved) {
+                    const settings = JSON.parse(saved);
+                    settingsElements.forEach(id => {
+                        if (settings[id] !== undefined) {
+                            const el = document.getElementById(id);
+                            if (el) {
+                                if (el.type === 'checkbox') el.checked = settings[id];
+                                else el.value = settings[id];
+                            }
+                        }
+                    });
+                    
+                    let audioEl = document.getElementById('audioThreshInput');
+                    let impactEl = document.getElementById('impactInput');
+                    let offsetEl = document.getElementById('offsetYInput');
+                    
+                    if(audioEl) audioThreshold = parseFloat(audioEl.value);
+                    if(impactEl) impactThreshold = parseFloat(impactEl.value);
+                    if(offsetEl) sensorOffsetY = parseFloat(offsetEl.value);
+                }
+            } catch (e) { console.warn("localStorage issue."); }
+        }
+
+        settingsElements.forEach(id => {
+            let el = document.getElementById(id);
+            if(el) el.addEventListener('change', saveSettings);
+        });
+
+        function calculateImpactForce(speedMps) {
+            let massEl = document.getElementById('massInput');
+            let massKg = massEl ? (parseFloat(massEl.value) / 1000.0) : 1.0;
+            let impactDuration = 0.002; 
+            return (massKg * speedMps) / impactDuration; 
+        }
+
+        function initAudio() {
+            if (!isAudioInitialized) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                oscillator = audioCtx.createOscillator();
+                gainNode = audioCtx.createGain();
+                oscillator.type = 'sine';
+                oscillator.frequency.value = 440;
+                gainNode.gain.value = 0; 
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.start();
+                isAudioInitialized = true;
+            } else { audioCtx.resume(); }
+        }
+
+        function playBeep(freq, duration) {
+            if (!audioCtx || !isSoundEnabled) return;
+            let beepOsc = audioCtx.createOscillator();
+            let beepGain = audioCtx.createGain();
+            beepOsc.connect(beepGain);
+            beepGain.connect(audioCtx.destination);
+            beepOsc.type = 'sine';
+            beepOsc.frequency.value = freq;
+            beepGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+            beepGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            beepOsc.start();
+            beepOsc.stop(audioCtx.currentTime + duration);
+        }
+
+        function playDoubleBeep() {
+            if (!audioCtx || !isSoundEnabled) return;
+            let now = audioCtx.currentTime;
+
+            let osc1 = audioCtx.createOscillator();
+            let gain1 = audioCtx.createGain();
+            osc1.connect(gain1); gain1.connect(audioCtx.destination);
+            osc1.type = 'sine'; osc1.frequency.value = 600;
+            gain1.gain.setValueAtTime(0.5, now);
+            gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+            osc1.start(now); osc1.stop(now + 0.15);
+
+            let osc2 = audioCtx.createOscillator();
+            let gain2 = audioCtx.createGain();
+            osc2.connect(gain2); gain2.connect(audioCtx.destination);
+            osc2.type = 'sine'; osc2.frequency.value = 1200;
+            gain2.gain.setValueAtTime(0.5, now + 0.15);
+            gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+            osc2.start(now + 0.15); osc2.stop(now + 0.35);
+        }
+
+        function playTick(freq, duration) {
+            if (!audioCtx || !isSoundEnabled) return;
+            let tickOsc = audioCtx.createOscillator();
+            let tickGain = audioCtx.createGain();
+            tickOsc.connect(tickGain);
+            tickGain.connect(audioCtx.destination);
+            tickOsc.type = 'square';
+            tickOsc.frequency.value = freq;
+            tickGain.gain.setValueAtTime(0.6, audioCtx.currentTime);
+            tickGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration);
+            tickOsc.start();
+            tickOsc.stop(audioCtx.currentTime + duration);
+        }
+
+        document.getElementById('toggleBallBtn').onclick = () => {
+            isBallEnabled = !isBallEnabled;
+            document.getElementById('toggleBallBtn').style.opacity = isBallEnabled ? "1" : "0.5";
+            if(appState >= 3 || playbackMode) {
+                virtualBall.visible = isBallEnabled;
+            }
+        };
+
+        document.getElementById('toggleGhostBtn').onclick = () => {
+            isGhostEnabled = !isGhostEnabled;
+            document.getElementById('toggleGhostBtn').style.opacity = isGhostEnabled ? "1" : "0.5";
+            if (ghostMalletMesh && appState >= 3) {
+                ghostMalletMesh.visible = isGhostEnabled;
+            }
+        };
+
+        document.getElementById('flipViewBtn').onclick = () => {
+            isViewFlipped = !isViewFlipped;
+            let radiusOffset = parseFloat(document.getElementById('radiusInput').value) || 127;
+            let camX = isViewFlipped ? -100 : 100;
+            camera.position.set(camX, pivotBaseY - radiusOffset, 0);
+            controls.target.set(0, pivotBaseY - radiusOffset, 0);
+            controls.update();
+        };
+
+        document.getElementById('toggleSoundBtn').onclick = () => {
+            isSoundEnabled = !isSoundEnabled;
+            document.getElementById('toggleSoundBtn').style.opacity = isSoundEnabled ? "1" : "0.5";
+            if (!isSoundEnabled && isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+        };
+
+        document.getElementById('toggleHistoryBtn').onclick = () => { document.getElementById('history-panel').classList.toggle('open'); };
+        document.getElementById('openSettingsBtn').onclick = () => { document.getElementById('settings-modal').classList.add('open'); };
+        document.getElementById('closeSettingsBtn').onclick = () => { document.getElementById('settings-modal').classList.remove('open'); };
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+        let defaultRad = 127;
+        camera.position.set(100, pivotBaseY - defaultRad, 0); 
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.target.set(0, pivotBaseY - defaultRad, 0); 
+        controls.update();
+
+        window.addEventListener('resize', () => {
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            controls.update();
+        });
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1); hemiLight.position.set(0, 50, 0); scene.add(hemiLight);
+        const headlamp = new THREE.DirectionalLight(0xffffff, 0.8); camera.add(headlamp); scene.add(camera);
+
+        const ballGeo = new THREE.SphereGeometry(4.6, 8, 6);
+        const ballMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc, wireframe: true, transparent: true, opacity: 0.6 });
+        const virtualBall = new THREE.Mesh(ballGeo, ballMat);
+        virtualBall.visible = false; scene.add(virtualBall);
+
+        const ghostRailGeo = new THREE.BufferGeometry();
+        const ghostRailMat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.4, linewidth: 2 });
+        const ghostRail = new THREE.Line(ghostRailGeo, ghostRailMat);
+        ghostRail.visible = false;
+        scene.add(ghostRail);
+
+        // Core Physics Engine
+        const physicsPivot = new THREE.Group(); physicsPivot.position.set(0, pivotBaseY, 0); scene.add(physicsPivot);
+        const physicsBlock = new THREE.Group(); physicsBlock.position.set(0, -127, 0); physicsPivot.add(physicsBlock);
+
+        const faceTrackerNode = new THREE.Group();
+        faceTrackerNode.position.set(0, 0, 13.8); 
+        physicsBlock.add(faceTrackerNode);
+
+        const physicsTrackingNode = new THREE.Group();
+        physicsTrackingNode.position.set(0, 0, 0);
+        physicsBlock.add(physicsTrackingNode);
+
+        // Visual Review Engine
+        const pivot = new THREE.Group(); pivot.position.set(0, pivotBaseY, 0); scene.add(pivot);
+        const block = new THREE.Group(); block.position.set(0, -127, 0); pivot.add(block); 
+        const headJoint = new THREE.Group(); block.add(headJoint); 
+
+        // STATIC Ghost Engine
+        const ghostPivot = new THREE.Group(); ghostPivot.position.set(0, pivotBaseY, 0); scene.add(ghostPivot);
+        const ghostBlock = new THREE.Group(); ghostBlock.position.set(0, -127, 0); ghostPivot.add(ghostBlock); 
+        const ghostHeadJoint = new THREE.Group(); ghostBlock.add(ghostHeadJoint);
+
+        const loader = new THREE.STLLoader();
+        loader.load('./model.stl', function (geometry) {
+            geometry.center(); geometry.computeVertexNormals(); 
+            const material = new THREE.MeshStandardMaterial({ color: 0xD4AF37, metalness: 0.6, roughness: 0.3 });
+            const customModel = new THREE.Mesh(geometry, material);
+            geometry.computeBoundingBox();
+            const size = new THREE.Vector3(); geometry.boundingBox.getSize(size);
+            const scaleFactor = 27.6 / Math.max(size.x, size.y, size.z);
+            customModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
+            customModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); 
+            
+            mainMalletMesh = customModel;
+            mainMalletMesh.position.set(0, 0, 0);
+            headJoint.add(mainMalletMesh); 
+
+            const edgesGeo = new THREE.EdgesGeometry(geometry, 15);
+            const ghostMaterial = new THREE.LineBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.35 });
+            const ghostModel = new THREE.LineSegments(edgesGeo, ghostMaterial);
+            
+            ghostModel.scale.set(scaleFactor, scaleFactor, scaleFactor);
+            ghostModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); 
+            
+            ghostMalletMesh = ghostModel;
+            ghostMalletMesh.position.set(0, 0, 0);
+            ghostMalletMesh.visible = isGhostEnabled;
+            
+            ghostHeadJoint.add(ghostMalletMesh);
+            ghostPivot.visible = false; 
+        });
+
+        function drawStrikeLaser(cast) {
+            impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+            if (!cast) return;
+
+            let laserGroup = new THREE.Group();
+            let cylGeo = new THREE.CylinderGeometry(0.15, 0.15, 1.5, 8); cylGeo.rotateX(Math.PI / 2); 
+            let cylMat = new THREE.MeshBasicMaterial({ color: 0x00aaff });
+            
+            let correctedRot = cast.rot.clone();
+            let laserDir = new THREE.Vector3(0, 0, 1).applyQuaternion(correctedRot);
+            if (laserDir.z < 0) {
+                let flipRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
+                correctedRot.multiply(flipRot);
+            }
+            
+            let tangentPoint = new THREE.Vector3(0, pivotBaseY - loadedRadius, 13.8);
+
+            for(let i=0; i<10; i++) {
+                let dash = new THREE.Mesh(cylGeo, cylMat);
+                let localOffset = new THREE.Vector3(0, 0, (i * 3.0) + 0.75); 
+                dash.position.copy(localOffset.applyQuaternion(correctedRot).add(tangentPoint));
+                dash.quaternion.copy(correctedRot);
+                laserGroup.add(dash);
+            }
+            scene.add(laserGroup); impactLasers.push(laserGroup);
+        }
+
+        const trailGeometry = new THREE.BufferGeometry();
+        trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+        trailGeometry.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+        trailGeometry.setDrawRange(0, 0);
+        const trailMaterial = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 3, transparent: true, opacity: 0.9 });
+        const trailLine = new THREE.Line(trailGeometry, trailMaterial);
+        trailLine.frustumCulled = false; scene.add(trailLine);
+
+        function rebuildArcPts(radius) {
+            let arcPts = [];
+            let baseVec = new THREE.Vector3(0, -radius, 0); 
+            for(let i=-60; i<=60; i+=2) {
+                let a = THREE.MathUtils.degToRad(i);
+                let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a);
+                arcPts.push(v);
+            }
+            ghostRail.geometry.setFromPoints(arcPts);
+        }
+
+        loadSettings();
+        let loadedRadius = 127;
+        let rInput = document.getElementById('radiusInput');
+        if(rInput && rInput.value) {
+            loadedRadius = parseFloat(rInput.value);
+            if (loadedRadius < 50) loadedRadius = 50;
+        }
+        block.position.set(0, -loadedRadius, 0); physicsBlock.position.set(0, -loadedRadius, 0); ghostBlock.position.set(0, -loadedRadius, 0); 
+        controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
+
+        const offsetYInput = document.getElementById('offsetYInput');
+        if (offsetYInput) {
+            offsetYInput.addEventListener('change', (e) => {
+                sensorOffsetY = parseFloat(e.target.value);
+            });
+        }
+
+        if (rInput) {
+            rInput.addEventListener('change', (e) => {
+                let newRadius = parseFloat(e.target.value);
+                if (newRadius < 50) { newRadius = 50; e.target.value = 50; }
+                loadedRadius = newRadius;
+                block.position.set(0, -newRadius, 0); physicsBlock.position.set(0, -newRadius, 0); ghostBlock.position.set(0, -newRadius, 0); 
+                controls.target.set(0, pivotBaseY - newRadius, 0); controls.update();
+                virtualBall.position.set(0, pivotBaseY - newRadius, 18.4);
+                rebuildArcPts(newRadius);
+            });
+        }
+
+        const scrubberInput = document.getElementById('replayScrubber');
+        if (scrubberInput) {
+            scrubberInput.oninput = (e) => {
+                if (!playbackMode || recordedFrames.length === 0) return;
+                isPaused = true; document.getElementById('pauseBtn').innerText = "▶ PLAY";
+                playbackIndex = parseInt(e.target.value);
+                let frame = recordedFrames[playbackIndex];
+                
+                pivot.quaternion.copy(frame.rotation); 
+                pivot.position.copy(frame.pivotPos);
+                block.position.set(0, -(loadedRadius + frame.extension), 0);
+                headJoint.quaternion.identity(); 
+                
+                trailGeometry.setDrawRange(0, frame.trailIndex);
+                document.getElementById('scrubberLabel').innerText = `Frame: ${playbackIndex + 1} / ${recordedFrames.length}`;
+            };
+        }
+
+        const impactInput = document.getElementById('impactInput');
+        if(impactInput) impactInput.addEventListener('input', (e) => { impactThreshold = parseFloat(e.target.value); });
+
+        const audioThreshInput = document.getElementById('audioThreshInput');
+        if(audioThreshInput) audioThreshInput.addEventListener('input', (e) => { audioThreshold = parseFloat(e.target.value); });
+
+        const showTraceCheck = document.getElementById('showTraceCheck');
+        if(showTraceCheck) showTraceCheck.addEventListener('change', (e) => { trailLine.visible = e.target.checked; });
+
+        document.getElementById('btnUpdateFW').addEventListener('click', async () => {
+            if(!commandChar) return showToast("Connect to Mallet first!");
+            let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
+            
+            let payload = new Uint8Array([
+                67, 
+                parseInt(document.getElementById('radiusInput').value),
+                parseInt(document.getElementById('massInput').value) / 10,
+                parseFloat(document.getElementById('impactInput').value) * 10,
+                parseFloat(document.getElementById('offsetYInput').value) * 10,
+                parseInt(document.getElementById('timeoutInput').value),
+                parseFloat(document.getElementById('sweetSpotInput').value) * 10,
+                ledGuidance
+            ]);
+            
+            try {
+                await commandChar.writeValue(payload);
+                let btn = document.getElementById('btnUpdateFW');
+                let origText = btn.innerText; let origBg = btn.style.background;
+                btn.innerText = "✓ SYNCED!"; btn.style.background = "#10b981"; btn.style.color = "#fff";
+                setTimeout(() => { btn.innerText = origText; btn.style.background = origBg; }, 2000);
+            } catch (err) { 
+                showToast("Bluetooth Error: Cannot sync. Disconnect and reconnect."); 
+                console.error(err);
+            }
+        });
+
+        document.getElementById('btnResetFW').addEventListener('click', async () => {
+            if(!commandChar) return showToast("Connect to Mallet first!");
+            if(confirm("Force a hardware-level reboot?")) {
+                try {
+                    await commandChar.writeValueWithoutResponse(new Uint8Array([82])); 
+                    showToast("Reboot Command Sent.");
+                } catch(err) {
+                    showToast("Bluetooth Error: Cannot reboot. Disconnect and reconnect.");
+                }
+            }
+        });
+
+        document.getElementById('pauseBtn').onclick = () => {
+            if (!playbackMode) return;
+            isPaused = !isPaused;
+            document.getElementById('pauseBtn').innerText = isPaused ? "▶ PLAY" : "⏸ PAUSE";
+        };
+
+        document.getElementById('slowMoBtn').onclick = () => {
+            isSlowMo = !isSlowMo;
+            document.getElementById('slowMoBtn').innerText = isSlowMo ? "🐌 SLOW: ON" : "🐌 SLOW: OFF";
+        };
+
+        document.getElementById('exitReplayBtn').onclick = () => {
+            playbackMode = false; isPaused = false;
+            document.getElementById('playback-panel').style.display = "none";
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.style.color = "#D4AF37"; }
+            
+            if (recordedFrames.length > 0) {
+                trailGeometry.setDrawRange(0, recordedFrames[recordedFrames.length-1].trailIndex); 
+            }
+            if (mainMalletMesh) mainMalletMesh.visible = true;
+            ghostPivot.visible = isGhostEnabled; 
+            
+            pivot.quaternion.copy(finalReviewPivotQuat); 
+            pivot.position.copy(finalReviewPivotPos);
+            block.position.set(0, -(loadedRadius + finalReviewExtension), 0);
+            headJoint.quaternion.identity();
+        };
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            let metronomeCheck = document.getElementById('metronomeCheck');
+            if (isAudioInitialized && metronomeCheck && metronomeCheck.checked && (appState === 3 || appState === 4)) {
+                let nowAudio = audioCtx.currentTime;
+                if (nextMetronomeTime === 0) nextMetronomeTime = nowAudio + 0.1; 
+                if (nowAudio >= nextMetronomeTime) {
+                    playTick(900, 0.04);
+                    let bpm = parseFloat(document.getElementById('metronomeBpm').value) || 60;
+                    nextMetronomeTime += (60.0 / bpm);
+                }
+            } else { nextMetronomeTime = 0; }
+
+            let countdownEl = document.getElementById('live-countdown');
+            if (appState === 3) {
+                let remain = Math.max(0, 30.0 - (Date.now() - armedUiStartTime) / 1000.0);
+                countdownEl.style.display = "block";
+                countdownEl.innerText = Math.ceil(remain) + "s";
+                countdownEl.style.color = remain <= 5.0 ? "#ff3333" : "#00ffcc";
+            } else if (appState === 4) {
+                let limit = parseFloat(document.getElementById('practiceInput').value);
+                let remain = Math.max(0, limit - (Date.now() - state4UiStartTime) / 1000.0);
+                countdownEl.style.display = "block";
+                countdownEl.innerText = Math.ceil(remain) + "s";
+                countdownEl.style.color = "#ff3333";
+            } else {
+                countdownEl.style.display = "none";
+            }
+
+            if (isLive && !playbackMode && appState >= 3 && appState < 4.5) {
+                let angleDiff = currentQuaternion.angleTo(targetQuaternion);
+                let slerpSpeed = 1.0; 
+                if (angleDiff < 0.02) slerpSpeed = 0.02; 
+                else if (angleDiff < 0.1) slerpSpeed = 0.15; 
+                else slerpSpeed = 0.8; 
+
+                currentQuaternion.slerp(targetQuaternion, slerpSpeed);
+                pivot.quaternion.copy(currentQuaternion);
+                headJoint.quaternion.identity(); 
+            }
+
+            if (mainMalletMesh) {
+                ghostPivot.quaternion.identity(); 
+                ghostPivot.position.set(0, pivotBaseY, 0);
+                ghostBlock.position.set(0, -loadedRadius, 0);
+                ghostHeadJoint.quaternion.identity();
+
+                if (appState === 4.5) {
+                    let t = (Date.now() - rewindStartTime) / 500.0;
+                    if (t >= 1.0) { t = 1.0; appState = 5; }
+                    pivot.quaternion.copy(rewindStartQuat).slerp(finalReviewPivotQuat, t);
+                    pivot.position.lerpVectors(rewindStartPos, finalReviewPivotPos, t);
+                    let smoothExt = rewindStartExt + (finalReviewExtension - rewindStartExt) * t;
+                    block.position.set(0, -(loadedRadius + smoothExt), 0);
+                    headJoint.quaternion.identity();
+                    mainMalletMesh.visible = true; ghostPivot.visible = isGhostEnabled;
+                }
+                else if (appState === 5 && !playbackMode) {
+                    pivot.quaternion.copy(finalReviewPivotQuat); 
+                    pivot.position.copy(finalReviewPivotPos);
+                    block.position.set(0, -(loadedRadius + finalReviewExtension), 0);
+                    headJoint.quaternion.identity();
+                    mainMalletMesh.visible = true; ghostPivot.visible = isGhostEnabled;
+                } else if (playbackMode) {
+                    mainMalletMesh.visible = true; ghostPivot.visible = isGhostEnabled; 
+                } else {
+                    mainMalletMesh.visible = true; 
+                    ghostPivot.visible = isGhostEnabled;
+                }
+            }
+
+            if (playbackMode && !isPaused && recordedFrames.length > 0) {
+                let now = Date.now();
+                let frameDelay = isSlowMo ? 50 : 25; 
+                
+                if (now - lastPlaybackTime >= frameDelay) {
+                    lastPlaybackTime = now;
+                    
+                    let frame = recordedFrames[playbackIndex];
+                    pivot.quaternion.copy(frame.rotation); 
+                    pivot.position.copy(frame.pivotPos);
+                    block.position.set(0, -(loadedRadius + frame.extension), 0);
+                    headJoint.quaternion.identity(); 
+                    
+                    trailGeometry.setDrawRange(0, frame.trailIndex);
+                    
+                    if (scrubberInput) scrubberInput.value = playbackIndex;
+                    let sLabel = document.getElementById('scrubberLabel');
+                    if (sLabel) sLabel.innerText = `Frame: ${playbackIndex + 1} / ${recordedFrames.length}`;
+                    
+                    playbackIndex++;
+                    if (playbackIndex >= recordedFrames.length) {
+                        playbackMode = false; isPaused = false;
+                        document.getElementById('playback-panel').style.display = "none";
+                        trailGeometry.setDrawRange(0, recordedFrames[recordedFrames.length-1].trailIndex); 
+                        let swingStateTxt = document.getElementById('swing-state');
+                        if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.style.color = "#D4AF37"; }
+                        if (mainMalletMesh) mainMalletMesh.visible = true;
+                        ghostPivot.visible = isGhostEnabled; 
+                        
+                        pivot.quaternion.copy(finalReviewPivotQuat); 
+                        pivot.position.copy(finalReviewPivotPos);
+                        block.position.set(0, -(loadedRadius + finalReviewExtension), 0);
+                        headJoint.quaternion.identity();
+                    }
+                }
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        function renderLiveCasts() {
+            let liveList = document.getElementById('live-tracking-list');
+            if (!liveList) return;
+            liveList.innerHTML = '';
+            
+            castData.forEach((c, i) => {
+                let col = c.starColor || '#ff3300'; 
+                let twistStr = c.faceAngle > 0 ? `+${c.faceAngle.toFixed(1)}°` : `${c.faceAngle.toFixed(1)}°`;
+                let speedStr = `${c.passSpeed.toFixed(1)}m/s`; 
+                let forceStr = c.appliedForce > 0 ? `+${c.appliedForce}N` : `${c.appliedForce}N`;
+                
+                let starDisplay = c.stars !== "" ? ` <span class="star-rating" style="color: ${c.starColor};">${c.stars}</span>` : "";
+                let prefix = c.isStrike ? "STRIKE" : (i+1);
+
+                if (c.isStrike) {
+                    liveList.innerHTML += `<div style="color: ${col}; font-weight: bold; font-size: 1.0rem; border-top: 1px solid #555; padding-top: 8px; margin-top: 8px;">${prefix}: ${c.dev.toFixed(1)}cm ${c.dir} | ${twistStr} | ${forceStr} | ${speedStr}${starDisplay}</div>`;
+                } else {
+                    liveList.innerHTML += `<div style="color: ${col}; font-weight: normal; font-size: 0.85rem; margin-bottom: 6px;">${prefix}: ${c.dev.toFixed(1)}cm ${c.dir} | ${twistStr} | ${forceStr} | ${speedStr}${starDisplay}</div>`;
+                }
+            });
+        }
+
+        window.triggerReplay = function(index) {
+            if (!swingDatabase[index]) return;
+            let data = swingDatabase[index]; recordedFrames = data.frames;
+            finalReviewPivotQuat.copy(data.finalReviewPivotQuat);
+            finalReviewPivotPos.copy(data.finalReviewPivotPos);
+            finalReviewExtension = data.finalReviewExtension;
+            
+            trailPositions.set(data.trailPos); trailColors.set(data.trailCol);
+            trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true;
+            
+            playbackMode = true; isPaused = false; playbackIndex = 0; ghostPivot.visible = isGhostEnabled; 
+            lastPlaybackTime = Date.now(); 
+            
+            if (isBallEnabled) {
+                virtualBall.position.set(0, pivotBaseY - loadedRadius, 18.4); virtualBall.visible = true;
+            }
+            if(scrubberInput) { scrubberInput.max = recordedFrames.length - 1; scrubberInput.value = 0; }
+            let sLabel = document.getElementById('scrubberLabel');
+            if(sLabel) sLabel.innerText = `Frame: 1 / ${recordedFrames.length}`;
+            if(data.casts && data.casts.length > 0) drawStrikeLaser(data.casts[data.casts.length - 1]);
+            else { impactLasers.forEach(m => scene.remove(m)); impactLasers = []; }
+            
+            document.getElementById('pauseBtn').innerText = "⏸ PAUSE";
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) { swingStateTxt.innerText = `REPLAYING SWING #${index + 1}...`; swingStateTxt.style.color = "#00ffcc"; }
+            document.getElementById('playback-panel').style.display = "block"; document.getElementById('history-panel').classList.add('open');
+        };
+
+        window.highlightPass = function(swingIdx, castIdx) {
+            if (!swingDatabase[swingIdx]) return;
+            let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
+            playbackMode = false; isPaused = false; document.getElementById('playback-panel').style.display = "none";
+            for(let i = 0; i < swing.trailCol.length; i++) trailColors[i] = swing.trailCol[i] * 0.2; 
+            let centerFrame = cast.trailIndex;
+            let startFrame = Math.max(0, centerFrame - 15); let endFrame = Math.min((swing.trailCol.length / 3) - 1, centerFrame + 15);
+
+            for(let f = startFrame; f <= endFrame; f++) {
+                trailColors[f*3] = swing.trailCol[f*3]; trailColors[f*3+1] = swing.trailCol[f*3+1]; trailColors[f*3+2] = swing.trailCol[f*3+2]; 
+            }
+            trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, swing.trailCol.length / 3);
+            
+            pivot.quaternion.copy(cast.pivotQuat); 
+            pivot.position.copy(cast.pivotPos);
+            block.position.set(0, -(loadedRadius + cast.extension), 0);
+            headJoint.quaternion.identity();
+            
+            ghostPivot.visible = isGhostEnabled;
+            
+            if (mainMalletMesh) mainMalletMesh.visible = true;
+            drawStrikeLaser(cast);
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) { swingStateTxt.innerText = `VIEWING PASS #${castIdx + 1}. DRAG CAMERA.`; swingStateTxt.style.color = "#f1c40f"; }
+        };
+
+        async function cancelTracking(silent = false) {
+            clearTimeout(goTimeout);
+            appState = 1;
+            
+            if (commandChar && !silent) { 
+                try { 
+                    await new Promise(resolve => setTimeout(resolve, 35));
+                    await commandChar.writeValueWithoutResponse(new Uint8Array([73])); 
+                } catch(e) {
+                    console.warn("BLE Interrupt Write Failed:", e);
+                } 
+            }
+            
+            document.getElementById('cancelArmBtn').style.display = "none";
+            document.getElementById('zeroArmBtn').style.display = "inline-block";
+            document.getElementById('singleSwingLabel').style.display = "inline-block";
+            
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) { swingStateTxt.innerText = "TRACKING CANCELLED."; swingStateTxt.style.color = "#ff3333"; }
+            document.getElementById('calibration-container').style.display = "none";
+            
+            virtualBall.visible = false; ghostRail.visible = false;
+            let tempLive = document.getElementById('live-tracking-container'); if (tempLive) tempLive.remove();
+            
+            preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+            trailGeometry.setDrawRange(0, 0);
+            if (isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+        }
+
+        document.getElementById('zeroArmBtn').onclick = async () => {
+            if (appState === 2 || appState === 3 || appState === 4 || appState === 4.5) return; 
+
+            if (commandChar) {
+                try { 
+                    await new Promise(resolve => setTimeout(resolve, 35));
+                    await commandChar.writeValueWithoutResponse(new Uint8Array([90])); 
+                } catch(e) {
+                    showToast("BLE Error: Command blocked. Ensure you are disconnected and reconnected."); return; 
+                }
+            }
+
+            initAudio(); virtualBall.visible = false; 
+            appState = 2; 
+            
+            document.getElementById('zeroArmBtn').style.display = "none";
+            document.getElementById('singleSwingLabel').style.display = "none";
+            document.getElementById('cancelArmBtn').style.display = "inline-block";
+
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) {
+                swingStateTxt.style.display = "block";
+                swingStateTxt.innerText = "CALIBRATING... (DO NOT MOVE)";
+                swingStateTxt.style.color = "#ff3333";
+            }
+            document.getElementById('live-countdown').style.display = "none";
+            document.getElementById('calibration-container').style.display = "block";
+            document.getElementById('calibration-bar').style.width = "0%";
+            
+            preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+            ghostPivot.visible = true; 
+            trailIndex = 0; trailGeometry.setDrawRange(0, 0);
+            
+            stabilityStartTime = 0;
+            calibrationHoldTimeMs = 0;
+            lastJsTime = Date.now();
+            lastStableQuat.identity();
+
+            let arcPts = [];
+            let baseVec = new THREE.Vector3(0, -loadedRadius, 0); 
+            for(let i=-60; i<=60; i+=2) {
+                let a = THREE.MathUtils.degToRad(i);
+                let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a);
+                v.add(new THREE.Vector3(0, pivotBaseY, 0)); arcPts.push(v);
+            }
+            ghostRail.geometry.setFromPoints(arcPts); ghostRail.visible = true; ghostRail.position.set(0,0,0);
+        };
+
+        document.getElementById('cancelArmBtn').onclick = () => cancelTracking(false);
+
+        document.getElementById('resetMaxBtn').onclick = async () => {
+            swingCount = 0; posHistory = []; currentSwingDeviation = 0; swingDatabase = []; 
+            document.getElementById('history-list').innerHTML = '<div style="color: #666; font-size: 0.8rem; font-style: italic;">No swings recorded yet. Zero the mount and take a shot!</div>';
+            trailIndex = 0; trailGeometry.setDrawRange(0, 0); virtualBall.visible = false; ghostRail.visible = false;
+            preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+            finalReviewExtension = 0;
+
+            appState = 1; impactDetected = false; isLive = true; playbackMode = false; recordedFrames = [];
+            
+            if (commandChar) { 
+                try { 
+                    await new Promise(resolve => setTimeout(resolve, 35));
+                    await commandChar.writeValueWithoutResponse(new Uint8Array([73])); 
+                } catch(e){} 
+            }
+
+            document.getElementById('playback-panel').style.display = "none";
+            document.getElementById('live-readout').style.display = "none"; 
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) swingStateTxt.style.display = "none";
+            document.getElementById('cancelArmBtn').style.display = "none";
+            document.getElementById('zeroArmBtn').style.display = "inline-block";
+            document.getElementById('singleSwingLabel').style.display = "inline-block";
+            if (isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+        };
+
+        function handleStrikeData(event) {
+            const data = event.target.value; 
+            
+            // CAUGHT HANDSHAKE: Update the UI with firmware version via the Strike Channel
+            if (data.byteLength > 0 && data.getUint8(0) === 86) { 
+                const rawBytes = new Uint8Array(data.buffer, data.byteOffset + 1, data.byteLength - 1);
+                const verStr = new TextDecoder().decode(rawBytes);
+                let fwDisplay = document.getElementById('fw-version-display');
+                if (fwDisplay) fwDisplay.innerText = `Ver: ${verStr}`;
+                return;
+            }
+
+            if (data.byteLength < 23 || data.getUint8(0) !== 83) return; 
+
+            currentSwingMaxG = data.getInt16(1, true) / 100.0;
+            maxTwist = data.getInt16(3, true) / 10.0;
+            currentSwingDwell = data.getUint8(5);
+            
+            let pristineVel = data.getInt16(10, true) / 100.0; 
+            let appliedF = data.getInt8(12); 
+            let pF = data.getInt16(13, true) / 10.0;
+            
+            let impactQ0 = data.getInt16(15, true) / 10000.0;
+            let impactQ1 = data.getInt16(17, true) / 10000.0;
+            let impactQ2 = data.getInt16(19, true) / 10000.0;
+            let impactQ3 = data.getInt16(21, true) / 10000.0;
+
+            window.lastEdgeData = {
+                zVel: pristineVel, appliedForce: appliedF, pushForce: pF
+            };
+
+            let impactRawQuat = new THREE.Quaternion(impactQ2, -impactQ3, -impactQ1, impactQ0).normalize();
+            impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); // 180-Degree X-Axis Flip
+            
+            let iQuat = baseQuatInverse.clone().multiply(impactRawQuat);
+            
+            let impactEuler = new THREE.Euler().setFromQuaternion(iQuat, 'YXZ');
+            currentSwingAoA = THREE.MathUtils.radToDeg(impactEuler.z);
+
+            let locTwist = getShaftTwist(iQuat);
+
+            let existingIndex = -1;
+            if (castData.length > 0 && (globalHwTime - castData[castData.length - 1].time) < 1500) {
+                existingIndex = castData.length - 1;
+            }
+
+            let calculatedRating = getStarRating(existingIndex !== -1 ? castData[existingIndex].rawDev : 0, locTwist);
+
+            if (existingIndex !== -1) {
+                let ec = castData[existingIndex];
+                ec.isStrike = true;
+                ec.faceAngle = locTwist;
+                ec.passSpeed = pristineVel;
+                ec.passForce = pF;
+                ec.appliedForce = appliedF;
+                ec.stars = calculatedRating.string;
+                ec.starColor = calculatedRating.color;
+                ec.pivotQuat = iQuat.clone();
+                currentSwingDeviation = ec.dev;
+            } else {
+                let flatMag = parseFloat(document.getElementById('flatMagInput').value) || 4.0;
+                let extension = 0;
+                
+                if (appliedF > 2.0) {
+                    extension = appliedF * (flatMag / 10.0);
+                }
+
+                let tempPivot = new THREE.Group(); let tempBlock = new THREE.Group(); let tempFace = new THREE.Group();
+                tempPivot.position.set(0, pivotBaseY + extension, 0); 
+                tempBlock.position.set(0, -(loadedRadius + extension), 0); 
+                tempFace.position.set(0, 0, 13.8); 
+                tempPivot.add(tempBlock); tempBlock.add(tempFace); tempPivot.quaternion.copy(iQuat); tempPivot.updateMatrixWorld(true);
+
+                let exactFacePos = new THREE.Vector3(); tempFace.getWorldPosition(exactFacePos);
+                let ballWorldPos = new THREE.Vector3(0, pivotBaseY - loadedRadius, 18.4);
+                let faceInvMat = new THREE.Matrix4().copy(tempFace.matrixWorld).invert();
+                let localBall = ballWorldPos.applyMatrix4(faceInvMat);
+
+                let strikeX = localBall.x; let strikeY = localBall.y; let devCM = Math.abs(strikeX);
+                if (devCM < 0.25) devCM = 0.0;
+                let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C');
+
+                let floatOffset = exactFacePos.y - (pivotBaseY - loadedRadius);
+                let snapshotPos = new THREE.Vector3(0, (pivotBaseY + extension) - floatOffset, 13.8 - exactFacePos.z);
+                
+                let freshRating = getStarRating(strikeX, locTwist);
+
+                let strikeCast = { 
+                    rawDev: strikeX, dev: devCM, dir: dir, isStrike: true, 
+                    pos: exactFacePos.clone(), rot: tempFace.getWorldQuaternion(new THREE.Quaternion()), 
+                    localX: strikeX, localY: strikeY, faceAngle: locTwist, 
+                    passSpeed: pristineVel, passForce: pF, appliedForce: appliedF, 
+                    stars: freshRating.string, starColor: freshRating.color,
+                    trailIndex: trailIndex, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: globalHwTime
+                };
+                castData.push(strikeCast);
+                currentSwingDeviation = strikeCast.dev;
+            }
+
+            if (appState === 4 || appState === 3) {
+                impactDetected = true;
+                clearTimeout(goTimeout); 
+                setTimeout(() => { finalizeSwingData(globalHwTime); }, 100);
+            }
+            
+            showToast("STRIKES MERGED: KINEMATICS & TIME MACHINE COMPILED.");
+        }
+
+        function handleBinarySensorData(event) {
+            const data = event.target.value;
+            if (data.byteLength < 20) return;
+
+            const hwTimestamp = data.getUint32(0, true);
+            globalHwTime = hwTimestamp; 
+            
+            const q0 = data.getInt16(4, true) / 10000.0;
+            const q1 = data.getInt16(6, true) / 10000.0;
+            const q2 = data.getInt16(8, true) / 10000.0;
+            const q3 = data.getInt16(10, true) / 10000.0;
+            const ax = data.getInt16(12, true) / 100.0;
+            const ay = data.getInt16(14, true) / 100.0;
+            const az = data.getInt16(16, true) / 100.0;
+            const battData = data.getUint8(18);
+            
+            const liveAppliedForce = data.getInt8(19); 
+
+            const batteryVal = battData & 0x7F;
+            const isCharging = (battData & 0x80) !== 0;
+
+            let batTxt = `🔋 ${batteryVal}%`; let batColor = '#00ffcc';
+            if (isCharging) {
+                batColor = '#f1c40f'; 
+                if (lastBatteryVal !== -1 && batteryVal > lastBatteryVal) {
+                    let msElapsed = Date.now() - lastBatteryCheckTime;
+                    let pctGained = batteryVal - lastBatteryVal;
+                    chargeRatePerMs = msElapsed / pctGained;
+                    lastBatteryCheckTime = Date.now(); lastBatteryVal = batteryVal;
+                } else if (lastBatteryVal === -1 || batteryVal < lastBatteryVal) {
+                    lastBatteryVal = batteryVal; lastBatteryCheckTime = Date.now(); chargeRatePerMs = 0; 
+                }
+                if (batteryVal === 100) batTxt = `⚡ FULL`;
+                else if (chargeRatePerMs > 0) batTxt = `⚡ ${batteryVal}% (~${Math.round((chargeRatePerMs * (100 - batteryVal)) / 60000)}m)`;
+                else batTxt = `⚡ ${batteryVal}% (Calc...)`;
+            } else { lastBatteryVal = -1; }
+            
+            let batDisplay = document.getElementById('battery-display');
+            if (batDisplay) { batDisplay.innerText = batTxt; batDisplay.style.color = batColor; }
+
+            let rawForce = new THREE.Vector3(ax, ay, az);
+            let magnitude = rawForce.length();
+            let deltaG = Math.abs(magnitude - prevMagnitude);
+            
+            lastRawQuat = new THREE.Quaternion(q2, -q3, -q1, q0).normalize();
+            lastRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); // 180-Degree X-Axis Flip
+
+            let flatMag = parseFloat(document.getElementById('flatMagInput').value) || 4.0;
+            let extension = 0;
+            
+            if (appState >= 3 && liveAppliedForce > 2.0) {
+                extension = liveAppliedForce * (flatMag / 10.0);
+            }
+            
+            let currentDynamicRadius = loadedRadius + extension;
+            let currentPivotLift = extension;
+
+            if (appState === 2) {
+                let jsNow = Date.now();
+                if (stabilityStartTime === 0) {
+                    stabilityStartTime = jsNow;
+                    lastJsTime = jsNow;
+                    calibrationHoldTimeMs = 0;
+                }
+                let dtMs = jsNow - lastJsTime;
+                lastJsTime = jsNow;
+
+                let elapsedTotal = jsNow - stabilityStartTime;
+                let dynamicTol = 1.0;
+                if (elapsedTotal > 10000) dynamicTol = 3.0; 
+                else if (elapsedTotal > 5000) dynamicTol = 2.0; 
+
+                let angleDiff = lastRawQuat.angleTo(lastStableQuat);
+                let gDiff = Math.abs(magnitude - 1.0);
+
+                if (angleDiff < (0.02 * dynamicTol) && gDiff < (0.1 * dynamicTol)) {
+                    calibrationHoldTimeMs += dtMs;
+                } else {
+                    calibrationHoldTimeMs -= (dtMs * 1.5); 
+                    lastStableQuat.copy(lastRawQuat);
+                }
+                
+                if (calibrationHoldTimeMs < 0) calibrationHoldTimeMs = 0;
+
+                let pct = (calibrationHoldTimeMs / 2000.0) * 100.0; 
+                let calibBar = document.getElementById('calibration-bar');
+                if(calibBar) calibBar.style.width = Math.min(pct, 100) + "%";
+
+                if (calibrationHoldTimeMs >= 2000) { 
+                    baseQuatInverse.copy(lastRawQuat).invert();
+                    document.getElementById('calibration-container').style.display = "none";
+                    
+                    currentAbsoluteSpeed = 0; prevZ = 0; prevFaceZ = 0;
+                    isForwardSwing = true; lastForwardPassTime = 0; impactDetected = false; isLive = true; 
+                    playbackMode = false; posHistory = []; 
+                    currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
+                    window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0 };
+                    
+                    preRollBuffer = []; recordedFrames = []; trailIndex = 0;
+                    ignoreSpeedFrames = 20; 
+
+                    idealPlane = { centroid: new THREE.Vector3(0, pivotBaseY - loadedRadius, 0), normal: new THREE.Vector3(1, 0, 0) };
+                    let camX = isViewFlipped ? -100 : 100;
+                    camera.position.set(camX, pivotBaseY - loadedRadius, 0); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
+                    
+                    if (isBallEnabled) { virtualBall.position.set(0, pivotBaseY - loadedRadius, 18.4); virtualBall.visible = true; }
+                    
+                    if (commandChar) {
+                        try { commandChar.writeValueWithoutResponse(new Uint8Array([65])); } catch(err){} 
+                    }
+
+                    appState = 3; 
+                    armedUiStartTime = Date.now();
+                    document.getElementById('playback-panel').style.display = "none";
+                    document.getElementById('live-readout').style.display = "flex"; 
+                    document.getElementById('live-tempo').innerText = '-- BPM'; 
+                    document.getElementById('live-speed').innerText = '0.0 m/s';
+                    document.getElementById('live-force').innerText = '1.0 G'; document.getElementById('live-dev').innerText = '-- cm';
+                    document.getElementById('live-applied').innerText = '-- N';
+                    document.getElementById('live-dev').style.color = '#00ffcc';
+
+                    pivot.rotation.set(0,0,0); currentQuaternion.identity(); targetQuaternion.identity();
+                    playBeep(1000, 0.3); 
+
+                    let swingStateTxt = document.getElementById('swing-state');
+                    if(swingStateTxt) {
+                        swingStateTxt.innerText = "WAITING FOR SWING";
+                        swingStateTxt.style.color = "#00ffcc";
+                    }
+                    
+                    goTimeout = setTimeout(() => {
+                        if (appState === 3) {
+                            cancelTracking(true); 
+                            showToast("Shot clock expired.");
+                        }
+                    }, 30000);
+                }
+                targetQuaternion.copy(lastRawQuat);
+                
+            } else if (appState >= 3) {
+                targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat);
+            }
+
+            if (isLive) { 
+                if (appState === 2) {
+                    physicsPivot.quaternion.identity();
+                    currentDynamicRadius = loadedRadius;
+                    currentPivotLift = 0;
+                } else {
+                    physicsPivot.quaternion.copy(targetQuaternion); 
+                }
+                physicsPivot.position.set(0, pivotBaseY + currentPivotLift, 0);
+                physicsBlock.position.set(0, -currentDynamicRadius, 0);
+                physicsPivot.updateMatrixWorld(true);
+                faceTrackerNode.updateMatrixWorld(true);
+                physicsTrackingNode.updateMatrixWorld(true);
+            }
+            
+            let centerPosition = new THREE.Vector3(); 
+            physicsTrackingNode.getWorldPosition(centerPosition);
+            
+            let facePosition = new THREE.Vector3();
+            faceTrackerNode.getWorldPosition(facePosition);
+            
+            let currentZ = centerPosition.z; let deltaZ = currentZ - prevZ;
+            if (deltaZ > 0.05) isForwardSwing = true; else if (deltaZ < -0.05) isForwardSwing = false;
+
+            let nowTime = hwTimestamp; 
+
+            if (ignoreSpeedFrames > 0) {
+                ignoreSpeedFrames--;
+                currentAbsoluteSpeed = 0;
+                posHistory = [];
+                preRollBuffer = [];
+                trailIndex = 0;
+                trailGeometry.setDrawRange(0, 0); 
+            } else {
+                posHistory.push({ pos: centerPosition.clone(), time: nowTime });
+                if (posHistory.length > 5) posHistory.shift();
+
+                currentAbsoluteSpeed = 0;
+                if (posHistory.length === 5) {
+                    let dt = (posHistory[4].time - posHistory[0].time) / 1000.0;
+                    if (dt > 0.01) currentAbsoluteSpeed = (posHistory[4].pos.distanceTo(posHistory[0].pos) / 100.0) / dt; 
+                }
+            }
+            
+            if (appState === 3 || appState === 4) {
+                document.getElementById('live-speed').innerText = `${currentAbsoluteSpeed.toFixed(1)} m/s`;
+                document.getElementById('live-force').innerText = `${magnitude.toFixed(1)} G`;
+                document.getElementById('live-applied').innerText = `${liveAppliedForce} N`; 
+            }
+
+            if (appState === 3 && ignoreSpeedFrames === 0) {
+                preRollBuffer.push({
+                    rotation: targetQuaternion.clone(), forceMag: magnitude,
+                    pos: centerPosition.clone(), time: nowTime, isForward: isForwardSwing,
+                    pivotPos: physicsPivot.position.clone(),
+                    extension: extension
+                });
+
+                // PRE-ROLL WINDOW REDUCED TO 2 SECONDS
+                while (preRollBuffer.length > 0 && nowTime - preRollBuffer[0].time > 2000) preRollBuffer.shift();
+
+                let triggeredNormal = (currentAbsoluteSpeed > 0.8);
+                let triggeredImpact = (deltaG > impactThreshold);
+
+                if (triggeredNormal || triggeredImpact) {
+                    appState = 4; 
+                    state4UiStartTime = Date.now();
+                    clearTimeout(goTimeout); 
+                    
+                    document.getElementById('cancelArmBtn').style.display = "none";
+                    document.getElementById('singleSwingLabel').style.display = "none";
+
+                    state4StartTime = nowTime; 
+                    recordTicks = 0; impactDetected = false; postImpactTicks = 0; recordedFrames = []; 
+                    currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; 
+                    maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
+                    window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0 };
+                    trailIndex = 0;
+                    
+                    let cutoffTime = nowTime - 2000;
+                    
+                    preRollBuffer.forEach(f => {
+                        if (f.time >= cutoffTime && trailIndex < MAX_TRAIL_POINTS) {
+                            trailPositions[trailIndex * 3] = f.pos.x; trailPositions[trailIndex * 3 + 1] = f.pos.y; trailPositions[trailIndex * 3 + 2] = f.pos.z;
+                            let r = 0.0, g = 1.0, b = 0.0; 
+                            if (!f.isForward) { r = 1.0; g = 1.0; b = 0.0; } 
+                            else {
+                                if (idealPlane) {
+                                    let ballWorldPos = new THREE.Vector3(0, pivotBaseY - loadedRadius, 18.4);
+                                    let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
+                                    let localBall = ballWorldPos.applyMatrix4(trackingInvMat);
+                                    let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
+                                    if(isNaN(t)) t = 0; 
+                                    r = t; g = 1.0 - t; b = 0.0;
+                                } else { r = 0.0; g = 1.0; b = 0.8; }
+                            }
+                            if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
+                            trailColors[trailIndex * 3] = r; trailColors[trailIndex * 3 + 1] = g; trailColors[trailIndex * 3 + 2] = b;
+                            recordedFrames.push({ rotation: f.rotation.clone(), forceMag: f.forceMag, trailIndex: trailIndex, pivotPos: f.pivotPos.clone(), extension: f.extension });
+                            trailIndex++;
+                        }
+                    });
+
+                    trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, trailIndex);
+                    
+                    let listDiv = document.getElementById('history-list');
+                    if (listDiv && listDiv.innerHTML.includes("No swings recorded yet")) listDiv.innerHTML = '';
+                    let liveContainer = document.createElement('div'); liveContainer.id = 'live-tracking-container'; liveContainer.className = 'history-item';
+                    liveContainer.innerHTML = `<div class="history-title" style="color:#00ffcc;">[ LIVE CASTING... ]</div><div id="live-tracking-list"></div>`;
+                    if (listDiv) listDiv.insertAdjacentElement('afterbegin', liveContainer);
+                    let swingStateTxt = document.getElementById('swing-state');
+                    if(swingStateTxt) { swingStateTxt.innerText = "RECORDING..."; swingStateTxt.style.color = "#ff3333"; }
+                }
+            }
+
+            let currentFaceZ = facePosition.z; 
+
+            if (appState === 4 && ignoreSpeedFrames === 0) {
+                if (idealPlane && prevFaceZ <= STRIKE_PLANE_Z && currentFaceZ > STRIKE_PLANE_Z && isForwardSwing) {
+                    let t = (STRIKE_PLANE_Z - prevFaceZ) / (currentFaceZ - prevFaceZ); if (isNaN(t) || t < 0 || t > 1) t = 1.0; 
+                    
+                    let prevQ = preRollBuffer.length > 1 ? preRollBuffer[preRollBuffer.length - 2].rotation : targetQuaternion;
+                    let iQuat = prevQ.clone().slerp(targetQuaternion, t);
+
+                    let tempPivot = new THREE.Group(); let tempBlock = new THREE.Group(); let tempFace = new THREE.Group();
+                    
+                    tempPivot.position.set(0, pivotBaseY + currentPivotLift, 0); 
+                    tempBlock.position.set(0, -currentDynamicRadius, 0); 
+                    tempFace.position.set(0, 0, 13.8); 
+                    
+                    tempPivot.add(tempBlock); tempBlock.add(tempFace); tempPivot.quaternion.copy(iQuat); tempPivot.updateMatrixWorld(true);
+
+                    let exactFacePos = new THREE.Vector3(); tempFace.getWorldPosition(exactFacePos);
+                    let ballWorldPos = new THREE.Vector3(0, pivotBaseY - loadedRadius, 18.4);
+                    let faceInvMat = new THREE.Matrix4().copy(tempFace.matrixWorld).invert();
+                    let localBall = ballWorldPos.applyMatrix4(faceInvMat);
+
+                    let strikeX = localBall.x; let strikeY = localBall.y; let devCM = Math.abs(strikeX);
+                    if (devCM < 0.25) devCM = 0.0;
+                    let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C');
+                    
+                    let locTwist = getShaftTwist(iQuat);
+                    let passForce = calculateImpactForce(currentAbsoluteSpeed);
+
+                    let floatOffset = exactFacePos.y - (pivotBaseY - loadedRadius);
+                    let snapshotPos = new THREE.Vector3(0, (pivotBaseY + currentPivotLift) - floatOffset, 13.8 - exactFacePos.z);
+                    
+                    let passRating = getStarRating(strikeX, locTwist);
+
+                    let strikeCast = { 
+                        rawDev: strikeX, dev: devCM, dir: dir, isStrike: false, 
+                        pos: exactFacePos.clone(), rot: tempFace.getWorldQuaternion(new THREE.Quaternion()), 
+                        localX: strikeX, localY: strikeY, faceAngle: locTwist, 
+                        passSpeed: currentAbsoluteSpeed, passForce: passForce, appliedForce: liveAppliedForce, 
+                        stars: passRating.string, starColor: passRating.color,
+                        trailIndex: trailIndex, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime
+                    };
+
+                    if (impactDetected) {
+                        strikeCast.isStrike = true;
+                        if (castData.length > 0 && castData[castData.length - 1].isStrike) castData[castData.length - 1] = strikeCast; 
+                        else castData.push(strikeCast);
+                    } else { castData.push(strikeCast); }
+                    
+                    renderLiveCasts();
+                    if (lastForwardPassTime > 0) {
+                        let fullCycleSeconds = (nowTime - lastForwardPassTime) / 1000.0;
+                        if (fullCycleSeconds > 0.4 && fullCycleSeconds < 5.0) lastComputedTempo = 60.0 / fullCycleSeconds; 
+                    }
+                    lastForwardPassTime = nowTime;
+
+                    if (document.getElementById('singleSwingCheck').checked && !impactDetected) {
+                        clearTimeout(goTimeout);
+                        setTimeout(() => { finalizeSwingData(globalHwTime); }, 800);
+                    }
+                }
+
+                if (trailIndex < MAX_TRAIL_POINTS) {
+                    if (magnitude > currentSwingMaxG) currentSwingMaxG = magnitude;
+
+                    let r = 0.0, g = 1.0, b = 0.0; 
+                    if (!isForwardSwing) { r = 1.0; g = 1.0; b = 0.0; } 
+                    else {
+                        if (idealPlane) {
+                            let ballWorldPos = new THREE.Vector3(0, pivotBaseY - loadedRadius, 18.4);
+                            let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
+                            let localBall = ballWorldPos.applyMatrix4(trackingInvMat);
+                            let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
+                            if(isNaN(t)) t = 0; 
+                            r = t; g = 1.0 - t; b = 0.0;
+                        } else { r = 0.0; g = 1.0; b = 0.8; }
+                    }
+                    
+                    if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
+
+                    trailPositions[trailIndex * 3] = centerPosition.x; trailPositions[trailIndex * 3 + 1] = centerPosition.y; trailPositions[trailIndex * 3 + 2] = centerPosition.z;
+                    trailColors[trailIndex * 3] = r; trailColors[trailIndex * 3 + 1] = g; trailColors[trailIndex * 3 + 2] = b;
+                    trailIndex++;
+                    trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, trailIndex);
+
+                    recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, trailIndex: trailIndex, pivotPos: physicsPivot.position.clone(), extension: extension });
+                }
+
+                if (!impactDetected && deltaG > impactThreshold) {
+                    impactDetected = true;
+                    let swingStateTxt = document.getElementById('swing-state');
+                    if(swingStateTxt) { swingStateTxt.innerText = "IMPACT DETECTED! WAITING FOR EDGE PACKET..."; swingStateTxt.style.color = "#ff3300"; }
+                }
+
+                if (!impactDetected && !document.getElementById('singleSwingCheck').checked) {
+                    let practiceTimeLimitMs = parseFloat(document.getElementById('practiceInput').value) * 1000;
+                    if ((nowTime - state4StartTime) >= practiceTimeLimitMs) {
+                        finalizeSwingData(nowTime);
+                    }
+                }
+            }
+
+            prevFaceZ = currentFaceZ; prevZ = currentZ; prevMagnitude = magnitude;
+        }
+
+        function onDisconnected() {
+            const btToggleBtn = document.getElementById('btToggleBtn');
+            btToggleBtn.className = "icon-btn bt-disconnected";
+            btToggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ff3333" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="2" y1="2" x2="22" y2="22"></line><polyline points="12 1 17.5 6.5 13.5 10.5"></polyline><polyline points="6.5 6.5 10.5 10.5"></polyline><polyline points="12 23 17.5 17.5 12 12"></polyline></svg>`;
+            
+            document.getElementById('zeroArmBtn').style.display = "none";
+            document.getElementById('cancelArmBtn').style.display = "none"; 
+            document.getElementById('singleSwingLabel').style.display = "none";
+            document.getElementById('battery-display').style.display = "none"; 
+            document.getElementById('fw-version-display').style.display = "none";
+            
+            const swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) swingStateTxt.style.display = "none";
+            document.getElementById('calibration-container').style.display = "none";
+            appState = 0; showToast("Sensor Link Severed. Mallet Frozen.");
+        }
+
+        const btToggleBtn = document.getElementById('btToggleBtn');
+        btToggleBtn.addEventListener('click', async () => {
+            if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) {
+                bluetoothDevice.gatt.disconnect();
+            } else {
+                if (navigator.bluetooth) {
+                    showToast("Launching connection request...");
+                    try {
+                        const device = await navigator.bluetooth.requestDevice({ 
+                            filters: [{ namePrefix: 'Phantom' }], optionalServices: [SERVICE_UUID] 
+                        });
+                        await connectDevice(device);
+                    } catch (error) { 
+                        showToast("Error: " + error.message); 
+                        console.error(error);
+                    }
+                } else { 
+                    showToast("Web Bluetooth is not supported on this browser."); 
+                }
+            }
+        });
+
+        async function connectDevice(device) {
+            bluetoothDevice = device;
+            bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected);
+            const server = await bluetoothDevice.gatt.connect();
+            
+            const btToggleBtn = document.getElementById('btToggleBtn');
+            btToggleBtn.className = "icon-btn bt-connected";
+            btToggleBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00ffcc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"></polyline></svg>`;
+            
+            document.getElementById('zeroArmBtn').style.display = "inline-block";
+            document.getElementById('singleSwingLabel').style.display = "inline-block";
+            appState = 1; 
+            
+            document.getElementById('battery-display').style.display = "block";
+            document.getElementById('fw-version-display').style.display = "block";
+            document.getElementById('fw-version-display').innerText = `Ver: ---`; 
+
+            const service = await server.getPrimaryService(SERVICE_UUID);
+            
+            const telemetryChar = await service.getCharacteristic(CHARACTERISTIC_UUID);
+            await telemetryChar.startNotifications();
+            telemetryChar.addEventListener('characteristicvaluechanged', handleBinarySensorData);
+
+            const strikeCharObj = await service.getCharacteristic(STRIKE_UUID);
+            await strikeCharObj.startNotifications();
+            strikeCharObj.addEventListener('characteristicvaluechanged', handleStrikeData);
+
+            try {
+                commandChar = await service.getCharacteristic(COMMAND_UUID);
+                let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
+                let payload = new Uint8Array([
+                    67, 
+                    parseInt(document.getElementById('radiusInput').value),
+                    parseInt(document.getElementById('massInput').value) / 10,
+                    parseFloat(document.getElementById('impactInput').value) * 10,
+                    parseFloat(document.getElementById('offsetYInput').value) * 10,
+                    parseInt(document.getElementById('timeoutInput').value),
+                    parseFloat(document.getElementById('sweetSpotInput').value) * 10,
+                    ledGuidance
+                ]);
+                await commandChar.writeValue(payload);
+                showToast("Sensor connected & Config Auto-Synced!");
+            } catch(e) { 
+                console.warn("Firmware config push error."); 
+                showToast("Sensor connected via High-Speed Binary!");
+            }
+        }
+
+        async function finalizeSwingData(nowTime) {
+            if (appState !== 4) return;
+            
+            appState = 4.5;
+            isLive = false; 
+            rewindStartTime = Date.now();
+            
+            // AUDIO ALERT TRIGGER
+            playDoubleBeep();
+
+            if (commandChar) {
+                try { 
+                    await new Promise(resolve => setTimeout(resolve, 35));
+                    await commandChar.writeValueWithoutResponse(new Uint8Array([73])); 
+                } catch(e){} 
+            }
+
+            document.getElementById('live-readout').style.display = "none";
+            document.getElementById('live-countdown').style.display = "none";
+            document.getElementById('cancelArmBtn').style.display = "none"; 
+            document.getElementById('zeroArmBtn').style.display = "inline-block";
+            document.getElementById('singleSwingLabel').style.display = "inline-block";
+
+            let tempLive = document.getElementById('live-tracking-container'); if (tempLive) tempLive.remove();
+
+            let lastFrame = recordedFrames.length > 0 ? recordedFrames[recordedFrames.length - 1] : null;
+            if (lastFrame) {
+                rewindStartQuat.copy(lastFrame.rotation);
+                rewindStartPos.copy(lastFrame.pivotPos);
+                rewindStartExt = lastFrame.extension;
+            } else {
+                rewindStartQuat.copy(pivot.quaternion);
+                rewindStartPos.copy(pivot.position);
+                rewindStartExt = 0;
+            }
+
+            let displayPass = null;
+            if (impactDetected) {
+                displayPass = castData.find(c => c.isStrike) || castData[castData.length - 1];
+            } else if (castData.length > 0) {
+                displayPass = castData[castData.length - 1];
+            }
+
+            if (displayPass) drawStrikeLaser(displayPass);
+
+            if (displayPass) {
+                finalReviewPivotQuat.copy(displayPass.pivotQuat);
+                finalReviewPivotPos.copy(displayPass.pivotPos);
+                finalReviewExtension = displayPass.extension;
+                currentSwingDeviation = displayPass.dev;
+            } else if (lastFrame) {
+                finalReviewPivotQuat.copy(lastFrame.rotation);
+                finalReviewPivotPos.copy(lastFrame.pivotPos);
+                finalReviewExtension = lastFrame.extension;
+            }
+
+            if (impactDetected) {
+                let massEl = document.getElementById('massInput'); let effectiveMalletMass = massEl ? (parseFloat(massEl.value) / 1000) * 1.5 : 1.5;
+                let ballSpeedMPS = window.lastEdgeData.zVel * (effectiveMalletMass * 1.8) / (effectiveMalletMass + 0.454);
+                let speedEl = document.getElementById('lawnSpeedInput'); let lawnMultiplier = speedEl ? parseFloat(speedEl.value) : 0.22; 
+                currentSwingDist = (ballSpeedMPS * ballSpeedMPS) * lawnMultiplier;
+            } else { 
+                currentSwingDist = 0; 
+            }
+            
+            let hwAppliedForce = window.lastEdgeData.appliedForce; 
+
+            swingDatabase.push({
+                frames: [...recordedFrames], trailPos: new Float32Array(trailPositions.slice(0, trailIndex * 3)), trailCol: new Float32Array(trailColors.slice(0, trailIndex * 3)),
+                casts: [...castData], 
+                finalReviewPivotQuat: finalReviewPivotQuat.clone(), 
+                finalReviewPivotPos: finalReviewPivotPos.clone(),
+                finalReviewExtension: finalReviewExtension
+            });
+            
+            let swingIndex = swingCount; swingCount++;
+            let ssRad = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
+            let devColor = '#ff3300';
+            if (impactDetected || displayPass) {
+                if (currentSwingDeviation <= 0.75) devColor = '#00ffcc'; else if (currentSwingDeviation <= ssRad) devColor = '#ffaa00';
+            } else { devColor = '#666'; }
+
+            let afColor = '#fff';
+            if (hwAppliedForce > 2) afColor = '#00ffcc'; 
+            else if (hwAppliedForce < -2) afColor = '#ff3333'; 
+            
+            let forceHtml = impactDetected ? `${currentSwingMaxG.toFixed(2)} G` : `<span style="color:#666;">N/A</span>`;
+            let devHtml   = impactDetected || castData.length > 0 ? `${currentSwingDeviation.toFixed(1)} cm` : `<span style="color:#666;">N/A</span>`;
+            let twistHtml = impactDetected ? `${Math.abs(maxTwist).toFixed(1)}°/s` : `<span style="color:#666;">N/A</span>`;
+            
+            let tempoHtml = lastComputedTempo > 0 ? `${lastComputedTempo.toFixed(1)} BPM` : `<span style="color:#666;">--</span>`;
+
+            let finalStars = displayPass ? displayPass.stars : "";
+            let finalStarColor = displayPass ? displayPass.starColor : "#666";
+            let starHtml  = finalStars !== "" ? `<span class="star-rating" style="color: ${finalStarColor};">${finalStars}</span>` : `<span style="color:#666;">-</span>`;
+            
+            let distHtml  = impactDetected ? `${currentSwingDist.toFixed(1)} m` : `<span style="color:#666;">-</span>`;
+            
+            let now = new Date(); let timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            let castsHtml = '';
+            if (castData.length > 0) {
+                let listItems = castData.map((c, i) => {
+                    let nodeColor = c.starColor || '#ff3300'; 
+                    let twistStr = c.faceAngle > 0 ? `+${c.faceAngle.toFixed(1)}°` : `${c.faceAngle.toFixed(1)}°`;
+                    let forceStr = c.appliedForce > 0 ? `+${c.appliedForce}N` : `${c.appliedForce}N`;
+                    let speedStr = `${c.passSpeed.toFixed(1)}m/s`; 
+                    let prefix = c.isStrike ? "STRIKE" : (i+1); let weight = c.isStrike ? "bold" : "normal";
+                    let starDisplay = c.stars !== "" ? ` <span class="star-rating" style="color: ${c.starColor};">${c.stars}</span>` : "";
+
+                    return `<li style="color:${nodeColor}; font-weight:${weight}; margin-top:4px; cursor:pointer; padding-bottom:4px;" onclick="highlightPass(${swingIndex}, ${i})" onmouseover="this.style.background='#333'" onmouseout="this.style.background='transparent'">${prefix}: ${c.dev.toFixed(1)}cm ${c.dir} | ${twistStr} | ${forceStr} | ${speedStr}${starDisplay}</li>`;
+                }).join('');
+                castsHtml = `<details style="margin-bottom: 8px;" open><summary>View Casting Traces (Click to inspect)</summary><ul style="list-style-type: none; padding-left: 0;">${listItems}</ul></details>`;
+            }
+
+            let logHtml = `
+                <div class="history-item">
+                    <div class="history-title">SWING #${swingCount} <span style="font-size: 0.8rem; color: #888; font-weight: normal; float: right;">${timeString}</span></div>
+                    
+                    <div class="history-stat">Edge Z-Velocity: ${window.lastEdgeData.zVel.toFixed(2)} m/s</div>
+                    <div class="history-stat">Swing Tempo: <span style="color:#f1c40f;">${tempoHtml}</span></div>
+                    <div class="history-stat" style="margin-top: 8px;">Impact Force: <span style="color:#00ffcc;">${forceHtml}</span></div>
+                    <div class="history-stat">Angle of Attack: <span style="color:#00ffcc;">${(impactDetected ? currentSwingAoA.toFixed(1) + '°' : '--')}</span></div>
+                    
+                    <div class="history-stat" style="color: ${afColor}; margin-top: 8px;">Applied Force (Impact): ${hwAppliedForce > 0 ? '+' : ''}${hwAppliedForce} N</div>
+                    
+                    <div class="history-stat" style="color: ${devColor}; margin-top: 8px;">Swing Path Dev: ${devHtml}</div>
+                    <div class="history-stat" style="margin-bottom: 8px;">Accuracy Score: ${starHtml}</div>
+                    ${castsHtml}
+                    <div class="history-stat" style="color: #00ffcc;">Est. Dist: ${distHtml}</div>
+                    <button class="secondary-btn" style="padding: 5px 15px; font-size: 0.7rem; width: 100%; border-radius: 5px;" onclick="triggerReplay(${swingIndex})">▶ REPLAY SWING</button>
+                </div>
+            `;
+
+            let listDiv = document.getElementById('history-list');
+            if (listDiv) {
+                if (swingCount === 1) listDiv.innerHTML = ''; 
+                listDiv.insertAdjacentHTML('afterbegin', logHtml);
+            }
+
+            document.getElementById('history-panel').classList.add('open');
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) { swingStateTxt.innerText = "SWING CAPTURED. DRAG TO REVIEW."; swingStateTxt.style.color = "#D4AF37"; }
+        }
+    </script>
+</body>
+</html>
