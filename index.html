@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart Phantom - Precision Diagnostics v5.2.06</title>
+    <title>Smart Phantom - Precision Diagnostics v5.2.09</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #111; color: #eee; font-family: sans-serif; text-align: center; }
         #ui-layer { position: absolute; top: 20px; width: 100%; z-index: 10; pointer-events: none; }
@@ -314,7 +314,7 @@
 
     <div id="ui-layer">
         <h1>SMART PHANTOM</h1>
-        <div class="instructions">Version 5.2.06 (FW Req: 5.2.15) </div>
+        <div class="instructions">Version 5.2.09 (FW Req: 5.2.15/16) </div>
         
         <div id="control-panel" style="pointer-events: auto; width: 300px; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
             <div style="display: flex; gap: 15px; align-items: center; justify-content: center;">
@@ -789,6 +789,7 @@
             for(let i=-60; i<=60; i+=2) {
                 let a = THREE.MathUtils.degToRad(i);
                 let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a);
+                v.y += pivotBaseY; // FIX: Arc naturally lifted to match the ghost pivot
                 arcPts.push(v);
             }
             ghostRail.geometry.setFromPoints(arcPts);
@@ -1136,6 +1137,7 @@
             if (isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
 
             // FORCE VISUAL RESET ON CANCEL
+            pivot.quaternion.identity();
             pivot.position.set(0, pivotBaseY, 0);
             block.position.set(0, -loadedRadius, 0);
             headJoint.quaternion.identity();
@@ -1184,6 +1186,7 @@
             ghostRail.visible = true;
 
             // FORCE VISUAL RESET ON READY 
+            pivot.quaternion.identity();
             pivot.position.set(0, pivotBaseY, 0);
             block.position.set(0, -loadedRadius, 0);
             headJoint.quaternion.identity();
@@ -1218,10 +1221,10 @@
             if (isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
 
             // FORCE VISUAL RESET ON CLEAR DATA
+            pivot.quaternion.identity();
             pivot.position.set(0, pivotBaseY, 0);
             block.position.set(0, -loadedRadius, 0);
             headJoint.quaternion.identity();
-            finalReviewExtension = 0;
         };
 
         function handleStrikeData(event) {
@@ -1558,7 +1561,7 @@
                     state4UiStartTime = Date.now();
                     clearTimeout(goTimeout); 
                     
-                    document.getElementById('cancelArmBtn').style.display = "none";
+                    // FIX: Retain Cancel Button visibility during active swing state
                     document.getElementById('singleSwingLabel').style.display = "none";
 
                     state4StartTime = nowTime; 
@@ -1886,6 +1889,7 @@
             let devHtml   = impactDetected || castData.length > 0 ? `${currentSwingDeviation.toFixed(1)} cm` : `<span style="color:#666;">N/A</span>`;
             let twistHtml = impactDetected ? `${Math.abs(maxTwist).toFixed(1)}°/s` : `<span style="color:#666;">N/A</span>`;
             let tempoHtml = lastComputedTempo > 0 ? `${lastComputedTempo.toFixed(1)} BPM` : `<span style="color:#666;">--</span>`;
+            let dwellHtml = impactDetected ? `${currentSwingDwell} ms` : `<span style="color:#666;">N/A</span>`;
 
             let finalStars = displayPass ? displayPass.stars : "";
             let finalStarColor = displayPass ? displayPass.starColor : "#666";
@@ -1917,6 +1921,7 @@
                     <div class="history-stat">Edge Z-Velocity: ${window.lastEdgeData.zVel.toFixed(2)} m/s</div>
                     <div class="history-stat">Swing Tempo: <span style="color:#f1c40f;">${tempoHtml}</span></div>
                     <div class="history-stat" style="margin-top: 8px;">Impact Force: <span style="color:#00ffcc;">${forceHtml}</span></div>
+                    <div class="history-stat">Impact Dwell: <span style="color:#00ffcc;">${dwellHtml}</span></div>
                     <div class="history-stat">Angle of Attack: <span style="color:#00ffcc;">${(impactDetected ? currentSwingAoA.toFixed(1) + '°' : '--')}</span></div>
                     
                     <div class="history-stat" style="color: ${afColor}; margin-top: 8px;">Applied Force (Impact): ${hwAppliedForce > 0 ? '+' : ''}${hwAppliedForce} N</div>
