@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LevelEdge v5.2.09</title>
+    <title>LevelEdge v5.2.10</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #111; color: #eee; font-family: sans-serif; text-align: center; }
         #ui-layer { position: absolute; top: 20px; width: 100%; z-index: 10; pointer-events: none; }
@@ -243,6 +243,10 @@
                 <input type="number" id="sweetSpotInput" value="1.5" min="0.1" max="15.0" step="0.1">
             </div>
             <div class="setting-item" style="grid-column: span 2;">
+                <label for="twistToleranceInput">Twist Tolerance (±°):</label>
+                <input type="number" id="twistToleranceInput" value="1.0" min="0.1" max="15.0" step="0.1">
+            </div>
+            <div class="setting-item" style="grid-column: span 2;">
                 <button id="btnUpdateFW" class="secondary-btn" style="width: 100%; margin: 0; padding: 10px;">Sync Config to Hardware</button>
             </div>
 
@@ -314,7 +318,7 @@
 
     <div id="ui-layer">
         <h1>LevelEdge</h1>
-        <div class="instructions">Version 5.2.09 (FW 5.2.17) </div>
+        <div class="instructions">Version 5.2.10 (FW 5.2.19) </div>
         
         <div id="control-panel" style="pointer-events: auto; width: 300px; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
             <div style="display: flex; gap: 15px; align-items: center; justify-content: center;">
@@ -439,10 +443,11 @@
         let isSlowMo = false;
         let lastPlaybackTime = 0;
         
+        // --- SAFE SMOOTHING BUFFERS ---
         const MAX_TRAIL_POINTS = 5000; 
-        let trailIndex = 0;
         const trailPositions = new Float32Array(MAX_TRAIL_POINTS * 3);
         const trailColors = new Float32Array(MAX_TRAIL_POINTS * 3);
+        let rawTracePoints = []; // Caches true coordinates so the spline never overshoots
 
         let audioCtx;
         let oscillator;
@@ -461,7 +466,8 @@
         const settingsElements = [
             'radiusInput', 'massInput', 'sweetSpotInput', 'lawnSpeedInput',
             'impactInput', 'metronomeCheck', 'metronomeBpm', 'audioThreshInput',
-            'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect'
+            'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect',
+            'twistToleranceInput' // NEW: Added Twist Tolerance to Sync Settings
         ];
 
         const difficultyMatrix = {
@@ -783,13 +789,52 @@
         const trailLine = new THREE.Line(trailGeometry, trailMaterial);
         trailLine.frustumCulled = false; scene.add(trailLine);
 
+        // --- SAFE CENTRIPETAL SPLINE GENERATOR ---
+        function updateSmoothTrail(limitIndex = rawTracePoints.length) {
+            let pts = rawTracePoints.slice(0, limitIndex);
+            
+            if (pts.length < 2) {
+                trailGeometry.setDrawRange(0, 0);
+                return;
+            }
+
+            // Create Smooth Centripetal Catmull-Rom Curve (Prevents Overshoot)
+            let curve = new THREE.CatmullRomCurve3(pts.map(p => p.pos), false, 'centripetal', 0.5);
+            
+            // Over-sample for smoothness (3x resolution to fill 40Hz gaps)
+            let sampleCount = pts.length * 3;
+            if (sampleCount >= MAX_TRAIL_POINTS) sampleCount = MAX_TRAIL_POINTS - 1;
+            
+            let smoothPoints = curve.getPoints(sampleCount);
+
+            for (let i = 0; i <= sampleCount; i++) {
+                if (i >= MAX_TRAIL_POINTS) break;
+                
+                trailPositions[i * 3] = smoothPoints[i].x;
+                trailPositions[i * 3 + 1] = smoothPoints[i].y;
+                trailPositions[i * 3 + 2] = smoothPoints[i].z;
+
+                // Interpolate Color Mapping cleanly
+                let t = i / sampleCount;
+                let rawIdx = Math.min(Math.floor(t * pts.length), pts.length - 1);
+                
+                trailColors[i * 3] = pts[rawIdx].color.r;
+                trailColors[i * 3 + 1] = pts[rawIdx].color.g;
+                trailColors[i * 3 + 2] = pts[rawIdx].color.b;
+            }
+            
+            trailGeometry.attributes.position.needsUpdate = true;
+            trailGeometry.attributes.color.needsUpdate = true;
+            trailGeometry.setDrawRange(0, sampleCount + 1);
+        }
+
         function rebuildArcPts(radius) {
             let arcPts = [];
             let baseVec = new THREE.Vector3(0, -radius, 0); 
             for(let i=-60; i<=60; i+=2) {
                 let a = THREE.MathUtils.degToRad(i);
                 let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a);
-                v.y += pivotBaseY; // FIX: Arc naturally lifted to match the ghost pivot
+                v.y += pivotBaseY;
                 arcPts.push(v);
             }
             ghostRail.geometry.setFromPoints(arcPts);
@@ -837,7 +882,7 @@
                 block.position.set(0, -(loadedRadius + frame.extension), 0);
                 headJoint.quaternion.identity(); 
                 
-                trailGeometry.setDrawRange(0, frame.trailIndex);
+                updateSmoothTrail(frame.rawPtIndex);
                 document.getElementById('scrubberLabel').innerText = `Frame: ${playbackIndex + 1} / ${recordedFrames.length}`;
             };
         }
@@ -855,6 +900,7 @@
             if(!commandChar) return showToast("Connect to Mallet first!");
             let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
             
+            // UPDATE: Payload now sends 9 variables instead of 8 to include Twist Tolerance
             let payload = new Uint8Array([
                 67, 
                 parseInt(document.getElementById('radiusInput').value),
@@ -863,7 +909,8 @@
                 parseFloat(document.getElementById('offsetYInput').value) * 10,
                 parseInt(document.getElementById('timeoutInput').value),
                 parseFloat(document.getElementById('sweetSpotInput').value) * 10,
-                ledGuidance
+                ledGuidance,
+                parseFloat(document.getElementById('twistToleranceInput').value) * 10
             ]);
             
             try {
@@ -908,7 +955,7 @@
             if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.style.color = "#D4AF37"; }
             
             if (recordedFrames.length > 0) {
-                trailGeometry.setDrawRange(0, recordedFrames[recordedFrames.length-1].trailIndex); 
+                updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
             }
             if (mainMalletMesh) mainMalletMesh.visible = true;
             ghostPivot.visible = isGhostEnabled; 
@@ -1005,7 +1052,7 @@
                     block.position.set(0, -(loadedRadius + frame.extension), 0);
                     headJoint.quaternion.identity(); 
                     
-                    trailGeometry.setDrawRange(0, frame.trailIndex);
+                    updateSmoothTrail(frame.rawPtIndex);
                     
                     if (scrubberInput) scrubberInput.value = playbackIndex;
                     let sLabel = document.getElementById('scrubberLabel');
@@ -1015,7 +1062,7 @@
                     if (playbackIndex >= recordedFrames.length) {
                         playbackMode = false; isPaused = false;
                         document.getElementById('playback-panel').style.display = "none";
-                        trailGeometry.setDrawRange(0, recordedFrames[recordedFrames.length-1].trailIndex); 
+                        updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
                         let swingStateTxt = document.getElementById('swing-state');
                         if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.style.color = "#D4AF37"; }
                         if (mainMalletMesh) mainMalletMesh.visible = true;
@@ -1061,8 +1108,8 @@
             finalReviewPivotPos.copy(data.finalReviewPivotPos);
             finalReviewExtension = data.finalReviewExtension;
             
-            trailPositions.set(data.trailPos); trailColors.set(data.trailCol);
-            trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true;
+            rawTracePoints = data.rawTracePoints;
+            updateSmoothTrail();
             
             playbackMode = true; isPaused = false; playbackIndex = 0; ghostPivot.visible = isGhostEnabled; 
             lastPlaybackTime = Date.now(); 
@@ -1086,14 +1133,28 @@
             if (!swingDatabase[swingIdx]) return;
             let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
             playbackMode = false; isPaused = false; document.getElementById('playback-panel').style.display = "none";
-            for(let i = 0; i < swing.trailCol.length; i++) trailColors[i] = swing.trailCol[i] * 0.2; 
+            
+            rawTracePoints = swing.rawTracePoints;
+            let originalColors = rawTracePoints.map(p => ({r: p.color.r, g: p.color.g, b: p.color.b}));
             let centerFrame = cast.trailIndex;
-            let startFrame = Math.max(0, centerFrame - 15); let endFrame = Math.min((swing.trailCol.length / 3) - 1, centerFrame + 15);
+            
+            let startFrame = Math.max(0, centerFrame - 15); 
+            let endFrame = Math.min(rawTracePoints.length - 1, centerFrame + 15);
 
-            for(let f = startFrame; f <= endFrame; f++) {
-                trailColors[f*3] = swing.trailCol[f*3]; trailColors[f*3+1] = swing.trailCol[f*3+1]; trailColors[f*3+2] = swing.trailCol[f*3+2]; 
+            for (let i = 0; i < rawTracePoints.length; i++) {
+                if (i < startFrame || i > endFrame) {
+                    rawTracePoints[i].color.r *= 0.2;
+                    rawTracePoints[i].color.g *= 0.2;
+                    rawTracePoints[i].color.b *= 0.2;
+                }
             }
-            trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, swing.trailCol.length / 3);
+            
+            updateSmoothTrail();
+            
+            // Restore colors dynamically so they aren't permanently corrupted
+            for (let i = 0; i < rawTracePoints.length; i++) {
+                rawTracePoints[i].color = originalColors[i];
+            }
             
             pivot.quaternion.copy(cast.pivotQuat); 
             pivot.position.copy(cast.pivotPos);
@@ -1133,7 +1194,7 @@
             let tempLive = document.getElementById('live-tracking-container'); if (tempLive) tempLive.remove();
             
             preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
-            trailGeometry.setDrawRange(0, 0);
+            rawTracePoints = []; updateSmoothTrail(0);
             if (isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
 
             // FORCE VISUAL RESET ON CANCEL
@@ -1175,7 +1236,7 @@
             
             preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
             ghostPivot.visible = true; 
-            trailIndex = 0; trailGeometry.setDrawRange(0, 0);
+            rawTracePoints = []; updateSmoothTrail(0);
             
             stabilityStartTime = 0;
             calibrationHoldTimeMs = 0;
@@ -1198,7 +1259,7 @@
         document.getElementById('resetMaxBtn').onclick = async () => {
             swingCount = 0; posHistory = []; currentSwingDeviation = 0; swingDatabase = []; 
             document.getElementById('history-list').innerHTML = '<div style="color: #666; font-size: 0.8rem; font-style: italic;">No swings recorded yet. Zero the mount and take a shot!</div>';
-            trailIndex = 0; trailGeometry.setDrawRange(0, 0); virtualBall.visible = false; ghostRail.visible = false;
+            rawTracePoints = []; updateSmoothTrail(0); virtualBall.visible = false; ghostRail.visible = false;
             preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
             finalReviewExtension = 0;
 
@@ -1320,7 +1381,7 @@
                     localX: strikeX, localY: strikeY, faceAngle: locTwist, 
                     passSpeed: pristineVel, passForce: pF, appliedForce: appliedF, 
                     stars: freshRating.string, starColor: freshRating.color,
-                    trailIndex: trailIndex, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: globalHwTime
+                    trailIndex: rawTracePoints.length, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: globalHwTime
                 };
                 castData.push(strikeCast);
                 currentSwingDeviation = strikeCast.dev;
@@ -1425,9 +1486,14 @@
 
                 if (calibrationHoldTimeMs >= 2000) { 
                     
-                    // FULL 3D TARE: Because the mallet is physically untouched on the ground, 
-                    // we want whatever angle it is resting at to perfectly align inside the straight 3D ghost.
+                    // =====================================================================
+                    // 🔒 CALIBRATION RINGFENCE 🔒
+                    // DO NOT ALTER THE QUATERNION MATH OR TARE LOGIC IN THIS BLOCK.
+                    // IT IS LOCKED TO THE "FULL 3D TARE" BASELINE FOR DIAGNOSTIC PURPOSES.
+                    // =====================================================================
+                    // FULL 3D TARE
                     baseQuatInverse.copy(lastRawQuat).invert();
+                    // =====================================================================
 
                     document.getElementById('calibration-container').style.display = "none";
                     
@@ -1437,7 +1503,7 @@
                     currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
                     window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0 };
                     
-                    preRollBuffer = []; recordedFrames = []; trailIndex = 0;
+                    preRollBuffer = []; recordedFrames = []; rawTracePoints = [];
                     ignoreSpeedFrames = 20; 
 
                     idealPlane = { centroid: new THREE.Vector3(0, pivotBaseY - loadedRadius, 0), normal: new THREE.Vector3(1, 0, 0) };
@@ -1523,8 +1589,8 @@
                 currentAbsoluteSpeed = 0;
                 posHistory = [];
                 preRollBuffer = [];
-                trailIndex = 0;
-                trailGeometry.setDrawRange(0, 0); 
+                rawTracePoints = [];
+                updateSmoothTrail(0); 
             } else {
                 posHistory.push({ pos: centerPosition.clone(), time: nowTime });
                 if (posHistory.length > 5) posHistory.shift();
@@ -1561,7 +1627,6 @@
                     state4UiStartTime = Date.now();
                     clearTimeout(goTimeout); 
                     
-                    // FIX: Retain Cancel Button visibility during active swing state
                     document.getElementById('singleSwingLabel').style.display = "none";
 
                     state4StartTime = nowTime; 
@@ -1569,13 +1634,12 @@
                     currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; 
                     maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
                     window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0 };
-                    trailIndex = 0;
+                    rawTracePoints = [];
                     
                     let cutoffTime = nowTime - 2000;
                     
                     preRollBuffer.forEach(f => {
-                        if (f.time >= cutoffTime && trailIndex < MAX_TRAIL_POINTS) {
-                            trailPositions[trailIndex * 3] = f.pos.x; trailPositions[trailIndex * 3 + 1] = f.pos.y; trailPositions[trailIndex * 3 + 2] = f.pos.z;
+                        if (f.time >= cutoffTime && rawTracePoints.length < MAX_TRAIL_POINTS) {
                             let r = 0.0, g = 1.0, b = 0.0; 
                             if (!f.isForward) { r = 1.0; g = 1.0; b = 0.0; } 
                             else {
@@ -1589,13 +1653,18 @@
                                 } else { r = 0.0; g = 1.0; b = 0.8; }
                             }
                             if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
-                            trailColors[trailIndex * 3] = r; trailColors[trailIndex * 3 + 1] = g; trailColors[trailIndex * 3 + 2] = b;
-                            recordedFrames.push({ rotation: f.rotation.clone(), forceMag: f.forceMag, trailIndex: trailIndex, pivotPos: f.pivotPos.clone(), extension: f.extension });
-                            trailIndex++;
+                            
+                            rawTracePoints.push({
+                                pos: f.pos.clone(),
+                                color: {r: r, g: g, b: b},
+                                isForward: f.isForward
+                            });
+
+                            recordedFrames.push({ rotation: f.rotation.clone(), forceMag: f.forceMag, rawPtIndex: rawTracePoints.length, pivotPos: f.pivotPos.clone(), extension: f.extension });
                         }
                     });
 
-                    trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, trailIndex);
+                    updateSmoothTrail();
                     
                     let listDiv = document.getElementById('history-list');
                     if (listDiv && listDiv.innerHTML.includes("No swings recorded yet")) listDiv.innerHTML = '';
@@ -1647,7 +1716,7 @@
                         localX: strikeX, localY: strikeY, faceAngle: locTwist, 
                         passSpeed: currentAbsoluteSpeed, passForce: passForce, appliedForce: liveAppliedForce, 
                         stars: passRating.string, starColor: passRating.color,
-                        trailIndex: trailIndex, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime
+                        trailIndex: rawTracePoints.length, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime
                     };
 
                     if (impactDetected) {
@@ -1669,7 +1738,7 @@
                     }
                 }
 
-                if (trailIndex < MAX_TRAIL_POINTS) {
+                if (rawTracePoints.length < MAX_TRAIL_POINTS) {
                     if (magnitude > currentSwingMaxG) currentSwingMaxG = magnitude;
 
                     let r = 0.0, g = 1.0, b = 0.0; 
@@ -1687,12 +1756,14 @@
                     
                     if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
 
-                    trailPositions[trailIndex * 3] = centerPosition.x; trailPositions[trailIndex * 3 + 1] = centerPosition.y; trailPositions[trailIndex * 3 + 2] = centerPosition.z;
-                    trailColors[trailIndex * 3] = r; trailColors[trailIndex * 3 + 1] = g; trailColors[trailIndex * 3 + 2] = b;
-                    trailIndex++;
-                    trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, trailIndex);
+                    rawTracePoints.push({
+                        pos: centerPosition.clone(),
+                        color: {r: r, g: g, b: b},
+                        isForward: isForwardSwing
+                    });
 
-                    recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, trailIndex: trailIndex, pivotPos: physicsPivot.position.clone(), extension: extension });
+                    updateSmoothTrail();
+                    recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, rawPtIndex: rawTracePoints.length, pivotPos: physicsPivot.position.clone(), extension: extension });
                 }
 
                 if (!impactDetected && deltaG > impactThreshold) {
@@ -1789,7 +1860,8 @@
                     parseFloat(document.getElementById('offsetYInput').value) * 10,
                     parseInt(document.getElementById('timeoutInput').value),
                     parseFloat(document.getElementById('sweetSpotInput').value) * 10,
-                    ledGuidance
+                    ledGuidance,
+                    parseFloat(document.getElementById('twistToleranceInput').value) * 10
                 ]);
                 await commandChar.writeValue(payload);
                 showToast("Sensor connected & Config Auto-Synced!");
@@ -1867,7 +1939,8 @@
             let hwAppliedForce = window.lastEdgeData.appliedForce; 
 
             swingDatabase.push({
-                frames: [...recordedFrames], trailPos: new Float32Array(trailPositions.slice(0, trailIndex * 3)), trailCol: new Float32Array(trailColors.slice(0, trailIndex * 3)),
+                frames: [...recordedFrames], 
+                rawTracePoints: [...rawTracePoints], // Preserves exact raw arrays
                 casts: [...castData], 
                 finalReviewPivotQuat: finalReviewPivotQuat.clone(), 
                 finalReviewPivotPos: finalReviewPivotPos.clone(),
