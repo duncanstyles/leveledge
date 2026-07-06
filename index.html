@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.0.5</title>
+    <title>LevelEdge v7.0.6</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='none' stroke='%2338bdf8' stroke-width='6'/%3E%3Cellipse cx='50' cy='50' rx='45' ry='15' fill='none' stroke='%2338bdf8' stroke-width='6'/%3E%3Cellipse cx='50' cy='50' rx='15' ry='45' fill='none' stroke='%2338bdf8' stroke-width='6'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -211,7 +211,7 @@
         <button id="menuToggleBtn" class="icon-btn">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
-        <div class="brand">LevelEdge AI Kinematics - Croquet Edition</div>
+        <div class="brand">LevelEdge AI Kinematics</div>
         <div class="header-right">
             <span id="device-name-display" style="display:none; color:var(--accent-primary);">--</span>
             <span id="battery-display" style="display:none;">🔋 --%</span>
@@ -241,7 +241,7 @@
     <div id="toast-notification">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.0.5</div>
+        <div class="instructions">Version 7.0.6</div>
     </div>
 
     <div id="control-panel">
@@ -350,14 +350,16 @@
                 
                 <div class="setting-item" style="grid-column: span 2;">
                     <label for="lawnSpeedInput" style="display: flex; justify-content: space-between;">
-                        <span>Lawn Speed (Multiplier):</span>
-                        <span id="lawnSpeedLabel" style="color: var(--accent-primary);">0.50 (Medium)</span>
+                        <span>Lawn Speed (Plummers):</span>
+                        <span id="lawnSpeedLabel" style="color: var(--accent-primary);">10.0 (Medium)</span>
                     </label>
-                    <input type="range" id="lawnSpeedInput" min="0.1" max="1.3" step="0.05" value="0.50" style="padding: 0; margin-top: 5px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; font-weight: bold;">
-                        <span>0.1 (Slow)</span>
-                        <span>0.5 (Med)</span>
-                        <span>1.3 (Fast)</span>
+                    <input type="range" id="lawnSpeedInput" min="5.5" max="20.5" step="0.5" value="10.0" style="padding: 0; margin-top: 5px;">
+                    <div style="position: relative; height: 15px; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; font-weight: bold;">
+                        <span style="position: absolute; left: 0%;">5.5</span>
+                        <span style="position: absolute; left: 16.6%; transform: translateX(-50%);">8 (Slow)</span>
+                        <span style="position: absolute; left: 30%; transform: translateX(-50%);">10 (Med)</span>
+                        <span style="position: absolute; left: 43.3%; transform: translateX(-50%);">12 (Fast)</span>
+                        <span style="position: absolute; right: 0%;">20.5</span>
                     </div>
                 </div>
 
@@ -394,8 +396,11 @@
                 <button id="closeAboutBtn" class="btn-primary btn-danger" style="width: auto; padding: 6px 16px;">CLOSE</button>
             </div>
             <div style="margin-bottom: 15px; font-weight: 800; font-size: 1.2rem; color: var(--accent-primary);">LevelEdge Kinematics</div>
-            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.5</div>
-            <div style="margin-bottom: 20px; font-family: var(--font-mono); font-size: 0.9rem;">Firmware: <span id="about-fw-display" style="color: var(--accent-primary);">Not Connected</span></div>
+            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.6</div>
+            <div style="margin-bottom: 20px; font-family: var(--font-mono); font-size: 0.9rem;">
+                Firmware: <span id="about-fw-display" style="color: var(--accent-primary);">Not Connected</span><br>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Min Supported FW: 7.0.6</span>
+            </div>
             <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.5;">
                 &copy; Duncan Styles<br>
                 Leveledge AI Kinematics 2026<br>
@@ -435,12 +440,12 @@
             let el = document.getElementById('lawnSpeedInput');
             let lbl = document.getElementById('lawnSpeedLabel');
             if (el && lbl) {
-                let val = parseFloat(el.value);
-                let txt = val.toFixed(2);
-                if (val <= 0.25) txt += " (Very Slow)";
-                else if (val <= 0.45) txt += " (Slow)";
-                else if (val <= 0.55) txt += " (Medium)";
-                else if (val <= 0.85) txt += " (Fast)";
+                let plummers = parseFloat(el.value);
+                let txt = plummers.toFixed(1);
+                if (plummers < 8) txt += " (Very Slow)";
+                else if (plummers < 9.5) txt += " (Slow)";
+                else if (plummers <= 11.5) txt += " (Medium)";
+                else if (plummers <= 13) txt += " (Fast)";
                 else txt += " (Very Fast)";
                 lbl.innerText = txt;
             }
@@ -449,7 +454,7 @@
         if (lawnInput) lawnInput.addEventListener('input', updateLawnSpeedLabel);
 
         // --- Core Variables from Original ---
-        const MIN_SUPPORTED_FW = "6.0.01";
+        const MIN_SUPPORTED_FW = "7.0.06";
         function getDynamicFaceZ() { let el = document.getElementById('malletLengthInput'); return el ? (parseFloat(el.value) || 27.6) / 2.0 : 13.8; }
         function getDynamicBallZ() { return getDynamicFaceZ() + 4.6; }
 
@@ -549,7 +554,24 @@
                 const saved = localStorage.getItem('LVE_Settings');
                 if (saved) {
                     const settings = JSON.parse(saved);
-                    settingsElements.forEach(id => { if (settings[id] !== undefined) { const el = document.getElementById(id); if (el) { if (el.type === 'checkbox') el.checked = settings[id]; else el.value = settings[id]; } } });
+                    settingsElements.forEach(id => { 
+                        if (settings[id] !== undefined) { 
+                            const el = document.getElementById(id); 
+                            if (el) { 
+                                if (el.type === 'checkbox') {
+                                    el.checked = settings[id]; 
+                                } else {
+                                    if (id === 'lawnSpeedInput') {
+                                        let val = parseFloat(settings[id]);
+                                        if (val < 4.0) val = 10 + (val - 0.50) / 0.075; // Safely maps legacy multiplier back to Plummers
+                                        el.value = val.toFixed(1);
+                                    } else {
+                                        el.value = settings[id]; 
+                                    }
+                                }
+                            } 
+                        } 
+                    });
                     if (settings['hwMatrixW'] !== undefined) hardwareMountOffset.set(settings['hwMatrixX'], settings['hwMatrixY'], settings['hwMatrixZ'], settings['hwMatrixW']);
                     if (settings['bleName'] !== undefined) savedBleName = settings['bleName'];
                     let audioEl = document.getElementById('audioThreshInput'); let impactEl = document.getElementById('impactInput');
@@ -585,7 +607,23 @@
                 try {
                     let profile = JSON.parse(e.target.result);
                     if(profile.hwMatrixW !== undefined) hardwareMountOffset.set(profile.hwMatrixX, profile.hwMatrixY, profile.hwMatrixZ, profile.hwMatrixW);
-                    settingsElements.forEach(id => { if (profile[id] !== undefined) { let el = document.getElementById(id); if(el) { if (el.type === 'checkbox') el.checked = profile[id]; else el.value = profile[id]; } } });
+                    settingsElements.forEach(id => { 
+                        if (profile[id] !== undefined) { 
+                            let el = document.getElementById(id); 
+                            if(el) { 
+                                if (el.type === 'checkbox') el.checked = profile[id]; 
+                                else {
+                                    if (id === 'lawnSpeedInput') {
+                                        let val = parseFloat(profile[id]);
+                                        if (val < 4.0) val = 10 + (val - 0.50) / 0.075;
+                                        el.value = val.toFixed(1);
+                                    } else {
+                                        el.value = profile[id]; 
+                                    }
+                                }
+                            } 
+                        } 
+                    });
                     saveSettings(); updateMalletScale(); updateLawnSpeedLabel(); showToast("Hardware Profile Loaded Successfully."); document.getElementById('importFileInput').value = ''; 
                 } catch(err) { showToast("Error parsing .LVE file."); }
             }; reader.readAsText(file);
@@ -694,7 +732,7 @@
         const ballGeo = new THREE.SphereGeometry(4.6, 8, 6); const ballMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, wireframe: true, transparent: true, opacity: 0.6 });
         const virtualBall = new THREE.Mesh(ballGeo, ballMat); virtualBall.visible = false; scene.add(virtualBall);
 
-        // THICK 3D TUBE GHOST RAIL
+        // THICK 3D TUBE GHOST RAIL (Reduced thickness per v7.0.6 request)
         const ghostRailMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
         let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), ghostRailMat); 
         ghostRail.visible = false; scene.add(ghostRail);
@@ -748,7 +786,7 @@
             for(let i=-60; i<=60; i+=2) { let a = THREE.MathUtils.degToRad(i); let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); v.y += pivotBaseY; arcPts.push(v); }
             
             let curve = new THREE.CatmullRomCurve3(arcPts);
-            let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.4, 8, false); // 0.4cm radius = ~0.8cm thick line
+            let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false); // 0.15cm radius gives a delicate 0.3cm thick line
             if (ghostRail.geometry) ghostRail.geometry.dispose(); 
             ghostRail.geometry = tubeGeo;
         }
@@ -998,7 +1036,11 @@
             if (existingIndex !== -1) {
                 let ec = castData[existingIndex]; ec.isStrike = true; ec.faceAngle = locTwist; ec.passSpeed = pristineVel; ec.passForce = pF; ec.appliedForce = appliedF;
                 let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
-                let ballSpeedMPS = pristineVel * (massKg * 1.8) / (massKg + 0.454); let lawnMult = parseFloat(document.getElementById('lawnSpeedInput').value) || 0.50;
+                
+                let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+                let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+                
+                let ballSpeedMPS = pristineVel * (massKg * 1.8) / (massKg + 0.454); 
                 ec.estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
                 let accData = calcAccuracyData(ec.rawDev, locTwist, ec.pathAngleRads, maxTwist, currentSwingDwell);
                 ec.isWhiff = accData.isWhiff; ec.estAccRange = accData.estAccRange; ec.trueAccRange = accData.trueAccRange; ec.trueLaunchDeg = accData.trueLaunchDeg;
@@ -1158,8 +1200,13 @@
                     let pathAngleRads = 0;
                     if (preRollBuffer.length > 5) { let pastPos = preRollBuffer[preRollBuffer.length - 5].pos; let dx = exactFacePos.x - pastPos.x; let dz = exactFacePos.z - pastPos.z; pathAngleRads = Math.atan2(dx, Math.abs(dz)); }
                     
-                    let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; let ballSpeedMPS = currentAbsoluteSpeed * (massKg * 1.8) / (massKg + 0.454);
-                    let lawnMult = parseFloat(document.getElementById('lawnSpeedInput').value) || 0.50; let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+                    let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; 
+                    
+                    let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+                    let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+                    
+                    let ballSpeedMPS = currentAbsoluteSpeed * (massKg * 1.8) / (massKg + 0.454);
+                    let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
                     let accData = calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwist, currentSwingDwell); let passRating = getStarRating(strikeX, accData.trueLaunchDeg);
 
                     if (lastForwardPassTime > 0) { let fullCycleSeconds = (nowTime - lastForwardPassTime) / 1000.0; if (fullCycleSeconds > 0.4 && fullCycleSeconds < 5.0) lastComputedTempo = 60.0 / fullCycleSeconds; }
@@ -1276,8 +1323,11 @@
 
             if (impactDetected && displayPass) {
                 let massEl = document.getElementById('massInput'); let effectiveMalletMass = massEl ? (parseFloat(massEl.value) / 1000) : 1.0;
+                
+                let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+                let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+                
                 let ballSpeedMPS = displayPass.passSpeed * (effectiveMalletMass * 1.8) / (effectiveMalletMass + 0.454);
-                let lawnMult = parseFloat(document.getElementById('lawnSpeedInput').value) || 0.50; 
                 currentSwingDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
             } else { currentSwingDist = 0; }
             
