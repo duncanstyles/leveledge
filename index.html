@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.0.6</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='none' stroke='%2338bdf8' stroke-width='6'/%3E%3Cellipse cx='50' cy='50' rx='45' ry='15' fill='none' stroke='%2338bdf8' stroke-width='6'/%3E%3Cellipse cx='50' cy='50' rx='15' ry='45' fill='none' stroke='%2338bdf8' stroke-width='6'/%3E%3C/svg%3E" type="image/svg+xml">
+    <title>LevelEdge v7.0.7</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='10' y='30' width='80' height='40' rx='8' fill='none' stroke='%2338bdf8' stroke-width='8'/%3E%3Crect x='30' y='40' width='40' height='20' rx='10' fill='none' stroke='%2338bdf8' stroke-width='4'/%3E%3Cline x1='42' y1='40' x2='42' y2='60' stroke='%2338bdf8' stroke-width='4'/%3E%3Cline x1='58' y1='40' x2='58' y2='60' stroke='%2338bdf8' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='6' fill='%2338bdf8'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -241,7 +241,7 @@
     <div id="toast-notification">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.0.6</div>
+        <div class="instructions">Version 7.0.7</div>
     </div>
 
     <div id="control-panel">
@@ -353,13 +353,13 @@
                         <span>Lawn Speed (Plummers):</span>
                         <span id="lawnSpeedLabel" style="color: var(--accent-primary);">10.0 (Medium)</span>
                     </label>
-                    <input type="range" id="lawnSpeedInput" min="5.5" max="20.5" step="0.5" value="10.0" style="padding: 0; margin-top: 5px;">
+                    <input type="range" id="lawnSpeedInput" min="5.0" max="15.0" step="0.5" value="10.0" style="padding: 0; margin-top: 5px;">
                     <div style="position: relative; height: 15px; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; font-weight: bold;">
-                        <span style="position: absolute; left: 0%;">5.5</span>
-                        <span style="position: absolute; left: 16.6%; transform: translateX(-50%);">8 (Slow)</span>
-                        <span style="position: absolute; left: 30%; transform: translateX(-50%);">10 (Med)</span>
-                        <span style="position: absolute; left: 43.3%; transform: translateX(-50%);">12 (Fast)</span>
-                        <span style="position: absolute; right: 0%;">20.5</span>
+                        <span style="position: absolute; left: 0%;">5</span>
+                        <span style="position: absolute; left: 30%; transform: translateX(-50%);">8 (Slow)</span>
+                        <span style="position: absolute; left: 50%; transform: translateX(-50%);">10 (Med)</span>
+                        <span style="position: absolute; left: 70%; transform: translateX(-50%);">12 (Fast)</span>
+                        <span style="position: absolute; right: 0%;">15</span>
                     </div>
                 </div>
 
@@ -396,10 +396,10 @@
                 <button id="closeAboutBtn" class="btn-primary btn-danger" style="width: auto; padding: 6px 16px;">CLOSE</button>
             </div>
             <div style="margin-bottom: 15px; font-weight: 800; font-size: 1.2rem; color: var(--accent-primary);">LevelEdge Kinematics</div>
-            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.6</div>
+            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.7</div>
             <div style="margin-bottom: 20px; font-family: var(--font-mono); font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" style="color: var(--accent-primary);">Not Connected</span><br>
-                <span style="font-size: 0.75rem; color: var(--text-muted);">Min Supported FW: 7.0.6</span>
+                <span style="font-size: 0.75rem; color: var(--text-muted);">Min Supported FW: 6.0.01</span>
             </div>
             <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.5;">
                 &copy; Duncan Styles<br>
@@ -454,7 +454,7 @@
         if (lawnInput) lawnInput.addEventListener('input', updateLawnSpeedLabel);
 
         // --- Core Variables from Original ---
-        const MIN_SUPPORTED_FW = "7.0.06";
+        const MIN_SUPPORTED_FW = "6.0.01";
         function getDynamicFaceZ() { let el = document.getElementById('malletLengthInput'); return el ? (parseFloat(el.value) || 27.6) / 2.0 : 13.8; }
         function getDynamicBallZ() { return getDynamicFaceZ() + 4.6; }
 
@@ -732,7 +732,7 @@
         const ballGeo = new THREE.SphereGeometry(4.6, 8, 6); const ballMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, wireframe: true, transparent: true, opacity: 0.6 });
         const virtualBall = new THREE.Mesh(ballGeo, ballMat); virtualBall.visible = false; scene.add(virtualBall);
 
-        // THICK 3D TUBE GHOST RAIL (Reduced thickness per v7.0.6 request)
+        // THIN 3D TUBE GHOST RAIL
         const ghostRailMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
         let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), ghostRailMat); 
         ghostRail.visible = false; scene.add(ghostRail);
