@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.0.7</title>
+    <title>LevelEdge v7.0.08</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -227,13 +227,22 @@
                     <line x1="2" y1="2" x2="22" y2="22"></line><polyline points="12 1 17.5 6.5 13.5 10.5"></polyline><polyline points="6.5 6.5 10.5 10.5"></polyline><polyline points="12 23 17.5 17.5 12 12"></polyline>
                 </svg>
             </button>
+            <button id="topToggleHistoryBtn" class="icon-btn" title="Toggle Swing Log">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <line x1="10" y1="9" x2="8" y2="9"></line>
+                </svg>
+            </button>
         </div>
     </header>
 
     <aside id="menu-drawer">
-        <button id="closeMenuBtn" class="drawer-btn" style="color: var(--danger); justify-content: space-between;">Close Menu <span>✕</span></button>
+        <button id="closeMenuBtn" class="drawer-btn" style="justify-content: space-between;">Close Menu <span>✕</span></button>
         <hr style="border:0; border-top: 1px solid var(--border-color); margin: 0; width: 100%;">
-        <button id="toggleHistoryBtn" class="drawer-btn" style="color: var(--accent-primary);">Toggle Swing Log <span>📊</span></button>
+        <button id="resetMaxBtn" class="drawer-btn">Clear Swing Log <span>🗑️</span></button>
         <hr style="border:0; border-top: 1px solid var(--border-color); margin: 5px 0; width: 100%;">
         <button id="themeToggleBtn" class="drawer-btn">Toggle Light/Dark <span>🌓</span></button>
         <button id="toggleSoundBtn" class="drawer-btn active">App Audio <span>🔊</span></button>
@@ -242,13 +251,13 @@
         <button id="flipViewBtn" class="drawer-btn">Flip Camera View <span>🔄</span></button>
         <hr style="border:0; border-top: 1px solid var(--border-color); margin: 5px 0; width: 100%;">
         <button id="openSettingsBtn" class="drawer-btn">Engine Settings <span>⚙️</span></button>
-        <button id="openAboutBtn" class="drawer-btn" style="color: var(--text-muted);">About LevelEdge <span>ℹ️</span></button>
+        <button id="openAboutBtn" class="drawer-btn">About LevelEdge <span>ℹ️</span></button>
     </aside>
 
     <div id="toast-notification">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.0.7</div>
+        <div class="instructions">Version 7.0.08</div>
     </div>
 
     <div id="control-panel">
@@ -270,7 +279,6 @@
     <div id="history-panel">
         <div class="feed-header">
             <span>Swing Log</span>
-            <button id="resetMaxBtn" class="btn-primary btn-danger" style="width: auto; padding: 6px 12px; font-size: 0.75rem;">CLEAR</button>
         </div>
 
         <div id="playback-panel">
@@ -403,7 +411,7 @@
                 <button id="closeAboutBtn" class="btn-primary btn-danger" style="width: auto; padding: 6px 16px;">CLOSE</button>
             </div>
             <div style="margin-bottom: 15px; font-weight: 800; font-size: 1.2rem; color: var(--accent-primary);">LevelEdge Kinematics</div>
-            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.7</div>
+            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.08</div>
             <div style="margin-bottom: 20px; font-family: var(--font-mono); font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" style="color: var(--accent-primary);">Not Connected</span><br>
                 <span style="font-size: 0.75rem; color: var(--text-muted);">Min Supported FW: 6.0.01</span>
@@ -421,15 +429,14 @@
         document.getElementById('menuToggleBtn').onclick = () => { document.getElementById('menu-drawer').classList.toggle('open'); };
         document.getElementById('closeMenuBtn').onclick = () => { document.getElementById('menu-drawer').classList.remove('open'); };
         
-        // Universal Toggle History functionality (Mobile & Desktop)
-        document.getElementById('toggleHistoryBtn').onclick = () => { 
+        // Universal Toggle History functionality (Mobile & Desktop) via Top Bar
+        document.getElementById('topToggleHistoryBtn').onclick = () => { 
             const panel = document.getElementById('history-panel');
             if (window.innerWidth <= 768) {
                 panel.classList.toggle('mobile-open'); 
             } else {
                 panel.classList.toggle('desktop-closed');
             }
-            document.getElementById('menu-drawer').classList.remove('open'); 
         };
         
         document.getElementById('openAboutBtn').onclick = () => { document.getElementById('about-modal').classList.add('open'); document.getElementById('menu-drawer').classList.remove('open'); };
@@ -1003,6 +1010,7 @@
             document.getElementById('cancelArmBtn').style.display = "none"; document.getElementById('ready-group').style.display = "flex";
             masterPivot.quaternion.identity(); masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity();
             isForwardSwing = true; lastForwardPassTime = 0;
+            document.getElementById('menu-drawer').classList.remove('open');
         };
 
         function handleStrikeData(event) {
