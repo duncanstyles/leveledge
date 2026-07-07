@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.0.11</title>
+    <title>LevelEdge v7.0.7</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -46,12 +46,6 @@
             --shadow-lg: 0 10px 25px rgba(0,0,0,0.5);
         }
 
-        /* Minimalist Scrollbars */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
-
         body { 
             margin: 0; overflow: hidden; background-color: var(--canvas-bg); 
             color: var(--text-main); font-family: var(--font-sans); 
@@ -61,17 +55,16 @@
         /* --- HEADER & DRAWER --- */
         #top-bar {
             position: absolute; top: 0; left: 0; width: 100%; height: 60px;
-            background: var(--bg-overlay); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-            border-bottom: 1px solid var(--border-color);
+            background: var(--bg-panel); border-bottom: 1px solid var(--border-color);
             display: flex; justify-content: space-between; align-items: center;
             padding: 0 20px; box-sizing: border-box; z-index: 40;
             box-shadow: var(--shadow-sm); transition: background 0.3s, border 0.3s;
         }
-        .brand { font-weight: 800; font-size: 1.2rem; letter-spacing: 1px; color: var(--text-main); display: flex; align-items: center; gap: 10px; }
+        .brand { font-weight: 800; font-size: 1.2rem; letter-spacing: 1px; color: var(--text-main); }
         .header-right { display: flex; align-items: center; gap: 15px; font-family: var(--font-mono); font-size: 0.85rem; font-weight: bold; }
         
         .icon-btn { background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 5px; color: var(--text-main); transition: 0.2s; border-radius: 6px; }
-        .icon-btn:hover { background: var(--border-color); }
+        .icon-btn:hover { background: var(--bg-base); }
         .bt-disconnected svg { stroke: var(--danger); }
         .bt-connected svg { stroke: var(--success); }
 
@@ -80,7 +73,7 @@
             background: var(--bg-panel); border-right: 1px solid var(--border-color);
             z-index: 35; transition: left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
             padding: 20px; box-sizing: border-box; box-shadow: var(--shadow-lg);
-            display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
         }
         #menu-drawer.open { left: 0; }
         .drawer-btn {
@@ -100,7 +93,6 @@
             border-radius: var(--radius-md); transition: 0.2s; width: 100%; box-sizing: border-box;
         }
         .btn-primary:hover { background-color: var(--accent-hover); transform: translateY(-1px); }
-        .btn-primary:active { transform: scale(0.98); }
         .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-danger { background-color: var(--danger); }
         .btn-danger:hover { background-color: #dc2626; }
@@ -157,40 +149,35 @@
         .live-stat-row { display: flex; justify-content: space-around; margin-top: 10px; }
         .live-stat { display: flex; flex-direction: column; align-items: center; }
         
-        .cast-row { font-size: 0.8rem; font-family: var(--font-mono); padding: 8px 0; border-bottom: 1px solid var(--border-color); cursor: pointer; transition: 0.1s; }
-        .cast-row:hover { background: var(--bg-base); padding-left: 4px; }
+        .cast-row { font-size: 0.8rem; font-family: var(--font-mono); padding: 8px 0; border-bottom: 1px solid var(--border-color); cursor: pointer; }
+        .cast-row:hover { background: var(--bg-base); }
         .cast-flex { display: flex; justify-content: space-between; margin-bottom: 4px; }
 
         /* --- MODALS --- */
-        .modal-overlay {
+        #settings-modal, #wizard-modal, #about-modal {
             position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0, 0, 0, 0.4); z-index: 50; display: none;
-            align-items: center; justify-content: center; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+            background: var(--bg-overlay); z-index: 50; display: none;
+            align-items: center; justify-content: center; backdrop-filter: blur(4px);
         }
-        .modal-overlay.open { display: flex; }
-        
+        #settings-modal.open, #wizard-modal.open, #about-modal.open { display: flex; }
         .settings-container {
             background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-lg);
             padding: 25px; width: 95%; max-width: 600px; max-height: 90vh; overflow-y: auto;
-            box-shadow: var(--shadow-lg); color: var(--text-main); display: flex; flex-direction: column; gap: 15px;
+            box-shadow: var(--shadow-lg); color: var(--text-main);
         }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 5px; }
-        .modal-header h2 { margin: 0; font-size: 1.2rem; font-weight: 800; text-transform: uppercase; color: var(--text-main); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; font-size: 1.2rem; font-weight: 800; }
 
-        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .tab-bar { display: flex; gap: 5px; border-bottom: 2px solid var(--border-color); margin-bottom: 20px; overflow-x: auto; }
+        .tab-btn { background: transparent; color: var(--text-muted); border: none; border-bottom: 2px solid transparent; padding: 10px; font-weight: 600; flex: 1; white-space: nowrap; }
+        .tab-btn.active { color: var(--accent-primary); border-bottom: 2px solid var(--accent-primary); }
+        .tab-content { display: none; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .tab-content.active { display: grid; }
 
         .setting-item { display: flex; flex-direction: column; }
         .setting-item label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; }
-        
-        input[type=number], input[type=text], input[type=email], select { 
-            padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); 
-            background: var(--bg-base); color: var(--text-main); font-size: 1rem; 
-            font-family: var(--font-mono); width: 100%; box-sizing: border-box; transition: 0.2s;
-        }
-        input[type=number]:focus, input[type=text]:focus, input[type=email]:focus, select:focus {
-            border-color: var(--accent-primary); outline: none; box-shadow: 0 0 0 2px rgba(2, 132, 199, 0.2);
-        }
-        input[type=checkbox] { transform: scale(1.2); accent-color: var(--accent-primary); }
+        input[type=number], input[type=text], select { padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-base); color: var(--text-main); font-size: 1rem; font-family: var(--font-mono); width: 100%; box-sizing: border-box; }
+        input[type=checkbox] { transform: scale(1.2); }
         .setting-checkbox { flex-direction: row; align-items: center; justify-content: space-between; }
 
         /* Range Slider Styling */
@@ -210,7 +197,7 @@
         @media (max-width: 768px) {
             #history-panel { width: 100%; right: -100%; }
             #history-panel.mobile-open { right: 0; }
-            .settings-grid { grid-template-columns: 1fr; }
+            .tab-content { grid-template-columns: 1fr; }
             .setting-item[style*="grid-column: span 2"] { grid-column: span 1 !important; }
         }
     </style>
@@ -224,7 +211,7 @@
         <button id="menuToggleBtn" class="icon-btn">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
-        <div class="brand">
+        <div class="brand" style="display: flex; align-items: center; gap: 10px;">
             <svg width="26" height="26" viewBox="0 0 100 100">
                 <polyline points="25,20 25,80 75,80" fill="none" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
                 <line x1="45" y1="20" x2="75" y2="20" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
@@ -240,41 +227,33 @@
                     <line x1="2" y1="2" x2="22" y2="22"></line><polyline points="12 1 17.5 6.5 13.5 10.5"></polyline><polyline points="6.5 6.5 10.5 10.5"></polyline><polyline points="12 23 17.5 17.5 12 12"></polyline>
                 </svg>
             </button>
-            <button id="topToggleHistoryBtn" class="icon-btn" title="Toggle Swing Log">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                    <polyline points="14 2 14 8 20 8"></polyline>
-                    <line x1="16" y1="13" x2="8" y2="13"></line>
-                    <line x1="16" y1="17" x2="8" y2="17"></line>
-                    <line x1="10" y1="9" x2="8" y2="9"></line>
-                </svg>
-            </button>
         </div>
     </header>
 
     <aside id="menu-drawer">
-        <button id="resetMaxBtn" class="drawer-btn">Clear Swing Log <span>🗑️</span></button>
+        <button id="closeMenuBtn" class="drawer-btn" style="color: var(--danger); justify-content: space-between;">Close Menu <span>✕</span></button>
+        <hr style="border:0; border-top: 1px solid var(--border-color); margin: 0; width: 100%;">
+        <button id="toggleHistoryBtn" class="drawer-btn" style="color: var(--accent-primary);">Toggle Swing Log <span>📊</span></button>
         <hr style="border:0; border-top: 1px solid var(--border-color); margin: 5px 0; width: 100%;">
         <button id="themeToggleBtn" class="drawer-btn">Toggle Light/Dark <span>🌓</span></button>
         <button id="toggleSoundBtn" class="drawer-btn active">App Audio <span>🔊</span></button>
+        <button id="toggleBallBtn" class="drawer-btn active">Virtual Ball <span>⚪</span></button>
+        <button id="toggleGhostBtn" class="drawer-btn active">Wireframe Ghost <span>🧊</span></button>
         <button id="flipViewBtn" class="drawer-btn">Flip Camera View <span>🔄</span></button>
         <hr style="border:0; border-top: 1px solid var(--border-color); margin: 5px 0; width: 100%;">
-        <button id="openMalletSettingsBtn" class="drawer-btn">Mallet Settings <span>🔨</span></button>
-        <button id="openPlayerSettingsBtn" class="drawer-btn">Player Settings <span>👤</span></button>
-        <button id="openSystemSettingsBtn" class="drawer-btn">System Settings <span>⚙️</span></button>
-        <hr style="border:0; border-top: 1px solid var(--border-color); margin: 5px 0; width: 100%;">
-        <button id="openAboutBtn" class="drawer-btn">About LevelEdge <span>ℹ️</span></button>
+        <button id="openSettingsBtn" class="drawer-btn">Engine Settings <span>⚙️</span></button>
+        <button id="openAboutBtn" class="drawer-btn" style="color: var(--text-muted);">About LevelEdge <span>ℹ️</span></button>
     </aside>
 
     <div id="toast-notification">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.0.11</div>
+        <div class="instructions">Version 7.0.7</div>
     </div>
 
     <div id="control-panel">
         <div id="swing-state">CONNECT MALLET<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Turn on sensor and ensure Bluetooth is enabled.</span></div>
-        <button id="centerConnectBtn" class="btn-primary">CONNECT NOW</button>
+        <button id="centerConnectBtn" class="btn-primary">CONNECT BLUETOOTH</button>
         
         <div id="ready-group" style="display: none; flex-direction: column; align-items: center; gap: 10px; width: 100%;">
             <button id="zeroArmBtn" class="btn-primary btn-warning">ARM SYSTEM</button>
@@ -291,6 +270,7 @@
     <div id="history-panel">
         <div class="feed-header">
             <span>Swing Log</span>
+            <button id="resetMaxBtn" class="btn-primary btn-danger" style="width: auto; padding: 6px 12px; font-size: 0.75rem;">CLEAR</button>
         </div>
 
         <div id="playback-panel">
@@ -325,16 +305,23 @@
         </div>
     </div>
 
-    <div id="mallet-modal" class="modal-overlay">
+    <div id="settings-modal">
         <div class="settings-container">
             <div class="modal-header">
-                <h2>MALLET SETTINGS</h2>
-                <button class="btn-primary btn-danger" onclick="document.getElementById('mallet-modal').classList.remove('open')" style="width: auto; padding: 6px 16px;">CLOSE</button>
+                <h2>ENGINE CONFIG</h2>
+                <button id="closeSettingsBtn" class="btn-primary btn-danger" style="width: auto; padding: 6px 16px;">CLOSE</button>
             </div>
-            <div class="settings-grid">
+
+            <div class="tab-bar">
+                <button class="tab-btn active" onclick="openTab('tab-mallet')">Hardware</button>
+                <button class="tab-btn" onclick="openTab('tab-player')">Player</button>
+                <button class="tab-btn" onclick="openTab('tab-system')">System</button>
+            </div>
+
+            <div id="tab-mallet" class="tab-content active">
                 <div class="setting-item" style="grid-column: span 2; display: flex; gap: 10px; flex-direction: row;">
-                    <button id="exportProfileBtn" class="drawer-btn" style="flex:1; justify-content: center;">↓ Export Profile (.LVE)</button>
-                    <button id="importProfileBtn" class="drawer-btn" style="flex:1; justify-content: center;">↑ Import Profile (.LVE)</button>
+                    <button id="exportProfileBtn" class="drawer-btn" style="flex:1; justify-content: center;">↓ Export (.LVE)</button>
+                    <button id="importProfileBtn" class="drawer-btn" style="flex:1; justify-content: center;">↑ Import (.LVE)</button>
                     <input type="file" id="importFileInput" accept=".lve" style="display: none;">
                 </div>
                 <div class="setting-item" style="grid-column: span 2;"><label for="malletNameInput">Profile Name:</label><input type="text" id="malletNameInput" value="Primary Mallet"></div>
@@ -343,21 +330,11 @@
                 <div class="setting-item"><label for="massInput">Mallet Mass (g):</label><input type="number" id="massInput" value="1000" step="50"></div>
                 <div class="setting-item"><label for="offsetYInput">Sensor Offset Y (cm):</label><input type="number" id="offsetYInput" value="5.5" step="0.1"></div>
                 <div class="setting-item" style="grid-column: span 2; margin-top: 10px;">
-                    <button id="launchWizardBtn" class="btn-primary" style="background-color: var(--warning); color: #111;">LAUNCH 6-POINT CALIBRATION</button>
+                    <button id="launchWizardBtn" class="btn-primary">LAUNCH 6-POINT CALIBRATION</button>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <div id="player-modal" class="modal-overlay">
-        <div class="settings-container">
-            <div class="modal-header">
-                <h2>PLAYER SETTINGS</h2>
-                <button class="btn-primary btn-danger" onclick="document.getElementById('player-modal').classList.remove('open')" style="width: auto; padding: 6px 16px;">CLOSE</button>
-            </div>
-            <div class="settings-grid">
-                <div class="setting-item" style="grid-column: span 2;"><label for="playerNameInput">Player Name:</label><input type="text" id="playerNameInput" placeholder="Enter Name"></div>
-                <div class="setting-item" style="grid-column: span 2;"><label for="playerEmailInput">Player Email:</label><input type="email" id="playerEmailInput" placeholder="Enter Email"></div>
+            <div id="tab-player" class="tab-content">
                 <div class="setting-item"><label for="radiusInput">Swing Radius (cm):</label><input type="number" id="radiusInput" value="127" step="1"></div>
                 <div class="setting-item" style="grid-column: span 2;"><label for="difficultySelect">Skill Target Profile:</label>
                     <select id="difficultySelect">
@@ -373,16 +350,8 @@
                 <div class="setting-item setting-checkbox" style="grid-column: span 2;"><label for="metronomeCheck">Metronome Training:</label><input type="checkbox" id="metronomeCheck"></div>
                 <div class="setting-item"><label for="metronomeBpm">Target BPM:</label><input type="number" id="metronomeBpm" value="60" step="1"></div>
             </div>
-        </div>
-    </div>
 
-    <div id="system-modal" class="modal-overlay">
-        <div class="settings-container">
-            <div class="modal-header">
-                <h2>SYSTEM SETTINGS</h2>
-                <button class="btn-primary btn-danger" onclick="document.getElementById('system-modal').classList.remove('open')" style="width: auto; padding: 6px 16px;">CLOSE</button>
-            </div>
-            <div class="settings-grid">
+            <div id="tab-system" class="tab-content">
                 <div class="setting-item setting-checkbox" style="grid-column: span 2;"><label for="ledGuidanceCheck">Real-Time LED Guidance:</label><input type="checkbox" id="ledGuidanceCheck" checked></div>
                 <div class="setting-item"><label for="impactInput">Impact Jerk (ΔG):</label><input type="number" id="impactInput" value="4.0" step="0.5"></div>
                 
@@ -406,12 +375,13 @@
                 <div class="setting-item"><label for="practiceInput">Shot Clock (s):</label><input type="number" id="practiceInput" value="10.0" step="0.5"></div>
                 <div class="setting-item"><label for="flatMagInput">Drop Vis (x):</label><input type="number" id="flatMagInput" value="4.0" step="0.5"></div>
                 <div class="setting-item setting-checkbox" style="grid-column: span 2;"><label for="showTraceCheck">Render 3D Trace:</label><input type="checkbox" id="showTraceCheck" checked></div>
-                <div class="setting-item" style="grid-column: span 2; margin-top: 10px;"><button id="btnUpdateFW" class="btn-primary">Apply Settings to Mallet</button></div>
+                <div class="setting-item" style="grid-column: span 1; margin-top: 10px;"><button id="btnUpdateFW" class="btn-primary">Sync FW</button></div>
+                <div class="setting-item" style="grid-column: span 1; margin-top: 10px;"><button id="btnResetFW" class="btn-primary btn-danger">Reboot HW</button></div>
             </div>
         </div>
     </div>
 
-    <div id="wizard-modal" class="modal-overlay">
+    <div id="wizard-modal">
         <div class="settings-container" style="text-align: center;">
             <div class="modal-header">
                 <h2>LAB CALIBRATION</h2>
@@ -426,14 +396,14 @@
         </div>
     </div>
 
-    <div id="about-modal" class="modal-overlay">
+    <div id="about-modal">
         <div class="settings-container" style="text-align: center; max-width: 400px;">
             <div class="modal-header">
                 <h2>ABOUT</h2>
                 <button id="closeAboutBtn" class="btn-primary btn-danger" style="width: auto; padding: 6px 16px;">CLOSE</button>
             </div>
             <div style="margin-bottom: 15px; font-weight: 800; font-size: 1.2rem; color: var(--accent-primary);">LevelEdge Kinematics</div>
-            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.11</div>
+            <div style="margin-bottom: 10px; font-family: var(--font-mono); font-size: 0.9rem;">HTML Version: 7.0.7</div>
             <div style="margin-bottom: 20px; font-family: var(--font-mono); font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" style="color: var(--accent-primary);">Not Connected</span><br>
                 <span style="font-size: 0.75rem; color: var(--text-muted);">Min Supported FW: 6.0.01</span>
@@ -449,21 +419,18 @@
     <script>
         // --- UI Interactions ---
         document.getElementById('menuToggleBtn').onclick = () => { document.getElementById('menu-drawer').classList.toggle('open'); };
+        document.getElementById('closeMenuBtn').onclick = () => { document.getElementById('menu-drawer').classList.remove('open'); };
         
-        // Universal Toggle History functionality via Top Bar
-        document.getElementById('topToggleHistoryBtn').onclick = () => { 
+        // Universal Toggle History functionality (Mobile & Desktop)
+        document.getElementById('toggleHistoryBtn').onclick = () => { 
             const panel = document.getElementById('history-panel');
             if (window.innerWidth <= 768) {
                 panel.classList.toggle('mobile-open'); 
             } else {
                 panel.classList.toggle('desktop-closed');
             }
+            document.getElementById('menu-drawer').classList.remove('open'); 
         };
-        
-        // Dedicated Modals
-        document.getElementById('openMalletSettingsBtn').onclick = () => { document.getElementById('mallet-modal').classList.add('open'); document.getElementById('menu-drawer').classList.remove('open'); };
-        document.getElementById('openPlayerSettingsBtn').onclick = () => { document.getElementById('player-modal').classList.add('open'); document.getElementById('menu-drawer').classList.remove('open'); };
-        document.getElementById('openSystemSettingsBtn').onclick = () => { document.getElementById('system-modal').classList.add('open'); document.getElementById('menu-drawer').classList.remove('open'); };
         
         document.getElementById('openAboutBtn').onclick = () => { document.getElementById('about-modal').classList.add('open'); document.getElementById('menu-drawer').classList.remove('open'); };
         document.getElementById('closeAboutBtn').onclick = () => { document.getElementById('about-modal').classList.remove('open'); };
@@ -508,10 +475,7 @@
         let hardwareMountOffset = new THREE.Quaternion(); let isWizardActive = false; let wizardStep = 0; let capturing = false;
         let wizardBuffer = []; const WIZARD_BUFFER_SIZE = 20; const WIZARD_VARIANCE_THRESH = 0.02; let vectors = { top: null, bottom: null, front: null, back: null, left: null, right: null };
         let lastBatteryCheckTime = 0; let lastBatteryVal = -1; let chargeRatePerMs = 0;
-        
-        // --- BLUETOOTH GLOBALS ---
-        let bluetoothDevice = null; let commandChar = null; let savedBleName = "Unknown Mallet"; let isAutoReconnectArmed = false;
-        
+        let bluetoothDevice = null; let commandChar = null; let savedBleName = "Unknown Mallet";
         let preRollBuffer = []; let prevMagnitude = 1.0; let posHistory = []; let currentAbsoluteSpeed = 0; 
         let prevFaceZ = 0; let prevZ = 0; let isForwardSwing = true; let lastForwardPassTime = 0; 
         let rewindStartTime = 0; let rewindStartQuat = new THREE.Quaternion(); let rewindStartPos = new THREE.Vector3(); let rewindStartExt = 0;
@@ -531,7 +495,7 @@
         let mainMalletMesh = null; let ghostMalletMesh = null; let baseStlSize = new THREE.Vector3(1, 1, 1);
 
         const SERVICE_UUID = "19b30000-e8f2-537e-4f6c-d104768a1214"; const CHARACTERISTIC_UUID = "19b30001-e8f2-537e-4f6c-d104768a1214"; const COMMAND_UUID = "19b30002-e8f2-537e-4f6c-d104768a1214"; const STRIKE_UUID = "19b30003-e8f2-537e-4f6c-d104768a1214";
-        const settingsElements = ['malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'playerNameInput', 'playerEmailInput'];
+        const settingsElements = ['malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect'];
 
         const difficultyMatrix = {
             novice:       { name: "Novice",       distances: [2, 4, 6, 8],    starColor: "#94a3b8", starChar: "★" },
@@ -540,7 +504,13 @@
             expert:       { name: "Expert",       distances: [5, 10, 15, 20], starColor: "#f59e0b", starChar: "★" }
         };
 
-        window.addEventListener('beforeunload', () => { if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) { isAutoReconnectArmed = false; bluetoothDevice.gatt.disconnect(); } });
+        window.addEventListener('beforeunload', () => { if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) bluetoothDevice.gatt.disconnect(); });
+
+        function openTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+            event.target.classList.add('active'); document.getElementById(tabId).classList.add('active');
+        }
 
         function getStarRating(offsetCm, angleDeg) {
             let activeTier = document.getElementById('difficultySelect').value || "intermediate"; let profile = difficultyMatrix[activeTier];
@@ -600,7 +570,7 @@
                                 } else {
                                     if (id === 'lawnSpeedInput') {
                                         let val = parseFloat(settings[id]);
-                                        if (val < 4.0) val = 10 + (val - 0.50) / 0.075; 
+                                        if (val < 4.0) val = 10 + (val - 0.50) / 0.075; // Safely maps legacy multiplier back to Plummers
                                         el.value = val.toFixed(1);
                                     } else {
                                         el.value = settings[id]; 
@@ -634,7 +604,7 @@
             let dlAnchorElem = document.createElement('a'); dlAnchorElem.setAttribute("href", dataStr);
             let safeName = (profile.malletNameInput || "mallet").replace(/[^a-z0-9]/gi, '_').toLowerCase();
             dlAnchorElem.setAttribute("download", safeName + "_profile.lve"); document.body.appendChild(dlAnchorElem); dlAnchorElem.click(); document.body.removeChild(dlAnchorElem);
-            showToast("Hardware Profile Exported as .LVE"); document.getElementById('mallet-modal').classList.remove('open');
+            showToast("Hardware Profile Exported as .LVE"); document.getElementById('menu-drawer').classList.remove('open');
         };
 
         document.getElementById('importProfileBtn').onclick = () => { document.getElementById('importFileInput').click(); };
@@ -708,9 +678,20 @@
             tickGain.gain.setValueAtTime(0.6, audioCtx.currentTime); tickGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration); tickOsc.start(); tickOsc.stop(audioCtx.currentTime + duration);
         }
 
+        document.getElementById('toggleBallBtn').onclick = () => { isBallEnabled = !isBallEnabled; document.getElementById('toggleBallBtn').classList.toggle('active', isBallEnabled); if(appState >= 3 || playbackMode || isReviewingLog) virtualBall.visible = isBallEnabled; };
+        document.getElementById('toggleGhostBtn').onclick = () => { isGhostEnabled = !isGhostEnabled; document.getElementById('toggleGhostBtn').classList.toggle('active', isGhostEnabled); if (ghostMalletMesh && (appState >= 3 || isReviewingLog)) ghostMalletMesh.visible = isGhostEnabled; };
+        document.getElementById('flipViewBtn').onclick = () => {
+            isViewFlipped = !isViewFlipped; let radiusOffset = parseFloat(document.getElementById('radiusInput').value) || 127;
+            let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - radiusOffset, 0); controls.target.set(0, pivotBaseY - radiusOffset, 0); controls.update();
+            document.getElementById('menu-drawer').classList.remove('open');
+        };
+        document.getElementById('toggleSoundBtn').onclick = () => { isSoundEnabled = !isSoundEnabled; document.getElementById('toggleSoundBtn').classList.toggle('active', isSoundEnabled); if (!isSoundEnabled && isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05); };
+        document.getElementById('openSettingsBtn').onclick = () => { document.getElementById('settings-modal').classList.add('open'); document.getElementById('menu-drawer').classList.remove('open'); };
+        document.getElementById('closeSettingsBtn').onclick = () => { document.getElementById('settings-modal').classList.remove('open'); };
+
         document.getElementById('launchWizardBtn').onclick = () => {
             if (!bluetoothDevice || !bluetoothDevice.gatt.connected) { showToast("Connect sensor first before calibrating!"); return; }
-            document.getElementById('mallet-modal').classList.remove('open'); document.getElementById('wizard-modal').classList.add('open');
+            document.getElementById('settings-modal').classList.remove('open'); document.getElementById('wizard-modal').classList.add('open');
             isWizardActive = true; wizardStep = 0; updateWizardUI();
         };
         document.getElementById('closeWizardBtn').onclick = () => { isWizardActive = false; capturing = false; document.getElementById('wizard-modal').classList.remove('open'); };
@@ -758,6 +739,7 @@
         const ballGeo = new THREE.SphereGeometry(4.6, 8, 6); const ballMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, wireframe: true, transparent: true, opacity: 0.6 });
         const virtualBall = new THREE.Mesh(ballGeo, ballMat); virtualBall.visible = false; scene.add(virtualBall);
 
+        // THIN 3D TUBE GHOST RAIL
         const ghostRailMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 });
         let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), ghostRailMat); 
         ghostRail.visible = false; scene.add(ghostRail);
@@ -811,7 +793,7 @@
             for(let i=-60; i<=60; i+=2) { let a = THREE.MathUtils.degToRad(i); let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); v.y += pivotBaseY; arcPts.push(v); }
             
             let curve = new THREE.CatmullRomCurve3(arcPts);
-            let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false);
+            let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false); // 0.15cm radius gives a delicate 0.3cm thick line
             if (ghostRail.geometry) ghostRail.geometry.dispose(); 
             ghostRail.geometry = tubeGeo;
         }
@@ -838,8 +820,10 @@
             if(!commandChar) return showToast("Connect to Mallet first!");
             let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
             let payload = new Uint8Array([ 67, parseInt(document.getElementById('radiusInput').value), parseInt(document.getElementById('massInput').value) / 10, parseFloat(document.getElementById('impactInput').value) * 10, parseFloat(document.getElementById('offsetYInput').value) * 10, parseInt(document.getElementById('timeoutInput').value), parseFloat(document.getElementById('sweetSpotInput').value) * 10, ledGuidance, 10 ]);
-            try { await commandChar.writeValue(payload); showToast("Sync Complete"); document.getElementById('system-modal').classList.remove('open'); } catch (err) { showToast("Bluetooth Error: Cannot sync."); }
+            try { await commandChar.writeValue(payload); showToast("Sync Complete"); } catch (err) { showToast("Bluetooth Error: Cannot sync."); }
         });
+
+        document.getElementById('btnResetFW').addEventListener('click', async () => { if(!commandChar) return showToast("Connect to Mallet first!"); if(confirm("Force a hardware-level reboot?")) { try { await commandChar.writeValueWithoutResponse(new Uint8Array([82])); showToast("Reboot Command Sent."); } catch(err) {} } });
 
         document.getElementById('pauseBtn').onclick = () => { if (!playbackMode) return; isPaused = !isPaused; document.getElementById('pauseBtn').innerText = isPaused ? "▶ PLAY" : "⏸ PAUSE"; };
         document.getElementById('slowMoBtn').onclick = () => { isSlowMo = !isSlowMo; document.getElementById('slowMoBtn').innerText = isSlowMo ? "🐌 SLOW: ON" : "🐌 SLOW: OFF"; };
@@ -925,7 +909,7 @@
                 let weight = c.isStrike ? "bold" : "normal"; let col = c.isStrike ? "var(--text-main)" : "var(--text-muted)";
 
                 liveList.innerHTML += `
-                <div class="cast-row" style="color: ${col}; font-weight: ${weight};" onclick="highlightPass(${swingIndex}, ${i})">
+                <div class="cast-row" style="color: ${col}; font-weight: ${weight};">
                     <div class="cast-flex">
                         <span style="width: 25%;">${prefix}: ${(c.dev || 0).toFixed(1)}cm ${c.dir || 'C'}</span>
                         <span style="width: 25%; text-align: center;">${twistStr}</span>
@@ -953,7 +937,7 @@
             if(data.casts && data.casts.length > 0) drawStrikeLaser(data.casts[data.casts.length - 1]); else { impactLasers.forEach(m => scene.remove(m)); impactLasers = []; }
             document.getElementById('pauseBtn').innerText = "⏸ PAUSE"; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `REPLAYING SWING #${index + 1}...`; swingStateTxt.style.color = "var(--accent-primary)"; }
             document.getElementById('playback-panel').style.display = "block";
-            if (window.innerWidth <= 768) document.getElementById('history-panel').classList.add('mobile-open');
+            document.getElementById('history-panel').classList.add('mobile-open');
         };
 
         window.highlightPass = function(swingIdx, castIdx) {
@@ -1019,7 +1003,6 @@
             document.getElementById('cancelArmBtn').style.display = "none"; document.getElementById('ready-group').style.display = "flex";
             masterPivot.quaternion.identity(); masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity();
             isForwardSwing = true; lastForwardPassTime = 0;
-            document.getElementById('menu-drawer').classList.remove('open');
         };
 
         function handleStrikeData(event) {
@@ -1115,7 +1098,7 @@
                     if (elapsed >= 3000 && hwAppState === 6) {
                         calibrationPhase = 'ORANGE'; calibrationHoldTimeMs = 0; orangeStartTime = jsNow; lastStableQuat.copy(lastRawQuat); 
                         if(swingStateTxt) { swingStateTxt.innerText = "STEADYING..."; swingStateTxt.style.color = "var(--warning)"; }
-                        ghostRail.visible = true;
+                        ghostRail.visible = true; // Kept as orange phase
                     }
                 } else if (calibrationPhase === 'ORANGE') {
                     if (orangeStartTime === 0) orangeStartTime = jsNow;
@@ -1282,82 +1265,18 @@
         }
 
         function onDisconnected() {
-            if (isAutoReconnectArmed) {
-                // Unintentional Drop
-                const btToggleBtn = document.getElementById('btToggleBtn'); 
-                btToggleBtn.className = "icon-btn bt-disconnected";
-                
-                let swingStateTxt = document.getElementById('swing-state'); 
-                if(swingStateTxt) { 
-                    swingStateTxt.innerHTML = "CONNECTION LOST. RECONNECTING...<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Ensure mallet is in range.</span>"; 
-                    swingStateTxt.style.color = "var(--warning)"; 
-                }
-                
-                document.getElementById('calibration-container').style.display = "none";
-                showToast("Sensor Signal Lost. Attempting to Reconnect...");
-                
-                // Trigger Background Reconnect
-                setTimeout(attemptAutoReconnect, 1000);
-            } else {
-                // Intentional Drop - Hard UI Reset (Bluetooth scope only)
-                const btToggleBtn = document.getElementById('btToggleBtn'); 
-                btToggleBtn.className = "icon-btn bt-disconnected";
-                
-                let swingStateTxt = document.getElementById('swing-state');
-                if(swingStateTxt) {
-                    swingStateTxt.innerHTML = "CONNECT MALLET<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Turn on sensor and ensure Bluetooth is enabled.</span>"; 
-                    swingStateTxt.style.color = "var(--text-main)";
-                }
-                
-                document.getElementById('centerConnectBtn').style.display = "block";
-                document.getElementById('ready-group').style.display = "none";
-                document.getElementById('cancelArmBtn').style.display = "none";
-                document.getElementById('battery-display').style.display = "none"; 
-                document.getElementById('device-name-display').style.display = "none";
-                document.getElementById('calibration-container').style.display = "none"; 
-                
-                // Reset engine core states (leaves historical logs intact)
-                appState = 0; 
-                calibrationPhase = 'NONE';
-                preRollBuffer = []; 
-                castData = []; 
-                rawTracePoints = []; 
-                updateSmoothTrail(0);
-                impactLasers.forEach(m => scene.remove(m)); 
-                impactLasers = [];
-                
-                bluetoothDevice = null; 
-                commandChar = null;
-                showToast("Bluetooth Disconnected.");
-            }
-        }
-
-        async function attemptAutoReconnect() {
-            if (!isAutoReconnectArmed || !bluetoothDevice || !bluetoothDevice.gatt) return;
-            try {
-                await bluetoothDevice.gatt.connect();
-                // Restore connected UI state
-                const btToggleBtn = document.getElementById('btToggleBtn');
-                btToggleBtn.className = "icon-btn bt-connected";
-                let swingStateTxt = document.getElementById('swing-state');
-                if (swingStateTxt) {
-                    swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Aim square to target line. Do not hold handle.</span>";
-                    swingStateTxt.style.color = "var(--accent-primary)";
-                }
-                appState = 1;
-                showToast("Sensor Reconnected!");
-            } catch (e) {
-                if (isAutoReconnectArmed) {
-                    setTimeout(attemptAutoReconnect, 2000); 
-                }
-            }
+            const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-disconnected";
+            document.getElementById('swing-state').innerHTML = "CONNECT BLUETOOTH MALLET<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Turn on sensor and ensure Bluetooth is enabled.</span>"; 
+            document.getElementById('swing-state').style.color = "var(--text-main)";
+            document.getElementById('centerConnectBtn').style.display = "block";
+            document.getElementById('ready-group').style.display = "none";
+            document.getElementById('cancelArmBtn').style.display = "none";
+            document.getElementById('battery-display').style.display = "none"; document.getElementById('device-name-display').style.display = "none";
+            document.getElementById('calibration-container').style.display = "none"; appState = 0; showToast("Sensor Link Severed. Mallet Frozen.");
         }
 
         async function requestBluetoothConnection() {
-            if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) { 
-                isAutoReconnectArmed = false; // Flag intentional disconnect
-                bluetoothDevice.gatt.disconnect(); 
-            } 
+            if (bluetoothDevice && bluetoothDevice.gatt && bluetoothDevice.gatt.connected) { bluetoothDevice.gatt.disconnect(); } 
             else {
                 if (navigator.bluetooth) {
                     showToast("Searching for LVE Devices...");
@@ -1371,9 +1290,6 @@
 
         async function connectDevice(device) {
             bluetoothDevice = device; savedBleName = device.name || "LVE Mallet"; document.getElementById('malletNameInput').value = savedBleName; saveSettings(); 
-            
-            isAutoReconnectArmed = true; // Flag connection intent
-            
             bluetoothDevice.addEventListener('gattserverdisconnected', onDisconnected); const server = await bluetoothDevice.gatt.connect();
             const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-connected";
             appState = 1; initAudio(); 
