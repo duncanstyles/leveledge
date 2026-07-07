@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LevelEdge v7.0.7</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect x='10' y='30' width='80' height='40' rx='8' fill='none' stroke='%2338bdf8' stroke-width='8'/%3E%3Crect x='30' y='40' width='40' height='20' rx='10' fill='none' stroke='%2338bdf8' stroke-width='4'/%3E%3Cline x1='42' y1='40' x2='42' y2='60' stroke='%2338bdf8' stroke-width='4'/%3E%3Cline x1='58' y1='40' x2='58' y2='60' stroke='%2338bdf8' stroke-width='4'/%3E%3Ccircle cx='50' cy='50' r='6' fill='%2338bdf8'/%3E%3C/svg%3E" type="image/svg+xml">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -211,7 +211,14 @@
         <button id="menuToggleBtn" class="icon-btn">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
-        <div class="brand">LevelEdge AI Kinematics</div>
+        <div class="brand" style="display: flex; align-items: center; gap: 10px;">
+            <svg width="26" height="26" viewBox="0 0 100 100">
+                <polyline points="25,20 25,80 75,80" fill="none" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="45" y1="20" x2="75" y2="20" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+                <line x1="55" y1="50" x2="65" y2="50" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+            </svg>
+            LevelEdge AI Kinematics
+        </div>
         <div class="header-right">
             <span id="device-name-display" style="display:none; color:var(--accent-primary);">--</span>
             <span id="battery-display" style="display:none;">🔋 --%</span>
