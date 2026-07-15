@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.5.01</title>
+    <title>LevelEdge v7.5.02</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -339,7 +339,7 @@
     <div id="toast-notification" popover="manual">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.5.01</div>
+        <div class="instructions">Version 7.5.02</div>
     </div>
 
     <div id="alignment-panel">
@@ -474,7 +474,28 @@
                 <div class="flex-col gap-3">
                     <button id="btnLogin" class="btn-primary" type="submit">LOG IN</button>
                     <button id="btnSignup" class="drawer-btn justify-center" type="button">CREATE ACCOUNT</button>
+                    <button id="btnForgotPassword" class="drawer-btn justify-center" type="button" style="border: none; text-decoration: underline; font-size: 0.85rem;">FORGOT PASSWORD?</button>
                     <button id="btnCloseAuth" class="btn-primary btn-danger mt-2" type="button">CANCEL</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
+    <dialog id="update-password-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header justify-center">
+                <h2>RESET PASSWORD</h2>
+            </div>
+            <form id="updatePasswordForm" onsubmit="event.preventDefault();">
+                <div class="flex-col gap-4 text-left mb-5">
+                    <div class="setting-item">
+                        <label for="newPassword">New Password</label>
+                        <input type="password" id="newPassword" placeholder="••••••••" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="flex-col gap-3">
+                    <button id="btnSaveNewPassword" class="btn-primary btn-success" type="submit">SAVE NEW PASSWORD</button>
+                    <button id="btnCloseUpdatePassword" class="btn-primary btn-danger mt-2" type="button">CANCEL</button>
                 </div>
             </form>
         </div>
@@ -634,7 +655,7 @@
             </div>
             <div class="font-800 text-accent mb-4" style="font-size: 1.2rem;">LevelEdge Kinematics</div>
             <div class="font-mono mb-2" style="font-size: 0.9rem;">
-                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.5.01</span>
+                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.5.02</span>
             </div>
             <div class="font-mono mb-5" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
@@ -852,6 +873,22 @@
             else { showToast("Success! Check your email to confirm."); authModal.close(); }
         };
 
+        document.getElementById('btnForgotPassword').onclick = async () => {
+            const email = document.getElementById('authEmail').value;
+            if(!email) return showToast("Enter your email address first to reset password.");
+            
+            // Send the recovery email and tell Supabase to redirect back to this exact app URL
+            const { data, error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+                redirectTo: window.location.origin + window.location.pathname,
+            });
+            
+            if (error) showToast("Error: " + error.message);
+            else { 
+                showToast("Password reset email sent! Check your inbox."); 
+                authModal.close(); 
+            }
+        };
+
         async function loadCloudProfile() {
             if(!currentUser) return;
             const { data, error } = await supabaseClient.from('mallet_profiles').select('*').eq('user_id', currentUser.id).limit(1);
@@ -892,11 +929,15 @@
         }
 
         supabaseClient.auth.onAuthStateChange((event, session) => {
+            if (event === 'PASSWORD_RECOVERY') {
+                // If they arrived via a reset link, show the update password modal
+                document.getElementById('update-password-modal').showModal();
+            }
+
             if (session && session.user) {
                 currentUser = session.user;
                 document.getElementById('openAuthBtn').innerHTML = 'Sign Out <span>👋</span>';
                 document.getElementById('openAuthBtn').onclick = async () => { await supabaseClient.auth.signOut(); showToast("Signed out."); };
-                // Using global window.bleManager connection check
                 if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
                     document.getElementById('topSyncBtn').classList.remove('hidden');
                 }
@@ -909,6 +950,28 @@
             }
         });
 
+        // Handlers for the New Password Modal
+        document.getElementById('btnSaveNewPassword').onclick = async () => {
+            const newPassword = document.getElementById('newPassword').value;
+            if(!newPassword) return showToast("Please enter a new password.");
+            
+            document.getElementById('btnSaveNewPassword').innerText = "SAVING...";
+            
+            const { data, error } = await supabaseClient.auth.updateUser({ password: newPassword });
+            
+            document.getElementById('btnSaveNewPassword').innerText = "SAVE NEW PASSWORD";
+            
+            if (error) showToast("Error: " + error.message);
+            else { 
+                showToast("Password updated successfully!"); 
+                document.getElementById('update-password-modal').close();
+                document.getElementById('newPassword').value = '';
+            }
+        };
+
+        document.getElementById('btnCloseUpdatePassword').onclick = () => { 
+            document.getElementById('update-password-modal').close(); 
+        };
         // --- CLOUD SYNC & EXPORT LOGIC ---
         document.getElementById('topSyncBtn').onclick = async () => {
             if(!window.bleManager.device || !window.bleManager.device.gatt.connected) return showToast("Connect to Mallet first!");
