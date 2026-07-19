@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.5.02</title>
+    <title>LevelEdge v7.6.02</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -226,6 +226,22 @@
             padding: 25px; width: 100%; min-width: 320px; max-width: 600px; max-height: 90vh; overflow-y: auto; 
             box-shadow: var(--shadow-lg); color: var(--text-main); box-sizing: border-box; 
         }
+
+        /* --- SPECIAL WIZARD DIALOG --- */
+        #wizard-modal {
+            margin: auto auto 30px auto;
+            width: 90%;
+            max-width: 550px;
+        }
+        #wizard-modal .settings-container {
+            background: var(--bg-overlay);
+            backdrop-filter: blur(10px);
+        }
+        #wizard-modal::backdrop {
+            background: rgba(15, 23, 42, 0.25);
+            backdrop-filter: none;
+        }
+
         .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; }
         .modal-header h2 { margin: 0; font-size: 1.2rem; font-weight: 800; text-transform: uppercase; }
 
@@ -238,7 +254,7 @@
         input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%; background: var(--accent-primary); cursor: pointer; margin-top: -8px; }
         input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cursor: pointer; background: var(--border-color); border-radius: 3px; }
 
-        /* Popover Toast Notification (Renders above everything, including Dialog backdrops) */
+        /* Popover Toast Notification */
         #toast-notification {
             position: fixed; inset: auto; bottom: 120px; left: 50%; transform: translateX(-50%) translateY(100px);
             background: var(--text-main); color: var(--bg-panel); padding: 12px 24px;
@@ -277,13 +293,13 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
         <div class="brand flex items-center gap-2">
-            <svg width="26" height="26" viewBox="0 0 100 100">
-                <polyline points="25,20 25,80 75,80" fill="none" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-                <line x1="45" y1="20" x2="75" y2="20" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
-                <line x1="55" y1="50" x2="65" y2="50" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
-            </svg>
-            LevelEdge AI
-        </div>
+    <svg width="26" height="26" viewBox="0 0 100 100">
+        <polyline points="25,20 25,80 75,80" fill="none" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="45" y1="20" x2="75" y2="20" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+        <line x1="55" y1="50" x2="65" y2="50" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+    </svg>
+    <span class="brand-text">LevelEdge AI</span>
+</div>
         <div class="header-right">
             <span id="device-name-display" class="hidden text-accent">--</span>
             
@@ -339,7 +355,7 @@
     <div id="toast-notification" popover="manual">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.5.02</div>
+        <div class="instructions">Version 7.6.02</div>
     </div>
 
     <div id="alignment-panel">
@@ -517,7 +533,11 @@
                 <div class="setting-item"><label for="editNotes">Notes & Weather</label><input type="text" id="editNotes" placeholder="Sunny, wet grass"></div>
             </div>
 
-            <button id="btnSaveMatchEdit" class="btn-primary btn-success">SAVE DETAILS</button>
+            <div class="flex-col gap-3">
+                <button id="btnSaveMatchEdit" class="btn-primary btn-success">SAVE DETAILS</button>
+                <!-- New Delete Button added here -->
+                <button id="btnDeleteMatch" class="drawer-btn justify-center text-danger" style="border-color: var(--danger);">DELETE MATCH</button>
+            </div>
         </div>
     </dialog>
 
@@ -641,7 +661,7 @@
                 <button id="closeWizardBtn" class="btn-primary btn-danger btn-small">CANCEL</button>
             </div>
             <div id="wizard-step-title" class="text-accent font-800 mb-2" style="font-size: 1.2rem;">Step 1: Preparation</div>
-            <div id="wizard-instruction" class="text-muted mb-5" style="font-size: 0.95rem; line-height: 1.5;">Remove the mallet shaft. You will need a perfectly flat table.</div>
+            <div id="wizard-instruction" class="text-muted mb-5" style="font-size: 0.95rem; line-height: 1.5;">Remove the mallet shaft. You will need a perfectly flat table. Set a physical 'Heading Line' (like a table edge) and note 'True North'.</div>
             <div id="wizard-progress" class="font-mono font-bold mb-4">Step 1 of 7</div>
             <button id="wizardCaptureBtn" class="btn-primary">BEGIN CALIBRATION</button>
         </div>
@@ -655,12 +675,12 @@
             </div>
             <div class="font-800 text-accent mb-4" style="font-size: 1.2rem;">LevelEdge Kinematics</div>
             <div class="font-mono mb-2" style="font-size: 0.9rem;">
-                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.5.02</span>
+                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.6.02</span>
             </div>
             <div class="font-mono mb-5" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
                 Offline Strokes: <span id="about-storage-display" class="text-accent">--</span><br>
-                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 7.3.14</span>
+                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 7.6.01</span>
             </div>
             <div class="text-muted line-height-15" style="font-size: 0.8rem;">
                 &copy; Duncan Styles<br>
@@ -741,7 +761,6 @@
         let wizardBuffer = []; const WIZARD_BUFFER_SIZE = 20; const WIZARD_VARIANCE_THRESH = 0.02; let vectors = { top: null, bottom: null, front: null, back: null, left: null, right: null };
         let lastBatteryCheckTime = 0; let lastBatteryVal = -1; let chargeRatePerMs = 0;
         
-        // XXX BT XXX Removed raw Bluetooth connection and characteristic variables
         let savedBleName = "Unknown Mallet";
         
         let preRollBuffer = []; let prevMagnitude = 1.0; let posHistory = []; let currentAbsoluteSpeed = 0; 
@@ -770,8 +789,6 @@
         let audioCtx; let oscillator; let gainNode; let isAudioInitialized = false; let isSoundEnabled = true;
         let mainMalletMesh = null; let ghostMalletMesh = null; let baseStlSize = new THREE.Vector3(1, 1, 1);
 
-        // XXX BT XXX Removed raw UUID constants
-        
         const settingsElements = ['malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'allowRealtimeTuningCheck'];
 
         const difficultyMatrix = {
@@ -789,7 +806,6 @@
 
         // --- BLE HELPER ---
         async function sendBleCommand(cmdArray, withResponse = false) {
-            // XXX BT XXX Proxied to bleManager
             return await window.bleManager.sendCommand(cmdArray, withResponse);
         }
 
@@ -877,7 +893,6 @@
             const email = document.getElementById('authEmail').value;
             if(!email) return showToast("Enter your email address first to reset password.");
             
-            // Send the recovery email and tell Supabase to redirect back to this exact app URL
             const { data, error } = await supabaseClient.auth.resetPasswordForEmail(email, {
                 redirectTo: window.location.origin + window.location.pathname,
             });
@@ -930,7 +945,6 @@
 
         supabaseClient.auth.onAuthStateChange((event, session) => {
             if (event === 'PASSWORD_RECOVERY') {
-                // If they arrived via a reset link, show the update password modal
                 document.getElementById('update-password-modal').showModal();
             }
 
@@ -950,7 +964,6 @@
             }
         });
 
-        // Handlers for the New Password Modal
         document.getElementById('btnSaveNewPassword').onclick = async () => {
             const newPassword = document.getElementById('newPassword').value;
             if(!newPassword) return showToast("Please enter a new password.");
@@ -972,6 +985,7 @@
         document.getElementById('btnCloseUpdatePassword').onclick = () => { 
             document.getElementById('update-password-modal').close(); 
         };
+
         // --- CLOUD SYNC & EXPORT LOGIC ---
         document.getElementById('topSyncBtn').onclick = async () => {
             if(!window.bleManager.device || !window.bleManager.device.gatt.connected) return showToast("Connect to Mallet first!");
@@ -1091,6 +1105,39 @@
             }
         };
 
+        // --- DELETE MATCH LOGIC ---
+        document.getElementById('btnDeleteMatch').onclick = async () => {
+            let id = document.getElementById('editMatchId').value;
+            
+            // Trigger browser native confirmation
+            if (confirm("Are you sure you want to permanently delete this match and all its recorded strokes? This cannot be undone.")) {
+                
+                document.getElementById('btnDeleteMatch').innerText = "DELETING...";
+                document.getElementById('btnDeleteMatch').disabled = true;
+
+                // Execute Supabase deletion
+                const { error } = await supabaseClient
+                    .from('matches')
+                    .delete()
+                    .eq('id', id);
+
+                // Reset button state
+                document.getElementById('btnDeleteMatch').innerText = "DELETE MATCH";
+                document.getElementById('btnDeleteMatch').disabled = false;
+
+                if (error) { 
+                    showToast("Delete Failed: " + error.message); 
+                } else { 
+                    showToast("Match deleted."); 
+                    document.getElementById('match-edit-modal').close(); 
+                    
+                    // Refresh the match list to remove the deleted item
+                    fetchCloudMatches(); 
+                }
+            }
+        };
+        
+
         // --- CLOUD LOCKER UI ---
         async function fetchCloudMatches() {
             let container = document.getElementById('cloud-matches-container');
@@ -1160,7 +1207,6 @@
                 let decelHtml = `<span style="color:${decelColor};">${decelVal > 0 ? '+' : ''}${decelVal}%</span>`;
                 let downHtml = `${downVal} ms`;
 
-                // --- NEW: Calculate True Downswing P-Delta ---
                 let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
                 let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
                 let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
@@ -1261,7 +1307,6 @@
                     let decelHtml = `<span style="color:${decelColor};">${decelVal > 0 ? '+' : ''}${decelVal}%</span>`;
                     let downHtml = `${downVal} ms`;
 
-                    // --- NEW: Calculate True Downswing P-Delta ---
                     let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
                     let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
                     let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
@@ -1385,7 +1430,6 @@
             document.getElementById('alignment-panel').style.display = 'none';
             saveSettings();
             
-            // XXX BT XXX Replaced direct calibrationChar write with bleManager method
             let success = await window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z);
             if(success) {
                 showToast("TUNED MATRIX BURNED TO MALLET."); 
@@ -1395,7 +1439,6 @@
             document.getElementById('exitPassViewBtn').click();
         };
 
-        // --- SECRET DEVELOPER TAP ---
         let versionTapCount = 0;
         let versionTapTimer;
         document.getElementById('version-text').onclick = () => {
@@ -1429,7 +1472,6 @@
         let lawnInput = document.getElementById('lawnSpeedInput');
         if (lawnInput) lawnInput.addEventListener('input', updateLawnSpeedLabel);
 
-        // XXX BT XXX Replaced raw device disconnect with bleManager.disconnect()
         window.addEventListener('beforeunload', () => { window.bleManager.disconnect(); });
 
         function getStarRating(offsetCm, angleDeg) {
@@ -1605,16 +1647,28 @@
             document.getElementById('mallet-modal').close(); document.getElementById('wizard-modal').showModal();
             isWizardActive = true; wizardStep = 0; updateWizardUI();
         };
-        document.getElementById('closeWizardBtn').onclick = () => { isWizardActive = false; capturing = false; document.getElementById('wizard-modal').close(); };
+
+        // --- NEW: Restore trace setting on Wizard Close ---
+        document.getElementById('closeWizardBtn').onclick = () => { 
+            isWizardActive = false; 
+            capturing = false; 
+            document.getElementById('wizard-modal').close(); 
+            if (wizardTableGroup) wizardTableGroup.visible = false;
+            masterBlock.position.set(0, -loadedRadius, 0); 
+            masterPivot.position.set(0, pivotBaseY, 0);
+            
+            let traceCheck = document.getElementById('showTraceCheck');
+            trailLine.visible = traceCheck ? traceCheck.checked : true;
+        };
 
         const wizardInstructions = [
-            { title: "Step 1: Preparation", desc: "Remove the mallet shaft. You will need a perfectly flat table. If the sensor bulge prevents the mallet head from sitting flat on any face, use two identical books and let the bulge hang in the gap between them. Click NEXT when ready.", btn: "NEXT" },
-            { title: "Step 2: Top Face (Z+)", desc: "Place the mallet head so the TOP face (where the shaft attaches) is sitting perfectly flat on the table. Keep it completely still.", btn: "CAPTURE TOP" },
-            { title: "Step 3: Bottom Face (Z-)", desc: "Flip the head 180°. Place the BOTTOM face (the sole) perfectly flat on the table.", btn: "CAPTURE BOTTOM" },
-            { title: "Step 4: Front Face (X+)", desc: "Place the head so the FRONT striking face is sitting flat on the table.", btn: "CAPTURE FRONT" },
-            { title: "Step 5: Back Face (X-)", desc: "Flip the head 180°. Place the BACK striking face flat on the table.", btn: "CAPTURE BACK" },
-            { title: "Step 6: Left Side (Y+)", desc: "Place the head resting flat on its LEFT side.", btn: "CAPTURE LEFT" },
-            { title: "Step 7: Right Side (Y-)", desc: "Flip it 180°. Place the head resting flat on its RIGHT side.", btn: "CAPTURE RIGHT" }
+            { title: "Step 1: Preparation", desc: "Remove the mallet shaft. You will need a perfectly flat table. Set a physical 'Heading Line' (like a table edge) and note 'True North'. Use two identical books if the sensor bulge prevents the head from sitting flat.", btn: "NEXT" },
+            { title: "Step 2: Top Face", desc: "Place the TOP face flat on the table. Align the Front striking face so it points exactly at 'True North' along your Heading Line.", btn: "CAPTURE TOP" },
+            { title: "Step 3: Bottom Face", desc: "Roll the head 180° over. Place the BOTTOM face flat. Ensure the Front striking face STILL points exactly at 'True North'.", btn: "CAPTURE BOTTOM" },
+            { title: "Step 4: Front Face", desc: "Stand the head up on its FRONT striking face. Point the Top face (shaft hole) directly at 'True North' along your Heading Line.", btn: "CAPTURE FRONT" },
+            { title: "Step 5: Back Face", desc: "Flip the head 180° to stand on its BACK striking face. The Top face (shaft hole) STILL points directly at 'True North'.", btn: "CAPTURE BACK" },
+            { title: "Step 6: Left Side", desc: "Lay the head resting flat on its LEFT side. Align the Front striking face so it points exactly at 'True North'.", btn: "CAPTURE LEFT" },
+            { title: "Step 7: Right Side", desc: "Roll it 180°. Place the head resting flat on its RIGHT side. The Front striking face STILL points exactly at 'True North'.", btn: "CAPTURE RIGHT" }
         ];
 
         function updateWizardUI() {
@@ -1633,7 +1687,14 @@
             let basisMat = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis); hardwareMountOffset.setFromRotationMatrix(basisMat).invert(); 
             saveSettings(); isWizardActive = false; document.getElementById('wizard-modal').close(); 
             
-            // XXX BT XXX Replaced direct calibrationChar write with bleManager method
+            if (wizardTableGroup) wizardTableGroup.visible = false;
+            masterBlock.position.set(0, -loadedRadius, 0);
+            masterPivot.position.set(0, pivotBaseY, 0);
+
+            // --- NEW: Restore trace setting on calculation finish ---
+            let traceCheck = document.getElementById('showTraceCheck');
+            trailLine.visible = traceCheck ? traceCheck.checked : true;
+
             window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z).then((success) => {
                 if(success) showToast("HARDWARE MATRIX BURNED SUCCESSFULLY TO MALLET.");
                 else showToast("HARDWARE MATRIX SAVED LOCALLY.");
@@ -1646,7 +1707,6 @@
         renderer.domElement.style.position = 'absolute'; renderer.domElement.style.top = '0'; renderer.domElement.style.left = '0'; renderer.domElement.style.zIndex = '1';
         document.body.appendChild(renderer.domElement);
         
-        // Initial Theme Setup Fix
         scene.background = new THREE.Color(0xe2e8f0); 
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2); hemiLight.position.set(0, 50, 0); scene.add(hemiLight);
 
@@ -1661,6 +1721,22 @@
 
         const ghostRailMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 }); let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), ghostRailMat); 
         ghostRail.visible = false; scene.add(ghostRail);
+
+        const wizardTableGroup = new THREE.Group();
+        wizardTableGroup.visible = false;
+        scene.add(wizardTableGroup);
+
+        const tableGeo = new THREE.PlaneGeometry(80, 80);
+        const tableMat = new THREE.MeshBasicMaterial({color: 0x94a3b8, transparent: true, opacity: 0.2, side: THREE.DoubleSide});
+        const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+        tableMesh.rotation.x = -Math.PI / 2;
+        tableMesh.position.y = pivotBaseY - defaultRad - 1.5; 
+        wizardTableGroup.add(tableMesh);
+
+        const arrowDir = new THREE.Vector3(0, 0, -1);
+        const arrowOrigin = new THREE.Vector3(0, pivotBaseY - defaultRad - 1, 25);
+        const headingArrow = new THREE.ArrowHelper(arrowDir, arrowOrigin, 50, 0xef4444, 5, 4);
+        wizardTableGroup.add(headingArrow);
 
         const masterPivot = new THREE.Group(); scene.add(masterPivot); const masterBlock = new THREE.Group(); masterPivot.add(masterBlock);
         const faceTrackerNode = new THREE.Group(); masterBlock.add(faceTrackerNode); const physicsTrackingNode = new THREE.Group(); physicsTrackingNode.position.set(0, 0, 0); masterBlock.add(physicsTrackingNode);
@@ -1715,8 +1791,10 @@
 
         loadSettings(); let loadedRadius = 127; let rInput = document.getElementById('radiusInput'); if(rInput && rInput.value) { loadedRadius = parseFloat(rInput.value); if (loadedRadius < 50) loadedRadius = 50; }
         updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
+        if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5;
+        if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1;
 
-        if (rInput) { rInput.addEventListener('change', (e) => { let newRadius = parseFloat(e.target.value); if (newRadius < 50) { newRadius = 50; e.target.value = 50; } loadedRadius = newRadius; updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update(); rebuildArcPts(newRadius); }); }
+        if (rInput) { rInput.addEventListener('change', (e) => { let newRadius = parseFloat(e.target.value); if (newRadius < 50) { newRadius = 50; e.target.value = 50; } loadedRadius = newRadius; updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update(); rebuildArcPts(newRadius); if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5; if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1; }); }
 
         const scrubberInput = document.getElementById('replayScrubber');
         if (scrubberInput) {
@@ -1786,11 +1864,19 @@
             masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
         };
 
+        // --- NEW: Restore full swing trace buffer on exit ---
         document.getElementById('exitPassViewBtn').onclick = () => {
             isReviewingLog = false; window.currentlyViewedCast = null;
             document.getElementById('tune-action-panel').classList.add('hidden');
             let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
+            
+            if (window.fullSwingTraceBuffer && window.fullSwingTraceBuffer.length > 0) {
+                rawTracePoints = window.fullSwingTraceBuffer;
+            }
+
             if (recordedFrames.length > 0) updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
+            else updateSmoothTrail();
+
             if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
             impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
             masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
@@ -1818,7 +1904,38 @@
             }
 
             if (mainMalletMesh) {
-                if (inGameMode) { mainMalletMesh.visible = false; ghostMalletMesh.visible = false; }
+                if (isWizardActive) {
+                    wizardTableGroup.visible = true;
+                    mainMalletMesh.visible = true;
+                    ghostMalletMesh.visible = false;
+                    virtualBall.visible = false;
+                    ghostRail.visible = false;
+                    trailLine.visible = false;
+
+                    let tx = 0, ty = 0, tz = 0;
+                    switch(wizardStep) {
+                        case 0: tx = 0; ty = 0; tz = 0; break;
+                        case 1: tx = Math.PI; ty = 0; tz = 0; break;
+                        case 2: tx = 0; ty = Math.PI; tz = 0; break;
+                        case 3: tx = Math.PI / 2; ty = Math.PI; tz = 0; break;
+                        case 4: tx = -Math.PI / 2; ty = 0; tz = 0; break;
+                        case 5: tx = 0; ty = Math.PI; tz = -Math.PI / 2; break;
+                        case 6: tx = 0; ty = Math.PI; tz = Math.PI / 2; break;
+                    }
+
+                    let qTarget = new THREE.Quaternion().setFromEuler(new THREE.Euler(tx, ty, tz, 'YXZ'));
+                    masterPivot.quaternion.slerp(qTarget, 0.1);
+
+                    let len = parseFloat(document.getElementById('malletLengthInput').value) || 27.6;
+                    let wid = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
+                    
+                    let yOffset = (wizardStep === 3 || wizardStep === 4) ? (len / 2.0) : (wid / 2.0);
+                    let tableY = pivotBaseY - loadedRadius - 1.5; 
+                    
+                    masterPivot.position.set(0, tableY + yOffset, 0); 
+                    masterBlock.position.set(0, 0, 0); 
+                } 
+                else if (inGameMode) { mainMalletMesh.visible = false; ghostMalletMesh.visible = false; }
                 else if (appState === 6) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
                 else if (isReviewingLog) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; } 
                 else if (appState === 4.5) {
@@ -1902,6 +2019,7 @@
             document.getElementById('history-panel').classList.add('mobile-open');
         };
 
+        // --- NEW: Trace isolation logic instead of darkening ---
         window.highlightPass = function(swingIdx, castIdx) {
             if (!swingDatabase[swingIdx]) return; let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
             window.currentlyViewedCast = cast;
@@ -1924,10 +2042,13 @@
                 document.getElementById('enterTuningBtn').classList.add('hidden');
             }
             
-            rawTracePoints = swing.rawTracePoints; let originalColors = rawTracePoints.map(p => ({r: p.color.r, g: p.color.g, b: p.color.b}));
-            let centerFrame = cast.trailIndex; let startFrame = Math.max(0, centerFrame - 15); let endFrame = Math.min(rawTracePoints.length - 1, centerFrame + 15);
-            for (let i = 0; i < rawTracePoints.length; i++) { if (i < startFrame || i > endFrame) { rawTracePoints[i].color.r *= 0.2; rawTracePoints[i].color.g *= 0.2; rawTracePoints[i].color.b *= 0.2; } }
-            updateSmoothTrail(); for (let i = 0; i < rawTracePoints.length; i++) { rawTracePoints[i].color = originalColors[i]; }
+            window.fullSwingTraceBuffer = swing.rawTracePoints;
+            let centerFrame = cast.trailIndex; 
+            let startFrame = Math.max(0, centerFrame - 15); 
+            let endFrame = Math.min(swing.rawTracePoints.length - 1, centerFrame + 15);
+            
+            rawTracePoints = swing.rawTracePoints.slice(startFrame, endFrame + 1);
+            updateSmoothTrail(); 
             
             masterPivot.quaternion.copy(cast.pivotQuat); masterPivot.position.copy(cast.pivotPos); masterBlock.position.set(0, -(loadedRadius + cast.extension), 0);
             headJoint.quaternion.identity(); ghostMalletMesh.visible = isGhostEnabled; if (mainMalletMesh) mainMalletMesh.visible = true; drawStrikeLaser(cast);
@@ -1962,7 +2083,6 @@
         document.getElementById('cancelArmBtn').onclick = () => resetSystemState(false, false);
         document.getElementById('resetMaxBtn').onclick = async () => await resetSystemState(false, true);
 
-        // XXX BT XXX Replaced raw DataView parsing for historical strikes
         function handleHistoricalStrike(s) {
             downloadedHistory.push({ 
                 matchID: s.matchID, 
@@ -1974,7 +2094,6 @@
             }); 
         }
 
-        // XXX BT XXX Replaced raw DataView parsing for live strikes
         function handleLiveStrike(s) {
             currentSwingMaxG = s.peakG; maxTwist = s.peakTwist; currentSwingDwell = s.dwell;
             let pristineVel = s.zVel; let appliedF = s.appliedForce; let pF = s.pushForce;
@@ -2017,7 +2136,6 @@
             if (appState === 4 || appState === 3) { impactDetected = true; clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 100); }
         }
 
-        // XXX BT XXX Replaced raw DataView parsing for telemetry
         function handleParsedTelemetry(t) {
             const hwTimestamp = t.hwTimestamp; globalHwTime = hwTimestamp; let jsNow = Date.now();
             const q0 = t.q0; const q1 = t.q1; const q2 = t.q2; const q3 = t.q3;
@@ -2094,7 +2212,7 @@
                 targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat);
             } else if (appState >= 3) { targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); }
 
-            if (isLive && !isReviewingLog) { 
+            if (isLive && !isReviewingLog && !isWizardActive) { 
                 if (appState === 2 && calibrationPhase === 'RED') { masterPivot.quaternion.identity(); currentDynamicRadius = loadedRadius; currentPivotLift = 0; } else { masterPivot.quaternion.copy(targetQuaternion); }
                 masterPivot.position.set(0, pivotBaseY + currentPivotLift, 0); masterBlock.position.set(0, -currentDynamicRadius, 0);
                 masterPivot.updateMatrixWorld(true); faceTrackerNode.updateMatrixWorld(true); physicsTrackingNode.updateMatrixWorld(true);
@@ -2386,8 +2504,6 @@
             if(swingStateTxt) { swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Aim square to target line. Do not hold handle.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
         }
 
-        // XXX BT XXX Replaced raw connectDevice, requestBluetoothConnection, and onDisconnected with bleManager setup and callbacks.
-
         window.bleManager.onStateChange = (isConnected, name) => {
             if (!isConnected) {
                 const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-disconnected";
@@ -2417,7 +2533,6 @@
                 if(currentUser) document.getElementById('topSyncBtn').classList.remove('hidden');
                 let nameDisp = document.getElementById('device-name-display'); nameDisp.classList.remove('hidden'); nameDisp.innerText = savedBleName;
 
-                // Sync config
                 let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
                 let payload = [ 67, parseInt(document.getElementById('radiusInput').value), parseInt(document.getElementById('massInput').value) / 10, parseFloat(document.getElementById('impactInput').value) * 10, parseFloat(document.getElementById('offsetYInput').value) * 10, parseInt(document.getElementById('timeoutInput').value), parseFloat(document.getElementById('sweetSpotInput').value) * 10, ledGuidance, 10 ];
                 window.bleManager.sendCommand(payload, true).then(() => {
