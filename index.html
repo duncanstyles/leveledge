@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.6.02</title>
+    <title>LevelEdge v7.7.01</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -109,7 +109,7 @@
         .syncing svg { animation: spin 1.5s linear infinite; color: var(--accent-primary); }
 
         /* --- ACCORDION MENU STYLES --- */
-        #menu-drawer { position: absolute; top: 60px; left: -300px; width: 280px; height: calc(100vh - 60px); background: var(--bg-panel); border-right: 1px solid var(--border-color); z-index: 35; transition: left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); padding: 20px; box-sizing: border-box; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+        #menu-drawer { position: absolute; top: 60px; left: -300px; width: 280px; height: calc(100dvh - 60px); background: var(--bg-panel); border-right: 1px solid var(--border-color); z-index: 35; transition: left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); padding: 20px; padding-bottom: 40px; box-sizing: border-box; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
         #menu-drawer.open { left: 0; }
         .drawer-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-main); padding: 12px; border-radius: var(--radius-md); font-family: var(--font-sans); font-size: 0.95rem; font-weight: 600; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
         .drawer-btn:hover { background: var(--bg-base); border-color: var(--accent-primary); }
@@ -277,6 +277,7 @@
             #history-panel.mobile-open { right: 0; }
             .setting-item.span-2 { grid-column: span 1 !important; }
             #alignment-panel { width: 90%; right: 5%; left: 5%; top: 120px; }
+            .brand-text { display: none; }
         }
     </style>
     
@@ -293,13 +294,13 @@
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
         </button>
         <div class="brand flex items-center gap-2">
-    <svg width="26" height="26" viewBox="0 0 100 100">
-        <polyline points="25,20 25,80 75,80" fill="none" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
-        <line x1="45" y1="20" x2="75" y2="20" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
-        <line x1="55" y1="50" x2="65" y2="50" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
-    </svg>
-    <span class="brand-text">LevelEdge AI</span>
-</div>
+            <svg width="26" height="26" viewBox="0 0 100 100">
+                <polyline points="25,20 25,80 75,80" fill="none" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="45" y1="20" x2="75" y2="20" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+                <line x1="55" y1="50" x2="65" y2="50" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+            </svg>
+            <span class="brand-text">LevelEdge AI</span>
+        </div>
         <div class="header-right">
             <span id="device-name-display" class="hidden text-accent">--</span>
             
@@ -355,7 +356,7 @@
     <div id="toast-notification" popover="manual">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.6.02</div>
+        <div class="instructions">Version 7.7.01</div>
     </div>
 
     <div id="alignment-panel">
@@ -675,7 +676,7 @@
             </div>
             <div class="font-800 text-accent mb-4" style="font-size: 1.2rem;">LevelEdge Kinematics</div>
             <div class="font-mono mb-2" style="font-size: 0.9rem;">
-                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.6.02</span>
+                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.7.01</span>
             </div>
             <div class="font-mono mb-5" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
@@ -847,6 +848,9 @@
             updateSmoothTrail(0);
             
             masterPivot.quaternion.identity(); 
+            if (typeof ghostPivot !== 'undefined' && ghostPivot) ghostPivot.quaternion.identity();
+            updateSystemGeometry();
+
             masterPivot.position.set(0, pivotBaseY, 0); 
             masterBlock.position.set(0, -loadedRadius, 0); 
             headJoint.quaternion.identity(); 
@@ -1136,7 +1140,7 @@
                 }
             }
         };
-        
+
 
         // --- CLOUD LOCKER UI ---
         async function fetchCloudMatches() {
@@ -1377,7 +1381,8 @@
             ['X', 'Y', 'Z'].forEach(axis => { document.getElementById('spin' + axis).value = "0.0"; });
             
             if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
-            virtualBall.position.set(0, pivotBaseY - loadedRadius, getDynamicBallZ());
+            ghostPivot.quaternion.identity(); 
+            updateSystemGeometry(); 
             virtualBall.visible = true;
             impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
 
@@ -1517,9 +1522,19 @@
         }
 
         function updateSystemGeometry() {
-            let bZ = getDynamicBallZ(); if (virtualBall) virtualBall.position.set(0, pivotBaseY - loadedRadius, bZ);
-            masterPivot.position.set(0, pivotBaseY, 0); ghostPivot.position.set(0, pivotBaseY, 0);
-            masterBlock.position.set(0, -loadedRadius, 0); ghostBlock.position.set(0, -loadedRadius, 0);
+            let bZ = getDynamicBallZ(); 
+            if (virtualBall) {
+                let ballLocalPos = new THREE.Vector3(0, -loadedRadius, bZ);
+                if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+                    ballLocalPos.applyQuaternion(ghostPivot.quaternion);
+                }
+                ballLocalPos.y += pivotBaseY;
+                virtualBall.position.copy(ballLocalPos);
+            }
+            if(typeof masterPivot !== 'undefined' && masterPivot) masterPivot.position.set(0, pivotBaseY, 0); 
+            if(typeof ghostPivot !== 'undefined' && ghostPivot) ghostPivot.position.set(0, pivotBaseY, 0);
+            if(typeof masterBlock !== 'undefined' && masterBlock) masterBlock.position.set(0, -loadedRadius, 0); 
+            if(typeof ghostBlock !== 'undefined' && ghostBlock) ghostBlock.position.set(0, -loadedRadius, 0);
         }
 
         function updateMalletScale() {
@@ -1720,7 +1735,7 @@
         const virtualBall = new THREE.Mesh(ballGeo, ballMat); virtualBall.visible = false; scene.add(virtualBall);
 
         const ghostRailMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 }); let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), ghostRailMat); 
-        ghostRail.visible = false; scene.add(ghostRail);
+        ghostRail.visible = false;
 
         const wizardTableGroup = new THREE.Group();
         wizardTableGroup.visible = false;
@@ -1741,7 +1756,9 @@
         const masterPivot = new THREE.Group(); scene.add(masterPivot); const masterBlock = new THREE.Group(); masterPivot.add(masterBlock);
         const faceTrackerNode = new THREE.Group(); masterBlock.add(faceTrackerNode); const physicsTrackingNode = new THREE.Group(); physicsTrackingNode.position.set(0, 0, 0); masterBlock.add(physicsTrackingNode);
         const headJoint = new THREE.Group(); masterBlock.add(headJoint);
-        const ghostPivot = new THREE.Group(); scene.add(ghostPivot); const ghostBlock = new THREE.Group(); ghostPivot.add(ghostBlock); const ghostHeadJoint = new THREE.Group(); ghostBlock.add(ghostHeadJoint);
+        
+        const ghostPivot = new THREE.Group(); scene.add(ghostPivot); const ghostBlock = new THREE.Group(); ghostPivot.add(ghostBlock); const ghostHeadJoint = new THREE.Group(); ghostBlock.add(    ghostHeadJoint);
+            ghostPivot.add(ghostRail); // <-- Attach the rail to the relative pivot
 
         const loader = new THREE.STLLoader();
         loader.load('./model.stl', function (geometry) {
@@ -1784,7 +1801,11 @@
 
         function rebuildArcPts(radius) {
             let arcPts = []; let baseVec = new THREE.Vector3(0, -radius, 0); 
-            for(let i=-60; i<=60; i+=2) { let a = THREE.MathUtils.degToRad(i); let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); v.y += pivotBaseY; arcPts.push(v); }
+            for(let i=-60; i<=60; i+=2) { 
+                    let a = THREE.MathUtils.degToRad(i); 
+                    let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); 
+                    arcPts.push(v); // Removed the v.y += pivotBaseY offset
+            }
             let curve = new THREE.CatmullRomCurve3(arcPts); let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false); 
             if (ghostRail.geometry) ghostRail.geometry.dispose(); ghostRail.geometry = tubeGeo;
         }
@@ -2009,7 +2030,14 @@
             let data = swingDatabase[index]; recordedFrames = data.frames; finalReviewPivotQuat.copy(data.finalReviewPivotQuat); finalReviewPivotPos.copy(data.finalReviewPivotPos); finalReviewExtension = data.finalReviewExtension;
             rawTracePoints = data.rawTracePoints; updateSmoothTrail();
             playbackMode = true; isPaused = false; playbackIndex = 0; isReviewingLog = true; ghostMalletMesh.visible = isGhostEnabled; lastPlaybackTime = Date.now(); 
-            if (isBallEnabled) { virtualBall.position.set(0, pivotBaseY - loadedRadius, getDynamicBallZ()); virtualBall.visible = true; }
+            
+            // Reapply relative ghost anchor to properly display replay ball and target line
+            if (isBallEnabled) { 
+                ghostPivot.quaternion.copy(data.setupQuat || new THREE.Quaternion());
+                updateSystemGeometry(); 
+                virtualBall.visible = true; 
+            }
+            
             if(scrubberInput) { scrubberInput.max = recordedFrames.length - 1; scrubberInput.value = 0; }
             let sLabel = document.getElementById('scrubberLabel'); if(sLabel) sLabel.innerText = `Frame: 1 / ${recordedFrames.length}`;
             if(data.casts && data.casts.length > 0) drawStrikeLaser(data.casts[data.casts.length - 1]); else { impactLasers.forEach(m => scene.remove(m)); impactLasers = []; }
@@ -2063,13 +2091,24 @@
             
             zeroRawBLEQuat.copy(currentRawBLEQuat);
             
-            if (isBallEnabled) { virtualBall.position.set(0, pivotBaseY - loadedRadius, getDynamicBallZ()); virtualBall.visible = true; } 
-            else { virtualBall.visible = false; }
+            if (isBallEnabled) { 
+                ghostPivot.quaternion.identity(); 
+                updateSystemGeometry(); 
+                virtualBall.visible = true; 
+            } else { virtualBall.visible = false; }
 
             appState = 2; calibrationPhase = 'RED'; redStartTime = Date.now(); isReviewingLog = false;
             
             let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - loadedRadius, 0); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
-            baseQuatInverse.copy(lastRawQuat).invert(); targetQuaternion.identity(); currentQuaternion.identity(); masterPivot.quaternion.identity();
+            
+            // Extract only the Y-Axis (Yaw/Heading) to zero out, preserving calibrated Pitch & Roll
+            let initialEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
+            let initialHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, initialEuler.y, 0, 'YXZ'));
+            baseQuatInverse.copy(initialHeading).invert(); 
+            targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); 
+            currentQuaternion.copy(targetQuaternion); 
+            masterPivot.quaternion.copy(currentQuaternion);
+
             document.getElementById('ready-group').classList.add('hidden'); document.getElementById('cancelArmBtn').classList.remove('hidden');
             let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "ESTABLISHING HEADING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
             document.getElementById('live-countdown').classList.add('hidden'); document.getElementById('calibration-container').classList.remove('hidden');
@@ -2193,16 +2232,36 @@
                     if (jsNow - orangeStartTime > 20000) { resetSystemState(true, false).then(() => { let txt = document.getElementById('swing-state'); if(txt) { txt.innerHTML = "STEADYING FAILED - TOO MUCH MOVEMENT. TRY AGAIN."; txt.className = "text-danger text-center font-bold mb-4"; } }); return; }
                     let visualDiff = currentQuaternion.angleTo(targetQuaternion);
                     if (calibrationHoldTimeMs >= 1000 && visualDiff < 0.02) { 
-                        calibrationPhase = 'NONE'; baseQuatInverse.copy(lastRawQuat).invert(); document.getElementById('calibration-container').classList.add('hidden');
+
+                        calibrationPhase = 'NONE'; 
+                        // Extract and zero only the final settled Yaw/Heading
+                        let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
+                        let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YXZ'));
+                        baseQuatInverse.copy(finalHeading).invert(); 
+                        document.getElementById('calibration-container').classList.add('hidden');
+
+                        targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); 
+                        currentQuaternion.copy(targetQuaternion); 
+                        masterPivot.quaternion.copy(currentQuaternion);
+
+                        // --- NEW RELATIVE PLACEMENT ARCHITECTURE ---
+                        ghostPivot.quaternion.copy(currentQuaternion);
+                        updateSystemGeometry(); 
+
+                        let tiltedNormal = new THREE.Vector3(1, 0, 0).applyQuaternion(currentQuaternion);
+                        let tiltedCentroid = new THREE.Vector3(0, -loadedRadius, 0).applyQuaternion(currentQuaternion).add(new THREE.Vector3(0, pivotBaseY, 0));
+                        idealPlane = { centroid: tiltedCentroid, normal: tiltedNormal };
+                        // ------------------------------------------
+
                         ignoreSpeedUntilTime = Date.now() + 500; currentAbsoluteSpeed = 0; prevZ = 0; prevFaceZ = 0; isForwardSwing = true; lastForwardPassTime = 0; impactDetected = false; isLive = true; 
                         playbackMode = false; posHistory = []; currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
                         window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; preRollBuffer = []; recordedFrames = []; rawTracePoints = []; castData = [];
-                        idealPlane = { centroid: new THREE.Vector3(0, pivotBaseY - loadedRadius, 0), normal: new THREE.Vector3(1, 0, 0) };
+                        
                         sendBleCommand([71]); // 'G'
                         appState = 3; armedUiStartTime = Date.now(); document.getElementById('playback-panel').classList.add('hidden'); 
                         document.getElementById('live-tracking-card').classList.remove('hidden');
                         document.getElementById('live-tempo').innerText = '-- BPM'; document.getElementById('live-speed').innerText = '0.0 m/s'; document.getElementById('live-force').innerText = '0 N'; document.getElementById('live-dev').innerText = '-- cm'; document.getElementById('live-applied').innerText = '-- N';
-                        targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); currentQuaternion.copy(targetQuaternion); masterPivot.quaternion.copy(currentQuaternion);
+                        
                         masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity(); finalReviewExtension = 0; playBeep(1000, 0.3); 
 
                         if(swingStateTxt && !isDynamicCalibrationActive) { swingStateTxt.innerHTML = "TARGET LOCKED. LIFT AND SWING.<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Trace will activate on lift-off.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
@@ -2254,7 +2313,7 @@
                             if (!f.isForward) { r = 1.0; g = 1.0; b = 0.0; } 
                             else {
                                 if (idealPlane) {
-                                    let ballWorldPos = new THREE.Vector3(0, pivotBaseY - loadedRadius, getDynamicBallZ()); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
+                                    let ballWorldPos = virtualBall.position.clone(); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
                                     let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
                                     if(isNaN(t)) t = 0; r = t; g = 1.0 - t; b = 0.0;
                                 } else { r = 0.0; g = 1.0; b = 0.8; }
@@ -2285,11 +2344,28 @@
                     tempPivot.add(tempBlock); tempBlock.add(tempFace); tempPivot.quaternion.copy(iQuat); scene.add(tempPivot); tempPivot.updateMatrixWorld(true);
                     let exactFacePos = new THREE.Vector3(); tempFace.getWorldPosition(exactFacePos); scene.remove(tempPivot);
 
-                    let strikeX = exactFacePos.x; let strikeY = 0; let devCM = Math.abs(strikeX); if (devCM < 0.25) devCM = 0.0;
-                    let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C'); let locTwist = getShaftTwist(iQuat); let passForce = calculateImpactForce(currentAbsoluteSpeed);
-                    let floatOffset = exactFacePos.y - (pivotBaseY - loadedRadius); let snapshotPos = new THREE.Vector3(0, (pivotBaseY + currentPivotLift) - floatOffset, 0);
+                    // Compute deviation entirely within the customized tilted setup plane
+                    ghostBlock.updateMatrixWorld(true);
+                    let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
+                    let localFaceAtImpact = exactFacePos.clone().applyMatrix4(ghostInvMat);
+
+                    let strikeX = localFaceAtImpact.x; 
+                    let strikeY = localFaceAtImpact.y; 
+                    let devCM = Math.abs(strikeX); if (devCM < 0.25) devCM = 0.0;
+                    let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C'); 
+                    let locTwist = getShaftTwist(iQuat); let passForce = calculateImpactForce(currentAbsoluteSpeed);
+                    let floatOffset = localFaceAtImpact.y; 
+                    let snapshotPos = new THREE.Vector3(0, (pivotBaseY + currentPivotLift) - floatOffset, 0);
+                    
                     let pathAngleRads = 0;
-                    if (preRollBuffer.length > 5) { let pastPos = preRollBuffer[preRollBuffer.length - 5].pos; let dx = exactFacePos.x - pastPos.x; let dz = exactFacePos.z - pastPos.z; pathAngleRads = Math.atan2(dx, Math.abs(dz)); }
+                    if (preRollBuffer.length > 5) { 
+                        let pastPos = preRollBuffer[preRollBuffer.length - 5].pos; 
+                        let pastLocal = pastPos.clone().applyMatrix4(ghostInvMat);
+                        let faceLocal = exactFacePos.clone().applyMatrix4(ghostInvMat);
+                        let dx = faceLocal.x - pastLocal.x; 
+                        let dz = faceLocal.z - pastLocal.z; 
+                        pathAngleRads = Math.atan2(dx, Math.abs(dz)); 
+                    }
                     
                     let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; 
                     let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
@@ -2332,7 +2408,7 @@
                     if (!isForwardSwing) { r = 1.0; g = 1.0; b = 0.0; } 
                     else {
                         if (idealPlane) {
-                            let ballWorldPos = new THREE.Vector3(0, pivotBaseY - loadedRadius, getDynamicBallZ()); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
+                            let ballWorldPos = virtualBall.position.clone(); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
                             let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
                             if(isNaN(t)) t = 0; r = t; g = 1.0 - t; b = 0.0;
                         } else { r = 0.0; g = 1.0; b = 0.8; }
@@ -2376,7 +2452,7 @@
             } else { currentSwingDist = 0; }
             
             let hwAppliedForce = window.lastEdgeData.appliedForce; 
-            swingDatabase.push({ frames: [...recordedFrames], rawTracePoints: [...rawTracePoints], casts: [...castData], finalReviewPivotQuat: finalReviewPivotQuat.clone(), finalReviewPivotPos: finalReviewPivotPos.clone(), finalReviewExtension: finalReviewExtension });
+            swingDatabase.push({ frames: [...recordedFrames], rawTracePoints: [...rawTracePoints], casts: [...castData], finalReviewPivotQuat: finalReviewPivotQuat.clone(), finalReviewPivotPos: finalReviewPivotPos.clone(), finalReviewExtension: finalReviewExtension, setupQuat: ghostPivot.quaternion.clone() });
             let swingIndex = swingCount; swingCount++;
             
             let ssRad = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; let devColor = 'var(--danger)';
