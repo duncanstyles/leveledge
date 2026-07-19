@@ -1,0 +1,2655 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LevelEdge v7.7.01</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-base: #f8fafc;
+            --bg-panel: #ffffff;
+            --bg-overlay: rgba(255, 255, 255, 0.85);
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --accent-primary: #0284c7; 
+            --accent-hover: #0369a1;
+            --border-color: #e2e8f0;
+            --danger: #ef4444;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --canvas-bg: #e2e8f0; 
+            
+            --font-sans: 'Inter', system-ui, sans-serif;
+            --font-mono: 'JetBrains Mono', monospace;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
+        }
+
+        [data-theme="dark"] {
+            --bg-base: #0f172a;
+            --bg-panel: #1e293b;
+            --bg-overlay: rgba(15, 23, 42, 0.85);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-primary: #38bdf8;
+            --accent-hover: #7dd3fc;
+            --border-color: #334155;
+            --canvas-bg: #0f172a;
+            --shadow-lg: 0 10px 25px rgba(0,0,0,0.5);
+        }
+
+        body { margin: 0; overflow: hidden; background-color: var(--canvas-bg); color: var(--text-main); font-family: var(--font-sans); transition: background-color 0.3s; }
+
+        /* --- UTILITY CLASSES --- */
+        .hidden { display: none !important; }
+        .flex { display: flex; }
+        .flex-col { display: flex; flex-direction: column; }
+        .items-center { align-items: center; }
+        .justify-center { justify-content: center; }
+        .justify-between { justify-content: space-between; }
+        .justify-around { justify-content: space-around; }
+        .gap-2 { gap: 8px; }
+        .gap-3 { gap: 12px; }
+        .gap-4 { gap: 15px; }
+        .w-full { width: 100%; }
+        .w-25 { width: 25%; }
+        .flex-1 { flex: 1; }
+        
+        .text-center { text-align: center; }
+        .text-right { text-align: right; }
+        .text-left { text-align: left; }
+        
+        .mt-2 { margin-top: 8px; }
+        .mt-4 { margin-top: 15px; }
+        .mt-5 { margin-top: 20px; }
+        .mb-2 { margin-bottom: 8px; }
+        .mb-4 { margin-bottom: 15px; }
+        .mb-5 { margin-bottom: 20px; }
+        .mr-3 { margin-right: 12px; }
+        .p-4 { padding: 15px; }
+        .p-5 { padding: 20px; }
+        
+        .text-muted { color: var(--text-muted); }
+        .text-accent { color: var(--accent-primary); }
+        .text-danger { color: var(--danger); }
+        .text-warning { color: var(--warning); }
+        .text-success { color: var(--success); }
+        
+        .font-bold { font-weight: bold; }
+        .font-800 { font-weight: 800; }
+        .font-mono { font-family: var(--font-mono); }
+        .italic { font-style: italic; }
+        .uppercase { text-transform: uppercase; }
+        .line-height-15 { line-height: 1.5; }
+
+        .divider { border: 0; border-top: 1px solid var(--border-color); margin: 0; width: 100%; }
+        .divider-sm { border: 0; border-top: 1px solid var(--border-color); margin: 5px 0; width: 100%; }
+        .span-2 { grid-column: span 2; }
+        .float-right-warn { float: right; color: var(--warning); font-size: 0.85rem; }
+
+        /* --- CORE STYLES --- */
+        #top-bar { position: absolute; top: 0; left: 0; width: 100%; height: 60px; background: var(--bg-panel); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; box-sizing: border-box; z-index: 40; box-shadow: var(--shadow-sm); transition: background 0.3s, border 0.3s; }
+        .brand { font-weight: 800; font-size: 1.2rem; letter-spacing: 1px; color: var(--text-main); }
+        .header-right { display: flex; align-items: center; gap: 15px; font-family: var(--font-mono); font-size: 0.85rem; font-weight: bold; }
+        
+        .icon-btn { background: none; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 5px; color: var(--text-main); transition: 0.2s; border-radius: 6px; }
+        .icon-btn:hover { background: var(--bg-base); }
+        .bt-disconnected svg { stroke: var(--danger); }
+        .bt-connected svg { stroke: var(--success); }
+
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .syncing svg { animation: spin 1.5s linear infinite; color: var(--accent-primary); }
+
+        /* --- ACCORDION MENU STYLES --- */
+        #menu-drawer { position: absolute; top: 60px; left: -300px; width: 280px; height: calc(100dvh - 60px); background: var(--bg-panel); border-right: 1px solid var(--border-color); z-index: 35; transition: left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); padding: 20px; padding-bottom: 40px; box-sizing: border-box; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+        #menu-drawer.open { left: 0; }
+        .drawer-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-main); padding: 12px; border-radius: var(--radius-md); font-family: var(--font-sans); font-size: 0.95rem; font-weight: 600; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
+        .drawer-btn:hover { background: var(--bg-base); border-color: var(--accent-primary); }
+        .drawer-btn.active { border-color: var(--accent-primary); background: var(--bg-base); }
+        
+        details.drawer-accordion summary {
+            background: transparent; border: 1px solid var(--border-color); color: var(--text-main);
+            padding: 12px; border-radius: var(--radius-md); font-family: var(--font-sans);
+            font-size: 0.95rem; font-weight: 600; cursor: pointer; text-align: left;
+            display: flex; justify-content: space-between; align-items: center; transition: 0.2s;
+            list-style: none; outline: none;
+        }
+        details.drawer-accordion summary::-webkit-details-marker { display: none; }
+        details.drawer-accordion summary:hover { background: var(--bg-base); border-color: var(--accent-primary); }
+        details.drawer-accordion[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; border-bottom: none; }
+        .drawer-sub-menu {
+            display: flex; flex-direction: column;
+            border: 1px solid var(--border-color); border-top: none;
+            border-bottom-left-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md);
+            overflow: hidden; margin-bottom: 5px;
+        }
+        .drawer-sub-item {
+            background: transparent; border: none; color: var(--text-main);
+            padding: 12px 12px 12px 20px; font-family: var(--font-sans); font-size: 0.85rem; font-weight: 600;
+            cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center;
+            border-top: 1px solid var(--border-color); transition: 0.2s;
+        }
+        .drawer-sub-item:hover { background: var(--bg-base); color: var(--accent-primary); }
+
+        button { font-family: var(--font-sans); cursor: pointer; outline: none; }
+        .btn-primary { background-color: var(--accent-primary); color: #fff; border: none; padding: 12px 24px; font-size: 1rem; font-weight: 600; border-radius: var(--radius-md); transition: 0.2s; width: 100%; box-sizing: border-box; }
+        .btn-primary:hover { background-color: var(--accent-hover); transform: translateY(-1px); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-danger { background-color: var(--danger); }
+        .btn-danger:hover { background-color: #dc2626; }
+        .btn-warning { background-color: var(--warning); color: #111; }
+        .btn-success { background-color: var(--success); }
+        .btn-success:hover { background-color: #059669; }
+        .btn-small { width: auto; padding: 6px 16px; }
+
+        #ui-layer { position: absolute; top: 80px; width: 100%; z-index: 5; pointer-events: none; text-align: left; padding: 0 20px; box-sizing: border-box; }
+        .instructions { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 20px; font-weight: 600; }
+        
+        #control-panel { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); pointer-events: auto; width: 90%; max-width: 350px; display: flex; flex-direction: column; align-items: center; background: var(--bg-panel); padding: 20px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); border: 1px solid var(--border-color); z-index: 20; }
+        #swing-state { font-size: 1.1rem; font-weight: 600; color: var(--text-main); margin-bottom: 15px; text-align: center; }
+        #live-countdown { font-size: 3rem; font-weight: 800; color: var(--accent-primary); margin-bottom: 10px; font-family: var(--font-mono); }
+        
+        #calibration-container { width: 100%; height: 8px; background: var(--bg-base); border-radius: 4px; overflow: hidden; margin-top: 10px; }
+        #calibration-bar { width: 0%; height: 100%; background: var(--warning); transition: width 0.05s linear; }
+
+        /* --- HISTORY-BASED DYNAMIC TUNING OVERLAY --- */
+        #alignment-panel { display: none; position: fixed; top: 80px; right: 20px; background: var(--bg-panel); padding: 20px; z-index: 100; border-radius: var(--radius-lg); border: 2px solid var(--accent-primary); width: 280px; box-shadow: var(--shadow-lg); }
+        .tune-val-box { font-family: var(--font-mono); font-weight: bold; width: 100%; box-sizing: border-box; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-base); color: var(--text-main); text-align: center; padding: 8px; font-size: 1rem; }
+
+        /* --- HISTORY PANEL STYLES --- */
+        #history-panel { position: absolute; right: 0; top: 60px; width: 420px; height: calc(100vh - 60px); background: var(--bg-base); border-left: 1px solid var(--border-color); overflow-y: auto; padding: 20px; box-sizing: border-box; z-index: 15; pointer-events: auto; box-shadow: var(--shadow-lg); transition: right 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); }
+        #history-panel.desktop-closed { right: -450px; } 
+
+        .panel-tab-bar { display: flex; border-bottom: 1px solid var(--border-color); margin-bottom: 15px; }
+        .panel-tab-btn { background: transparent; color: var(--text-muted); border: none; border-bottom: 2px solid transparent; padding: 10px; font-weight: 800; font-family: var(--font-sans); flex: 1; cursor: pointer; transition: 0.2s; text-transform: uppercase; letter-spacing: 1px; }
+        .panel-tab-btn.active { color: var(--accent-primary); border-bottom: 2px solid var(--accent-primary); }
+        .panel-tab-btn:hover:not(.active) { color: var(--text-main); }
+
+        .feed-header { color: var(--text-main); font-size: 1.2rem; font-weight: 800; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
+        
+        #playback-panel, #tune-action-panel { background: var(--bg-panel); padding: 15px; border-radius: var(--radius-md); margin-bottom: 15px; border: 1px solid var(--accent-primary); }
+        #tune-action-panel { border-color: var(--warning); padding: 10px; }
+        
+        .history-card { background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 15px; margin-bottom: 15px; box-shadow: var(--shadow-sm); }
+        .flat-card { margin-bottom: 0; box-shadow: none; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 10px; }
+        .swing-title { font-weight: 800; color: var(--text-main); }
+        .swing-time { font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); }
+        
+        .card-basic-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .stat-block { display: flex; flex-direction: column; background: var(--bg-base); padding: 8px; border-radius: 6px; }
+        .stat-lbl { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+        .stat-val { font-size: 1.1rem; font-weight: 800; color: var(--text-main); font-family: var(--font-mono); }
+        
+        details.advanced-metrics { background: var(--bg-base); border-radius: 6px; padding: 10px; border: 1px solid var(--border-color); margin-bottom: 8px; }
+        details.active-match { background: var(--bg-panel); border: 1px solid var(--accent-primary); margin-bottom: 10px; }
+        details.advanced-metrics summary { font-size: 0.8rem; font-weight: 600; color: var(--accent-primary); cursor: pointer; outline: none; }
+        .match-summary { font-size: 1rem !important; font-weight: 800 !important; color: var(--text-main) !important; padding: 10px !important; }
+        .match-details { padding: 10px; display: flex; flex-direction: column; gap: 15px; border-top: 1px solid var(--border-color); background: var(--canvas-bg); }
+        
+        .adv-row { display: flex; justify-content: space-between; font-size: 0.85rem; font-family: var(--font-mono); padding: 4px 0; border-bottom: 1px dashed var(--border-color); color: var(--text-muted); }
+        .adv-row:last-child { border-bottom: none; }
+        .adv-val { color: var(--text-main); font-weight: 600; }
+
+        #live-tracking-card { border: 2px solid var(--accent-primary); }
+        .live-stat-row { display: flex; justify-content: space-around; margin-top: 10px; }
+        .live-stat { display: flex; flex-direction: column; align-items: center; }
+        
+        .cast-row { font-size: 0.8rem; font-family: var(--font-mono); padding: 8px 0; border-bottom: 1px solid var(--border-color); cursor: pointer; }
+        .cast-row:hover { background: var(--bg-base); }
+
+        /* --- MODAL DIALOGS --- */
+        dialog.modal {
+            margin: auto;
+            padding: 0;
+            border: none;
+            background: transparent;
+            overflow: visible;
+            font-family: var(--font-sans);
+            color: var(--text-main);
+        }
+        dialog.modal::backdrop {
+            background: var(--bg-overlay);
+            backdrop-filter: blur(4px);
+        }
+        
+        .settings-container { 
+            background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius-lg); 
+            padding: 25px; width: 100%; min-width: 320px; max-width: 600px; max-height: 90vh; overflow-y: auto; 
+            box-shadow: var(--shadow-lg); color: var(--text-main); box-sizing: border-box; 
+        }
+
+        /* --- SPECIAL WIZARD DIALOG --- */
+        #wizard-modal {
+            margin: auto auto 30px auto;
+            width: 90%;
+            max-width: 550px;
+        }
+        #wizard-modal .settings-container {
+            background: var(--bg-overlay);
+            backdrop-filter: blur(10px);
+        }
+        #wizard-modal::backdrop {
+            background: rgba(15, 23, 42, 0.25);
+            backdrop-filter: none;
+        }
+
+        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); padding-bottom: 15px; margin-bottom: 20px; }
+        .modal-header h2 { margin: 0; font-size: 1.2rem; font-weight: 800; text-transform: uppercase; }
+
+        .setting-item { display: flex; flex-direction: column; }
+        .setting-item label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); margin-bottom: 5px; text-transform: uppercase; }
+        input[type=number], input[type=text], input[type=email], input[type=password], select { padding: 10px; border-radius: 6px; border: 1px solid var(--border-color); background: var(--bg-base); color: var(--text-main); font-size: 1rem; font-family: var(--font-mono); width: 100%; box-sizing: border-box; }
+        input[type=checkbox] { transform: scale(1.2); }
+        .setting-checkbox { flex-direction: row; align-items: center; justify-content: space-between; }
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%; background: var(--accent-primary); cursor: pointer; margin-top: -8px; }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cursor: pointer; background: var(--border-color); border-radius: 3px; }
+
+        /* Popover Toast Notification */
+        #toast-notification {
+            position: fixed; inset: auto; bottom: 120px; left: 50%; transform: translateX(-50%) translateY(100px);
+            background: var(--text-main); color: var(--bg-panel); padding: 12px 24px;
+            border-radius: var(--radius-md); font-family: var(--font-mono); font-weight: 600; font-size: 0.9rem;
+            box-shadow: var(--shadow-lg); transition: transform 0.3s, opacity 0.3s; z-index: 9999;
+            opacity: 0; pointer-events: none; border: none; margin: 0;
+        }
+        #toast-notification.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+        /* --- GAME MODE DASHBOARD --- */
+        #game-mode-dashboard { background: var(--bg-base); z-index: 45; }
+        @keyframes pulse {
+            0% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { opacity: 0.3; box-shadow: 0 0 0 20px rgba(16, 185, 129, 0); }
+            100% { opacity: 1; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        @media (max-width: 768px) {
+            #history-panel { width: 100%; right: -100%; }
+            #history-panel.mobile-open { right: 0; }
+            .setting-item.span-2 { grid-column: span 1 !important; }
+            #alignment-panel { width: 90%; right: 5%; left: 5%; top: 120px; }
+            .brand-text { display: none; }
+        }
+    </style>
+    
+    <script src="bleManager.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+    <header id="top-bar">
+        <button id="menuToggleBtn" class="icon-btn">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+        </button>
+        <div class="brand flex items-center gap-2">
+            <svg width="26" height="26" viewBox="0 0 100 100">
+                <polyline points="25,20 25,80 75,80" fill="none" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+                <line x1="45" y1="20" x2="75" y2="20" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+                <line x1="55" y1="50" x2="65" y2="50" stroke="var(--accent-primary)" stroke-width="12" stroke-linecap="round"/>
+            </svg>
+            <span class="brand-text">LevelEdge AI</span>
+        </div>
+        <div class="header-right">
+            <span id="device-name-display" class="hidden text-accent">--</span>
+            
+            <button id="topSyncBtn" class="icon-btn hidden" title="Sync Mallet to Cloud">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
+                </svg>
+            </button>
+            <span id="battery-display" class="hidden">🔋 --%</span>
+            <button id="btToggleBtn" class="icon-btn bt-disconnected" title="Connect/Disconnect">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="2" y1="2" x2="22" y2="22"></line><polyline points="12 1 17.5 6.5 13.5 10.5"></polyline><polyline points="6.5 6.5 10.5 10.5"></polyline><polyline points="12 23 17.5 17.5 12 12"></polyline>
+                </svg>
+            </button>
+            <button id="topToggleHistoryBtn" class="icon-btn" title="Toggle Swing Log">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                    <line x1="10" y1="9" x2="8" y2="9"></line>
+                </svg>
+            </button>
+        </div>
+    </header>
+
+    <aside id="menu-drawer">
+        <hr class="divider">
+        <button id="themeToggleBtn" class="drawer-btn">Toggle Light/Dark <span>🌓</span></button>
+        <button id="toggleSoundBtn" class="drawer-btn active">App Audio <span>🔊</span></button>
+        <button id="flipViewBtn" class="drawer-btn">Flip Camera View <span>🔄</span></button>
+        
+        <hr class="divider-sm">
+        <details class="drawer-accordion">
+            <summary>Settings <span>⚙️</span></summary>
+            <div class="drawer-sub-menu">
+                <button id="openMalletBtn" class="drawer-sub-item">Mallet 
+                    <svg width="16" height="16" viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="6" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="50" y1="10" x2="50" y2="70"></line>
+                        <rect x="25" y="70" width="50" height="20" rx="4" fill="currentColor"></rect>
+                    </svg>
+                </button>
+                <button id="openPlayerBtn" class="drawer-sub-item">Player<span>👤</span></button>
+                <button id="openSystemBtn" class="drawer-sub-item">System<span>🧠</span></button>
+            </div>
+        </details>
+        
+        <hr class="divider-sm">
+        <button id="openAboutBtn" class="drawer-btn">About LevelEdge <span>ℹ️</span></button>
+        <button id="openAuthBtn" class="drawer-btn" style="margin-top: auto;">Cloud Login <span>👤</span></button>
+    </aside>
+
+    <div id="toast-notification" popover="manual">Notification Text</div>
+
+    <div id="ui-layer">
+        <div class="instructions">Version 7.7.01</div>
+    </div>
+
+    <div id="alignment-panel">
+        <h3 style="margin-top:0; font-size:1.1rem; color:var(--text-main); text-transform:uppercase;">Tune Alignment</h3>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:15px;">Adjust spin values until mallet face is flush with the virtual ball.</p>
+        
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px;">
+            <div>
+                <label for="spinX" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">PITCH</label>
+                <input type="number" id="spinX" step="0.1" value="0.0" class="tune-val-box">
+            </div>
+            <div>
+                <label for="spinY" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">YAW</label>
+                <input type="number" id="spinY" step="0.1" value="0.0" class="tune-val-box">
+            </div>
+            <div>
+                <label for="spinZ" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">ROLL</label>
+                <input type="number" id="spinZ" step="0.1" value="0.0" class="tune-val-box">
+            </div>
+        </div>
+        
+        <div style="display:flex; gap:10px; margin-top:20px;">
+            <button id="cancelTuneBtn" class="btn-primary btn-danger btn-small" style="flex:1;">CANCEL</button>
+            <button id="saveTuneBtn" class="btn-primary btn-success btn-small" style="flex:1;">SAVE</button>
+        </div>
+    </div>
+
+    <div id="game-mode-dashboard" class="hidden flex-col items-center justify-center w-full" style="position:fixed; top:60px; height:calc(100vh - 60px);">
+        <h1 class="gm-title text-accent font-800 uppercase text-center mb-2">Match in Progress</h1>
+        <div class="status-pulse" style="width: 30px; height: 30px; background: var(--success); border-radius: 50%; margin: 20px 0; animation: pulse 2s infinite;"></div>
+        <div class="gm-title text-muted font-bold uppercase mb-2">Total Strokes</div>
+        <div id="gm-stroke-count" class="gm-score font-mono text-main font-800" style="font-size: 6rem; line-height: 1;">0</div>
+        
+        <div id="gm-latest-stats" class="gm-stats text-warning font-mono text-center mt-5 mb-5" style="font-size: 1.1rem; min-height: 80px;">Awaiting Next Strike...</div>
+        
+        <button id="endGameModeBtn" class="btn-primary btn-danger mt-5" style="max-width: 300px;">END ON-COURSE MATCH</button>
+    </div>
+
+    <div id="control-panel">
+        <div id="swing-state">CONNECT MALLET<br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal;">Turn on sensor and ensure Bluetooth is enabled.</span></div>
+        <button id="centerConnectBtn" class="btn-primary">CONNECT</button>
+        
+        <div id="ready-group" class="hidden flex-col items-center gap-2 w-full">
+            <button id="zeroArmBtn" class="btn-primary btn-warning">SWING TRAINER</button>
+            <button id="startGameModeBtn" class="btn-primary btn-success">START MATCH</button>
+            <label id="singleSwingLabel" class="text-muted small-help cursor-pointer" style="font-size: 0.85rem;">
+                <input type="checkbox" id="singleSwingCheck" style="vertical-align: middle;"> Single Swing Pass
+            </label>
+        </div>
+        
+        <div id="live-countdown" class="hidden">0s</div>
+        <div id="calibration-container" class="hidden"><div id="calibration-bar"></div></div>
+        <button id="cancelArmBtn" class="btn-primary btn-danger hidden mt-2">CANCEL</button>
+    </div>
+
+    <div id="history-panel" class="desktop-closed">
+        <div class="panel-tab-bar">
+            <button id="tab-training-btn" class="panel-tab-btn active">TRAINING</button>
+            <button id="tab-match-btn" class="panel-tab-btn">MATCHES</button>
+        </div>
+
+        <div id="training-tab-content">
+            <div class="feed-header">
+                <span>Swing Log</span>
+                <button id="resetMaxBtn" class="btn-primary btn-danger" style="font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Clear Log 🗑️</button>
+            </div>
+
+            <div id="tune-action-panel" class="hidden">
+                <div class="flex gap-2">
+                    <button id="enterTuningBtn" class="btn-primary btn-warning flex-1 p-2 hidden" style="color:#111; font-size:0.85rem;">🛠️ TUNE ALIGNMENT</button>
+                    <button id="exitPassViewBtn" class="btn-primary btn-danger flex-1 p-2" style="font-size:0.85rem;">🛑 STOP</button>
+                </div>
+            </div>
+
+            <div id="playback-panel" class="hidden">
+                <div class="text-accent font-800 mb-2" style="font-size: 0.85rem;">REPLAY MONITOR</div>
+                <div class="flex-col gap-2 mb-4">
+                    <label id="scrubberLabel" for="replayScrubber" class="font-mono text-muted" style="font-size: 0.75rem;">Frame: 0 / 0</label>
+                    <input type="range" id="replayScrubber" min="0" value="0" step="1" class="w-full">
+                </div>
+                <div class="flex gap-2">
+                    <button id="pauseBtn" class="drawer-btn flex-1 justify-center p-3">⏸ PAUSE</button>
+                    <button id="slowMoBtn" class="drawer-btn flex-1 justify-center p-3">🐌 SLOW</button>
+                    <button id="exitReplayBtn" class="btn-primary btn-danger flex-1 p-3">🛑 STOP</button>
+                </div>
+            </div>
+
+            <div id="live-tracking-card" class="history-card hidden">
+                <div class="card-header" style="border-bottom:none; margin-bottom:0; padding-bottom:0;">
+                    <span class="swing-title text-warning">[ LIVE TRACKING ]</span>
+                    <span id="live-tempo" class="swing-time text-accent font-bold">-- BPM</span>
+                </div>
+                <div class="live-stat-row">
+                    <div class="stat-block"><span class="stat-lbl">Speed</span><span id="live-speed" class="stat-val">0 m/s</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Force (N)</span><span id="live-force" class="stat-val">0 N</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Deviation</span><span id="live-dev" class="stat-val">-- cm</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Extension</span><span id="live-applied" class="stat-val">-- N</span></div>
+                </div>
+                <div id="live-tracking-list" class="mt-4"></div>
+            </div>
+
+            <div id="history-list">
+                <div class="text-muted italic text-center mt-5" style="font-size: 0.85rem;">No swings recorded yet. Arm and swing!</div>
+            </div>
+        </div>
+
+        <div id="match-tab-content" class="hidden">
+            <div id="cloud-matches-container" class="flex-col gap-2">
+                <div class="text-muted text-center p-5">Please log in to view Cloud Matches.</div>
+            </div>
+        </div>
+    </div>
+
+    <dialog id="auth-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header justify-center">
+                <h2>LEVELEDGE CLOUD</h2>
+            </div>
+            
+            <form id="authForm" onsubmit="event.preventDefault();">
+                <div class="flex-col gap-4 text-left mb-5">
+                    <div class="setting-item">
+                        <label for="authEmail">Email</label>
+                        <input type="email" id="authEmail" placeholder="player@example.com" autocomplete="username">
+                    </div>
+                    <div class="setting-item">
+                        <label for="authPassword">Password</label>
+                        <input type="password" id="authPassword" placeholder="••••••••" autocomplete="current-password">
+                    </div>
+                </div>
+
+                <div class="flex-col gap-3">
+                    <button id="btnLogin" class="btn-primary" type="submit">LOG IN</button>
+                    <button id="btnSignup" class="drawer-btn justify-center" type="button">CREATE ACCOUNT</button>
+                    <button id="btnForgotPassword" class="drawer-btn justify-center" type="button" style="border: none; text-decoration: underline; font-size: 0.85rem;">FORGOT PASSWORD?</button>
+                    <button id="btnCloseAuth" class="btn-primary btn-danger mt-2" type="button">CANCEL</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
+    <dialog id="update-password-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header justify-center">
+                <h2>RESET PASSWORD</h2>
+            </div>
+            <form id="updatePasswordForm" onsubmit="event.preventDefault();">
+                <div class="flex-col gap-4 text-left mb-5">
+                    <div class="setting-item">
+                        <label for="newPassword">New Password</label>
+                        <input type="password" id="newPassword" placeholder="••••••••" autocomplete="new-password">
+                    </div>
+                </div>
+                <div class="flex-col gap-3">
+                    <button id="btnSaveNewPassword" class="btn-primary btn-success" type="submit">SAVE NEW PASSWORD</button>
+                    <button id="btnCloseUpdatePassword" class="btn-primary btn-danger mt-2" type="button">CANCEL</button>
+                </div>
+            </form>
+        </div>
+    </dialog>
+
+    <dialog id="match-edit-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>EDIT MATCH DETAILS</h2>
+                <button id="btnCloseMatchEdit" class="btn-primary btn-danger btn-small">CANCEL</button>
+            </div>
+            
+            <div class="flex-col gap-4 mb-5">
+                <input type="hidden" id="editMatchId">
+                <div class="setting-item"><label for="editLocation">Location / Title</label><input type="text" id="editLocation" placeholder="Untitled Match"></div>
+                <div class="setting-item"><label for="editOpponent">Opponent</label><input type="text" id="editOpponent" placeholder="John Doe"></div>
+                <div class="setting-item"><label for="editEvent">Event / Tournament</label><input type="text" id="editEvent" placeholder="Club Championship"></div>
+                <div class="setting-item"><label for="editLawnSpeed">Lawn Speed (Plummers)</label><input type="number" id="editLawnSpeed" step="0.5" value="10.0"></div>
+                <div class="setting-item"><label for="editNotes">Notes & Weather</label><input type="text" id="editNotes" placeholder="Sunny, wet grass"></div>
+            </div>
+
+            <div class="flex-col gap-3">
+                <button id="btnSaveMatchEdit" class="btn-primary btn-success">SAVE DETAILS</button>
+                <!-- New Delete Button added here -->
+                <button id="btnDeleteMatch" class="drawer-btn justify-center text-danger" style="border-color: var(--danger);">DELETE MATCH</button>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="offline-viewer-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>OFFLINE JSON VIEWER</h2>
+                <button id="closeOfflineViewerBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
+            </div>
+            <div class="mb-4">
+                <button id="loadOfflineFileBtn" class="btn-primary">LOAD HISTORY (.JSON)</button>
+                <input type="file" id="offlineHistoryInput" accept=".json" class="hidden">
+            </div>
+            <div id="offline-matches-container" class="flex-col gap-2" style="max-height: 60vh; overflow-y: auto;">
+                <div class="text-muted text-center p-5">No file loaded.</div>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="mallet-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>MALLET & HARDWARE</h2>
+                <button id="closeMalletBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="setting-item span-2"><label for="malletNameInput">Profile Name:</label><input type="text" id="malletNameInput" value="Primary Mallet"></div>
+                <div class="setting-item"><label for="malletLengthInput">Head Length (cm):</label><input type="number" id="malletLengthInput" value="27.6" step="0.1"></div>
+                <div class="setting-item"><label for="malletWidthInput">Face Width (cm):</label><input type="number" id="malletWidthInput" value="6.0" step="0.1"></div>
+                <div class="setting-item"><label for="massInput">Mallet Mass (g):</label><input type="number" id="massInput" value="1000" step="50"></div>
+                <div class="setting-item"><label for="offsetYInput">Sensor Offset Y (cm):</label><input type="number" id="offsetYInput" value="5.5" step="0.1"></div>
+                
+                <div class="setting-item setting-checkbox span-2">
+                    <label for="allowRealtimeTuningCheck">Allow Realtime Tuning:</label>
+                    <input type="checkbox" id="allowRealtimeTuningCheck">
+                </div>
+                
+                <div class="setting-item span-2 mt-2 flex-col gap-2">
+                    <button id="launchWizardBtn" class="btn-primary">TABLE CALIBRATION WIZARD</button>
+                </div>
+                
+                <div class="setting-item mt-4">
+                    <button id="exportProfileBtn" class="drawer-btn justify-center">↓ Export (.LVE)</button>
+                </div>
+                <div class="setting-item mt-4">
+                    <button id="importProfileBtn" class="drawer-btn justify-center">↑ Import (.LVE)</button>
+                    <input type="file" id="importFileInput" accept=".lve" class="hidden">
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="player-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>PLAYER & DIFFICULTY</h2>
+                <button id="closePlayerBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="setting-item"><label for="radiusInput">Swing Radius (cm):</label><input type="number" id="radiusInput" value="127" step="1"></div>
+                <div class="setting-item span-2"><label for="difficultySelect">Skill Target Profile:</label>
+                    <select id="difficultySelect">
+                        <option value="novice">Novice (2m, 4m, 6m, 8m)</option>
+                        <option value="intermediate" selected>Intermediate (3m, 6m, 9m, 12m)</option>
+                        <option value="advanced">Advanced (4m, 8m, 12m, 16m)</option>
+                        <option value="expert">Expert (5m, 10m, 15m, 20m)</option>
+                    </select>
+                </div>
+                <div class="setting-item"><label for="sweetSpotInput">Sweet Spot (±cm):</label><input type="number" id="sweetSpotInput" value="1.5" step="0.1"></div>
+                <div class="setting-item"><label for="twistToleranceInput">Twist Tol. (±°):</label><input type="number" id="twistToleranceInput" value="1.0" step="0.1"></div>
+                <div class="setting-item"><label for="audioThreshInput">Buzzer Dev. (cm):</label><input type="number" id="audioThreshInput" value="2.0" step="0.1"></div>
+                <div class="setting-item setting-checkbox span-2"><label for="metronomeCheck">Metronome Training:</label><input type="checkbox" id="metronomeCheck"></div>
+                <div class="setting-item"><label for="metronomeBpm">Target BPM:</label><input type="number" id="metronomeBpm" value="60" step="1"></div>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="system-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>SYSTEM & ALGORITHMS</h2>
+                <button id="closeSystemBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                <div class="setting-item setting-checkbox span-2"><label for="ledGuidanceCheck">Real-Time LED Guidance:</label><input type="checkbox" id="ledGuidanceCheck" checked></div>
+                <div class="setting-item"><label for="impactInput">Impact Jerk (ΔG):</label><input type="number" id="impactInput" value="4.0" step="0.5"></div>
+                
+                <div class="setting-item span-2">
+                    <label for="lawnSpeedInput" class="flex justify-between">
+                        <span>Lawn Speed (Plummers):</span>
+                        <span id="lawnSpeedLabel" class="text-accent">10.0 (Medium)</span>
+                    </label>
+                    <input type="range" id="lawnSpeedInput" min="5.0" max="15.0" step="0.5" value="10.0" style="padding: 0; margin-top: 5px;">
+                    <div style="position: relative; height: 15px; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; font-weight: bold;">
+                        <span style="position: absolute; left: 0%;">5</span>
+                        <span style="position: absolute; left: 30%; transform: translateX(-50%);">8 (Slow)</span>
+                        <span style="position: absolute; left: 50%; transform: translateX(-50%);">10 (Med)</span>
+                        <span style="position: absolute; left: 70%; transform: translateX(-50%);">12 (Fast)</span>
+                        <span style="position: absolute; right: 0%;">15</span>
+                    </div>
+                </div>
+
+                <div class="setting-item"><label for="timeoutInput">Sleep Timeout (mins):</label><input type="number" id="timeoutInput" value="5" step="1"></div>
+                <div class="setting-item"><label for="durationInput">Follow-Thru Rec (s):</label><input type="number" id="durationInput" value="1.0" step="0.1"></div>
+                <div class="setting-item"><label for="practiceInput">Shot Clock (s):</label><input type="number" id="practiceInput" value="10.0" step="0.5"></div>
+                <div class="setting-item"><label for="flatMagInput">Drop Vis (x):</label><input type="number" id="flatMagInput" value="4.0" step="0.5"></div>
+                <div class="setting-item setting-checkbox span-2"><label for="showTraceCheck">Render 3D Trace:</label><input type="checkbox" id="showTraceCheck" checked></div>
+                
+                <div class="setting-item mt-2"><button id="btnUpdateFW" class="btn-primary">Sync FW</button></div>
+                <div class="setting-item mt-2"><button id="btnResetFW" class="btn-primary btn-warning">Reboot HW</button></div>
+                <div class="setting-item mt-2"><button id="btnDownloadData" class="btn-primary">Export JSON</button></div>
+                <div class="setting-item mt-2"><button id="btnWipeData" class="btn-primary btn-danger">Wipe Mallet</button></div>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="wizard-modal" class="modal">
+        <div class="settings-container text-center">
+            <div class="modal-header">
+                <h2>LAB CALIBRATION</h2>
+                <button id="closeWizardBtn" class="btn-primary btn-danger btn-small">CANCEL</button>
+            </div>
+            <div id="wizard-step-title" class="text-accent font-800 mb-2" style="font-size: 1.2rem;">Step 1: Preparation</div>
+            <div id="wizard-instruction" class="text-muted mb-5" style="font-size: 0.95rem; line-height: 1.5;">Remove the mallet shaft. You will need a perfectly flat table. Set a physical 'Heading Line' (like a table edge) and note 'True North'.</div>
+            <div id="wizard-progress" class="font-mono font-bold mb-4">Step 1 of 7</div>
+            <button id="wizardCaptureBtn" class="btn-primary">BEGIN CALIBRATION</button>
+        </div>
+    </dialog>
+
+    <dialog id="about-modal" class="modal">
+        <div class="settings-container text-center">
+            <div class="modal-header">
+                <h2>ABOUT</h2>
+                <button id="closeAboutBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
+            </div>
+            <div class="font-800 text-accent mb-4" style="font-size: 1.2rem;">LevelEdge Kinematics</div>
+            <div class="font-mono mb-2" style="font-size: 0.9rem;">
+                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.7.01</span>
+            </div>
+            <div class="font-mono mb-5" style="font-size: 0.9rem;">
+                Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
+                Offline Strokes: <span id="about-storage-display" class="text-accent">--</span><br>
+                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 7.6.01</span>
+            </div>
+            <div class="text-muted line-height-15" style="font-size: 0.8rem;">
+                &copy; Duncan Styles<br>
+                Leveledge AI Kinematics 2026<br>
+                <a href="https://www.leveledge.ai" target="_blank" class="text-accent" style="text-decoration: none;">www.leveledge.ai</a>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="dev-options-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>DEVELOPER OPTIONS</h2>
+                <button id="closeDevOptionsBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
+            </div>
+            <div class="flex-col gap-3 mt-4">
+                <button id="openOfflineViewerBtn" class="btn-primary">LOAD OFFLINE JSON (.JSON)</button>
+            </div>
+        </div>
+    </dialog>
+
+    <script>
+        // --- UI Interactions ---
+        document.getElementById('menuToggleBtn').onclick = () => { document.getElementById('menu-drawer').classList.toggle('open'); };
+        
+        document.getElementById('topToggleHistoryBtn').onclick = () => { 
+            const panel = document.getElementById('history-panel');
+            if (window.innerWidth <= 768) {
+                panel.classList.toggle('mobile-open'); 
+            } else {
+                panel.classList.toggle('desktop-closed');
+            }
+        };
+
+        // --- HISTORY PANEL TAB LOGIC ---
+        document.getElementById('tab-training-btn').onclick = () => switchHistoryTab('training');
+        document.getElementById('tab-match-btn').onclick = () => switchHistoryTab('match');
+
+        function switchHistoryTab(tab) {
+            if (tab === 'training') {
+                document.getElementById('tab-training-btn').classList.add('active');
+                document.getElementById('tab-match-btn').classList.remove('active');
+                document.getElementById('training-tab-content').classList.remove('hidden');
+                document.getElementById('match-tab-content').classList.add('hidden');
+            } else {
+                document.getElementById('tab-match-btn').classList.add('active');
+                document.getElementById('tab-training-btn').classList.remove('active');
+                document.getElementById('match-tab-content').classList.remove('hidden');
+                document.getElementById('training-tab-content').classList.add('hidden');
+                if (currentUser) {
+                    fetchCloudMatches();
+                } else {
+                    document.getElementById('cloud-matches-container').innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Matches.</div>';
+                }
+            }
+        }
+
+        // --- Core Variables ---
+        const MIN_SUPPORTED_FW = "7.3.01";
+        function getDynamicFaceZ() { let el = document.getElementById('malletLengthInput'); return el ? (parseFloat(el.value) || 27.6) / 2.0 : 13.8; }
+        function getDynamicBallZ() { return getDynamicFaceZ() + 4.6; }
+
+        let pivotBaseY = 24.6; let globalHwTime = 0; let lastRawTs = -1; let tsOffset = 0;
+        let appState = 0; let armedUiStartTime = 0; let state4UiStartTime = 0; let state4StartTime = 0; let goTimeout; let ignoreSpeedUntilTime = 0; let isReviewingLog = false; 
+        let recordTicks = 0; let postImpactTicks = 0;
+        let calibrationPhase = 'NONE'; let redStartTime = 0; let calibrationHoldTimeMs = 0; let lastJsTime = 0; let orangeStartTime = 0; 
+        let lastRawQuat = new THREE.Quaternion(); let baseQuatInverse = new THREE.Quaternion(); let lastStableQuat = new THREE.Quaternion();
+        let targetQuaternion = new THREE.Quaternion(); let prevTargetQuaternion = new THREE.Quaternion(); let currentQuaternion = new THREE.Quaternion();
+        let finalReviewPivotQuat = new THREE.Quaternion(); let finalReviewPivotPos = new THREE.Vector3(); let finalReviewExtension = 0; 
+
+        // Dynamic Tuning Core Variables
+        let hardwareMountOffset = new THREE.Quaternion(); let isWizardActive = false; let wizardStep = 0; let capturing = false;
+        let tuneBaseOffset = new THREE.Quaternion(); window.currentlyViewedCast = null;
+        let currentRawBLEQuat = new THREE.Quaternion(); let prevRawBLEQuat = new THREE.Quaternion();
+        let zeroRawBLEQuat = new THREE.Quaternion(); window.tuningFrozenFrame = null;
+        let isDynamicCalibrationActive = false; let dynamicCalibrationBuffer = [];
+
+        let wizardBuffer = []; const WIZARD_BUFFER_SIZE = 20; const WIZARD_VARIANCE_THRESH = 0.02; let vectors = { top: null, bottom: null, front: null, back: null, left: null, right: null };
+        let lastBatteryCheckTime = 0; let lastBatteryVal = -1; let chargeRatePerMs = 0;
+        
+        let savedBleName = "Unknown Mallet";
+        
+        let preRollBuffer = []; let prevMagnitude = 1.0; let posHistory = []; let currentAbsoluteSpeed = 0; 
+        let prevFaceZ = 0; let prevZ = 0; let isForwardSwing = true; let lastForwardPassTime = 0; 
+        let rewindStartTime = 0; let rewindStartQuat = new THREE.Quaternion(); let rewindStartPos = new THREE.Vector3(); let rewindStartExt = 0;
+        
+        let swingCount = 0; let currentSwingMaxSpeed = 0; let currentSwingMaxG = 0; let currentSwingDeviation = 0; let currentSwingDist = 0;
+        let lastComputedTempo = 0; let maxTwist = 0; let currentSwingDwell = 0; let currentSwingAoA = 0;
+        window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; 
+        
+        let castData = []; let idealPlane = null; let impactLasers = []; 
+        let impactDetected = false; let impactThreshold = 4.0; let audioThreshold = 2.0; let nextMetronomeTime = 0;
+        let isLive = true; let recordedFrames = []; let swingDatabase = []; let playbackMode = false; let playbackIndex = 0;
+        let isPaused = false; let isSlowMo = false; let lastPlaybackTime = 0;
+        
+        // --- GAME MODE VARS ---
+        let inGameMode = false;
+        let gmStrokeCount = 0;
+        
+        let downloadedHistory = [];
+        let isGhostEnabled = true;
+        let isBallEnabled = true;
+        let isViewFlipped = false;
+        
+        const MAX_TRAIL_POINTS = 5000; const trailPositions = new Float32Array(MAX_TRAIL_POINTS * 3); const trailColors = new Float32Array(MAX_TRAIL_POINTS * 3); let rawTracePoints = []; 
+        let audioCtx; let oscillator; let gainNode; let isAudioInitialized = false; let isSoundEnabled = true;
+        let mainMalletMesh = null; let ghostMalletMesh = null; let baseStlSize = new THREE.Vector3(1, 1, 1);
+
+        const settingsElements = ['malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'allowRealtimeTuningCheck'];
+
+        const difficultyMatrix = {
+            novice:       { name: "Novice",       distances: [2, 4, 6, 8],    starColor: "#94a3b8", starChar: "★" },
+            intermediate: { name: "Intermediate", distances: [3, 6, 9, 12],   starColor: "#cd7f32", starChar: "★" },
+            advanced:     { name: "Advanced",     distances: [4, 8, 12, 16],  starColor: "#c0c0c0", starChar: "★" },
+            expert:       { name: "Expert",       distances: [5, 10, 15, 20], starColor: "#f59e0b", starChar: "★" }
+        };
+
+        // --- SUPABASE CLOUD SETUP ---
+        const SUPABASE_URL = 'https://ymqqthvgfsrdmairukfi.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltcXF0aHZnZnNyZG1haXJ1a2ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3NjIxMjQsImV4cCI6MjA5OTMzODEyNH0.IXf5VkCCVgBBRzmfD4BLOq_xNEcyhcySmDySq677E-E';
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        let currentUser = null;
+
+        // --- BLE HELPER ---
+        async function sendBleCommand(cmdArray, withResponse = false) {
+            return await window.bleManager.sendCommand(cmdArray, withResponse);
+        }
+
+        // --- RESET SYSTEM STATE HELPER ---
+        async function resetSystemState(silent = false, wipeHistory = false) {
+            clearTimeout(goTimeout); 
+            appState = 1; 
+            calibrationPhase = 'NONE'; 
+            isReviewingLog = false;
+            impactDetected = false; 
+            isLive = true; 
+            playbackMode = false; 
+            recordedFrames = [];
+            isDynamicCalibrationActive = false;
+
+            if (!silent) { await sendBleCommand([79]); } // 'O' for Off/Disarm
+
+            document.getElementById('cancelArmBtn').classList.add('hidden'); 
+            document.getElementById('ready-group').classList.remove('hidden');
+            document.getElementById('calibration-container').classList.add('hidden');
+            document.getElementById('live-tracking-card').classList.add('hidden');
+            document.getElementById('playback-panel').classList.add('hidden');
+            document.getElementById('tune-action-panel').classList.add('hidden');
+            document.getElementById('alignment-panel').style.display = 'none';
+            
+            let swingStateTxt = document.getElementById('swing-state'); 
+            if(swingStateTxt) { 
+                swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Aim square to target line. Do not hold handle.</span>"; 
+                swingStateTxt.className = "text-accent text-center font-bold mb-4"; 
+            }
+            
+            virtualBall.visible = false; 
+            ghostRail.visible = false;
+            preRollBuffer = []; 
+            castData = []; 
+            impactLasers.forEach(m => scene.remove(m)); 
+            impactLasers = []; 
+            rawTracePoints = []; 
+            updateSmoothTrail(0);
+            
+            masterPivot.quaternion.identity(); 
+            if (typeof ghostPivot !== 'undefined' && ghostPivot) ghostPivot.quaternion.identity();
+            updateSystemGeometry();
+
+            masterPivot.position.set(0, pivotBaseY, 0); 
+            masterBlock.position.set(0, -loadedRadius, 0); 
+            headJoint.quaternion.identity(); 
+            finalReviewExtension = 0;
+            isForwardSwing = true; 
+            lastForwardPassTime = 0;
+
+            if (wipeHistory) {
+                swingCount = 0; 
+                posHistory = []; 
+                currentSwingDeviation = 0; 
+                swingDatabase = []; 
+                document.getElementById('history-list').innerHTML = '<div class="text-muted italic text-center mt-5" style="font-size: 0.85rem;">No swings recorded yet. Arm and swing!</div>';
+                document.getElementById('menu-drawer').classList.remove('open');
+            }
+        }
+
+        // --- AUTHENTICATION & CLOUD SETTINGS LOGIC ---
+        const authModal = document.getElementById('auth-modal');
+        document.getElementById('openAuthBtn').onclick = () => { authModal.showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
+        document.getElementById('btnCloseAuth').onclick = () => { authModal.close(); };
+
+        document.getElementById('btnLogin').onclick = async () => {
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+            if(!email || !password) return showToast("Enter email and password.");
+            
+            const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+            if (error) showToast("Login failed: " + error.message);
+            else { showToast("Logged into Cloud."); authModal.close(); }
+        };
+
+        document.getElementById('btnSignup').onclick = async () => {
+            const email = document.getElementById('authEmail').value;
+            const password = document.getElementById('authPassword').value;
+            if(!email || !password) return showToast("Enter email and password.");
+            
+            const { data, error } = await supabaseClient.auth.signUp({ email, password });
+            if (error) showToast("Error: " + error.message);
+            else { showToast("Success! Check your email to confirm."); authModal.close(); }
+        };
+
+        document.getElementById('btnForgotPassword').onclick = async () => {
+            const email = document.getElementById('authEmail').value;
+            if(!email) return showToast("Enter your email address first to reset password.");
+            
+            const { data, error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+                redirectTo: window.location.origin + window.location.pathname,
+            });
+            
+            if (error) showToast("Error: " + error.message);
+            else { 
+                showToast("Password reset email sent! Check your inbox."); 
+                authModal.close(); 
+            }
+        };
+
+        async function loadCloudProfile() {
+            if(!currentUser) return;
+            const { data, error } = await supabaseClient.from('mallet_profiles').select('*').eq('user_id', currentUser.id).limit(1);
+            if(data && data.length > 0) {
+                let p = data[0];
+                document.getElementById('malletNameInput').value = p.name;
+                document.getElementById('malletLengthInput').value = p.head_length;
+                document.getElementById('malletWidthInput').value = p.face_width;
+                document.getElementById('massInput').value = p.mass;
+                document.getElementById('offsetYInput').value = p.offset_y;
+                document.getElementById('radiusInput').value = p.radius;
+                document.getElementById('difficultySelect').value = p.skill_tier;
+                document.getElementById('sweetSpotInput').value = p.sweet_spot;
+                document.getElementById('twistToleranceInput').value = p.twist_tolerance;
+                hardwareMountOffset.set(p.matrix_x, p.matrix_y, p.matrix_z, p.matrix_w);
+                updateMalletScale(); saveSettings(); showToast("Cloud Settings Loaded.");
+            } else { await saveCloudProfile(); }
+        }
+
+        async function saveCloudProfile() {
+            if(!currentUser) return;
+            const payload = {
+                user_id: currentUser.id, name: document.getElementById('malletNameInput').value,
+                head_length: parseFloat(document.getElementById('malletLengthInput').value) || 27.6,
+                face_width: parseFloat(document.getElementById('malletWidthInput').value) || 6.0,
+                mass: parseFloat(document.getElementById('massInput').value) || 1000,
+                offset_y: parseFloat(document.getElementById('offsetYInput').value) || 5.5,
+                matrix_w: hardwareMountOffset.w, matrix_x: hardwareMountOffset.x, matrix_y: hardwareMountOffset.y, matrix_z: hardwareMountOffset.z,
+                radius: parseFloat(document.getElementById('radiusInput').value) || 127,
+                skill_tier: document.getElementById('difficultySelect').value, sweet_spot: parseFloat(document.getElementById('sweetSpotInput').value) || 1.5,
+                twist_tolerance: parseFloat(document.getElementById('twistToleranceInput').value) || 1.0, updated_at: new Date().toISOString()
+            };
+            
+            const { data, error: updateErr } = await supabaseClient.from('mallet_profiles').update(payload).eq('user_id', currentUser.id).select();
+            if (!data || data.length === 0) {
+                await supabaseClient.from('mallet_profiles').insert([payload]);
+            }
+        }
+
+        supabaseClient.auth.onAuthStateChange((event, session) => {
+            if (event === 'PASSWORD_RECOVERY') {
+                document.getElementById('update-password-modal').showModal();
+            }
+
+            if (session && session.user) {
+                currentUser = session.user;
+                document.getElementById('openAuthBtn').innerHTML = 'Sign Out <span>👋</span>';
+                document.getElementById('openAuthBtn').onclick = async () => { await supabaseClient.auth.signOut(); showToast("Signed out."); };
+                if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
+                    document.getElementById('topSyncBtn').classList.remove('hidden');
+                }
+                if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') loadCloudProfile();
+            } else {
+                currentUser = null;
+                document.getElementById('openAuthBtn').innerHTML = 'Cloud Login <span>👤</span>';
+                document.getElementById('openAuthBtn').onclick = () => { authModal.showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
+                document.getElementById('topSyncBtn').classList.add('hidden');
+            }
+        });
+
+        document.getElementById('btnSaveNewPassword').onclick = async () => {
+            const newPassword = document.getElementById('newPassword').value;
+            if(!newPassword) return showToast("Please enter a new password.");
+            
+            document.getElementById('btnSaveNewPassword').innerText = "SAVING...";
+            
+            const { data, error } = await supabaseClient.auth.updateUser({ password: newPassword });
+            
+            document.getElementById('btnSaveNewPassword').innerText = "SAVE NEW PASSWORD";
+            
+            if (error) showToast("Error: " + error.message);
+            else { 
+                showToast("Password updated successfully!"); 
+                document.getElementById('update-password-modal').close();
+                document.getElementById('newPassword').value = '';
+            }
+        };
+
+        document.getElementById('btnCloseUpdatePassword').onclick = () => { 
+            document.getElementById('update-password-modal').close(); 
+        };
+
+        // --- CLOUD SYNC & EXPORT LOGIC ---
+        document.getElementById('topSyncBtn').onclick = async () => {
+            if(!window.bleManager.device || !window.bleManager.device.gatt.connected) return showToast("Connect to Mallet first!");
+            if(!currentUser) return showToast("Please log in to Cloud.");
+            
+            document.getElementById('topSyncBtn').classList.add('syncing');
+            showToast("Syncing strokes to Cloud...");
+            downloadedHistory = []; 
+            let success = await sendBleCommand([68]); // 'D'
+            if (!success) { document.getElementById('topSyncBtn').classList.remove('syncing'); return showToast("Bluetooth Error."); }
+            
+            setTimeout(async () => {
+                document.getElementById('topSyncBtn').classList.remove('syncing');
+                if (downloadedHistory.length === 0) { showToast("No new strokes on mallet."); return; }
+                
+                let matches = {};
+                downloadedHistory.forEach(s => {
+                    if(!matches[s.matchID]) matches[s.matchID] = [];
+                    matches[s.matchID].push(s);
+                });
+                
+                let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
+                let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
+                let lawnSpd = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+
+                for (let mID of Object.keys(matches)) {
+                    const { data: existingMatch } = await supabaseClient.from('matches').select('id').eq('match_time_id', mID).eq('user_id', currentUser.id).limit(1);
+                    let dbMatchId;
+                    if (existingMatch && existingMatch.length > 0) {
+                        dbMatchId = existingMatch[0].id;
+                    } else {
+                        let mDateStr = new Date(mID * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                        let title = "Untitled Match " + mDateStr;
+                        const { data: newMatch, error: mErr } = await supabaseClient.from('matches').insert([{ 
+                            user_id: currentUser.id, match_time_id: mID, location: title, 
+                            lawn_speed: lawnSpd, mallet_mass: massKg * 1000, swing_radius: sRad 
+                        }]).select();
+                        if (mErr) { console.error(mErr); continue; }
+                        dbMatchId = newMatch[0].id;
+                    }
+                    
+                    let usedKeys = new Set();
+                    let strikesToInsert = [];
+                    for (let s of matches[mID]) {
+                        let uniqueSec = s.secondsIntoMatch;
+                        while (usedKeys.has(uniqueSec)) uniqueSec++;
+                        usedKeys.add(uniqueSec);
+                        strikesToInsert.push({
+                            match_id: dbMatchId, user_id: currentUser.id, seconds_into_match: uniqueSec,
+                            peak_g: s.peakG, peak_twist: s.peakTwist, dwell: s.dwell, z_vel: s.zVel, 
+                            applied_force: s.appliedForce, push_force: s.pushForce, q0: s.q0, q1: s.q1, q2: s.q2, q3: s.q3,
+                            downward_swing_time: s.downwardSwingTime, decel_factor: s.decelFactor
+                        });
+                    }
+                    await supabaseClient.from('strikes').upsert(strikesToInsert, { onConflict: 'user_id, match_id, seconds_into_match' });
+                }
+                
+                await sendBleCommand([87]); // 'W' wipe
+                showToast(`Synced ${downloadedHistory.length} strokes & Wiped Mallet!`);
+                if (!document.getElementById('match-tab-content').classList.contains('hidden')) { fetchCloudMatches(); }
+            }, 3000); 
+        };
+
+        document.getElementById('btnDownloadData').addEventListener('click', async () => {
+            if(!window.bleManager.device || !window.bleManager.device.gatt.connected) return showToast("Connect to Mallet first!");
+            downloadedHistory = []; 
+            let success = await sendBleCommand([68]); // 'D'
+            if (!success) { showToast("Bluetooth Error."); return; }
+            showToast("Downloading strike history...");
+            setTimeout(() => {
+                if (downloadedHistory.length > 0) {
+                    let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(downloadedHistory, null, 2));
+                    let dlAnchorElem = document.createElement('a'); dlAnchorElem.setAttribute("href", dataStr);
+                    dlAnchorElem.setAttribute("download", "mallet_strike_history.json"); 
+                    document.body.appendChild(dlAnchorElem); dlAnchorElem.click(); document.body.removeChild(dlAnchorElem);
+                    showToast(`Exported ${downloadedHistory.length} strokes!`);
+                } else { showToast("No historical strokes found on mallet."); }
+            }, 3000); 
+        });
+
+        // Edit Match Metadata Flow
+        function openMatchEdit(id, loc, opp, evt, spd, notes) {
+            document.getElementById('editMatchId').value = id;
+            document.getElementById('editLocation').value = loc.includes('Untitled Match') ? '' : loc;
+            document.getElementById('editOpponent').value = opp;
+            document.getElementById('editEvent').value = evt;
+            document.getElementById('editLawnSpeed').value = spd || 10.0;
+            document.getElementById('editNotes').value = notes;
+            document.getElementById('match-edit-modal').showModal();
+        }
+
+        document.getElementById('btnCloseMatchEdit').onclick = () => { document.getElementById('match-edit-modal').close(); };
+
+        document.getElementById('btnSaveMatchEdit').onclick = async () => {
+            let id = document.getElementById('editMatchId').value;
+            let loc = document.getElementById('editLocation').value;
+            let opp = document.getElementById('editOpponent').value;
+            let evt = document.getElementById('editEvent').value;
+            let spd = parseFloat(document.getElementById('editLawnSpeed').value) || 10.0;
+            let notes = document.getElementById('editNotes').value;
+
+            document.getElementById('btnSaveMatchEdit').innerText = "SAVING...";
+            document.getElementById('btnSaveMatchEdit').disabled = true;
+
+            const { error } = await supabaseClient.from('matches').update({
+                location: loc, opponent: opp, event_type: evt, lawn_speed: spd, notes: notes
+            }).eq('id', id);
+
+            document.getElementById('btnSaveMatchEdit').innerText = "SAVE DETAILS";
+            document.getElementById('btnSaveMatchEdit').disabled = false;
+
+            if (error) { showToast("Update Failed: " + error.message); } 
+            else { 
+                showToast("Match updated."); 
+                document.getElementById('match-edit-modal').close(); 
+                fetchCloudMatches(); 
+            }
+        };
+
+        // --- DELETE MATCH LOGIC ---
+        document.getElementById('btnDeleteMatch').onclick = async () => {
+            let id = document.getElementById('editMatchId').value;
+            
+            // Trigger browser native confirmation
+            if (confirm("Are you sure you want to permanently delete this match and all its recorded strokes? This cannot be undone.")) {
+                
+                document.getElementById('btnDeleteMatch').innerText = "DELETING...";
+                document.getElementById('btnDeleteMatch').disabled = true;
+
+                // Execute Supabase deletion
+                const { error } = await supabaseClient
+                    .from('matches')
+                    .delete()
+                    .eq('id', id);
+
+                // Reset button state
+                document.getElementById('btnDeleteMatch').innerText = "DELETE MATCH";
+                document.getElementById('btnDeleteMatch').disabled = false;
+
+                if (error) { 
+                    showToast("Delete Failed: " + error.message); 
+                } else { 
+                    showToast("Match deleted."); 
+                    document.getElementById('match-edit-modal').close(); 
+                    
+                    // Refresh the match list to remove the deleted item
+                    fetchCloudMatches(); 
+                }
+            }
+        };
+
+
+        // --- CLOUD LOCKER UI ---
+        async function fetchCloudMatches() {
+            let container = document.getElementById('cloud-matches-container');
+            container.innerHTML = '<div class="text-muted text-center p-5">Fetching matches...</div>';
+            
+            const { data: matches, error } = await supabaseClient.from('matches').select('*').eq('user_id', currentUser.id).order('match_time_id', { ascending: false });
+            if (error || !matches || matches.length === 0) { container.innerHTML = '<div class="text-muted text-center p-5">No cloud matches found.</div>'; return; }
+
+            container.innerHTML = '';
+            matches.forEach(m => {
+                let matchDate = new Date(m.match_time_id * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                let locStr = m.location ? m.location : 'Untitled Match';
+                let oppStr = m.opponent ? `<br><span class="text-muted small-help">vs. ${m.opponent}</span>` : '';
+                
+                let editArgs = `'${m.id}', '${(m.location||'').replace(/'/g, "\\'")}', '${(m.opponent||'').replace(/'/g, "\\'")}', '${(m.event_type||'').replace(/'/g, "\\'")}', ${m.lawn_speed}, '${(m.notes||'').replace(/'/g, "\\'")}'`;
+
+                container.innerHTML += `
+                    <div class="history-card" style="cursor: pointer; transition: 0.2s;" onclick="fetchCloudStrikes('${m.id}', ${m.mallet_mass}, ${m.lawn_speed}, '${matchDate}')">
+                        <div class="card-header" style="border-bottom: none; margin-bottom: 0; padding-bottom: 0;">
+                            <div>
+                                <span class="swing-title">${locStr}</span>
+                                <button class="icon-btn" style="display:inline-block; padding: 2px; margin-left: 5px; opacity:0.7;" onclick="event.stopPropagation(); openMatchEdit(${editArgs})">✏️</button>
+                                ${oppStr}
+                            </div>
+                            <div class="text-right">
+                                <span class="swing-time">${matchDate}</span><br>
+                                <span class="text-accent font-bold" style="font-size: 0.8rem;">Lawn: ${m.lawn_speed}</span>
+                            </div>
+                        </div>
+                    </div>`;
+            });
+        }
+
+        async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
+            let container = document.getElementById('cloud-matches-container');
+            container.innerHTML = '<div class="text-muted text-center p-5">Loading strokes...</div>';
+            
+            const { data: strikes, error } = await supabaseClient.from('strikes').select('*').eq('match_id', matchUUID).order('seconds_into_match', { ascending: true });
+            if (error || !strikes) { container.innerHTML = '<div class="text-danger text-center p-5">Error loading strokes.</div>'; return; }
+
+            let massKg = (mMass || 1000) / 1000.0; let lawnVal = mSpeed || 10.0; let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+
+            let detailsHTML = `<details class="advanced-metrics active-match" open>
+                <summary class="match-summary">
+                    <span onclick="fetchCloudMatches()" class="text-muted mr-3">← ${strikes.length} Strokes</span>
+                    ${mDate}
+                </summary>
+                <div class="match-details">`;
+
+            strikes.forEach((s, idx) => {
+                let speedStr = (s.z_vel || 0).toFixed(1) + " m/s"; 
+                let forceN = massKg * (s.peak_g || 0) * 9.81;
+                let forceStr = forceN.toFixed(0) + " N";
+                
+                let ballSpeedMPS = (s.z_vel || 0) * (massKg * 1.8) / (massKg + 0.454); let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+                let deflectionVal = Math.abs(s.peak_twist || 0) * ((s.dwell || 0) / 1000.0);
+                let estAccRange = 35.0; if (deflectionVal > 0.0001) estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(deflectionVal * Math.PI / 180.0)));
+                
+                let ratingData = getStarRating(0, deflectionVal);
+                let starHtml = ratingData.string !== "" ? `<span style="color: ${ratingData.color};" class="font-bold">${ratingData.string}</span>` : `<span class="text-muted">-</span>`;
+                let extColor = (s.applied_force || 0) > 2 ? 'var(--success)' : ((s.applied_force || 0) < -2 ? 'var(--danger)' : 'var(--text-main)');
+                let extStr = ((s.applied_force || 0) > 0 ? '+' : '') + (s.applied_force || 0).toFixed(0) + " N";
+                
+                let decelVal = s.decel_factor !== undefined ? s.decel_factor : 0;
+                let downVal = s.downward_swing_time || 0;
+                let decelColor = decelVal > 0 ? 'var(--success)' : (decelVal < 0 ? 'var(--danger)' : 'var(--text-main)');
+                let decelHtml = `<span style="color:${decelColor};">${decelVal > 0 ? '+' : ''}${decelVal}%</span>`;
+                let downHtml = `${downVal} ms`;
+
+                let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
+                let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
+                let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
+
+                let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); pureImpactSensor.multiply(hardwareMountOffset);
+                let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
+                impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
+                let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
+                let strokeAoA = THREE.MathUtils.radToDeg(impactEuler.z);
+                let locTwist = getShaftTwist(impactRawQuat);
+                let faceAngleHtml = `${(locTwist > 0 ? '+' : '')}${locTwist.toFixed(1)}°`;
+
+                detailsHTML += `
+                    <div class="history-card flat-card">
+                        <div class="card-header">
+                            <div><span class="swing-title">STROKE ${idx + 1}</span> &nbsp;${starHtml}</div>
+                            <div class="text-right">
+                                <span class="swing-time">+${s.seconds_into_match}s</span><br>
+                            </div>
+                        </div>
+                        <div class="card-basic-stats">
+                            <div class="stat-block"><span class="stat-lbl">Speed</span><span class="stat-val">${speedStr}</span></div>
+                            <div class="stat-block"><span class="stat-lbl">Deflection</span><span class="stat-val text-warning">${deflectionVal.toFixed(1)}&deg;</span></div>
+                            <div class="stat-block"><span class="stat-lbl">Est Dist</span><span class="stat-val text-accent">${estDist.toFixed(0)} m</span></div>
+                            <div class="stat-block"><span class="stat-lbl">Target Acc</span><span class="stat-val">${estAccRange >= 35.0 ? "Center" : estAccRange.toFixed(0) + " m"}</span></div>
+                        </div>
+                        <details class="advanced-metrics" style="margin-bottom: 0;">
+                            <summary>Advanced Kinematics</summary>
+                            <div class="mt-4">
+                                <div class="adv-row"><span>Impact Force</span><span class="adv-val">${forceStr}</span></div>
+                                <div class="adv-row"><span>Face Angle</span><span class="adv-val">${faceAngleHtml}</span></div>
+                                <div class="adv-row"><span>Angle of Attack</span><span class="adv-val">${strokeAoA.toFixed(1)}°</span></div>
+                                <div class="adv-row"><span>Downswing Time</span><span class="adv-val">${downHtml}</span></div>
+                                <div class="adv-row"><span>Strike PΔ</span><span class="adv-val">${dsPDeltaHtml}</span></div>
+                                <div class="adv-row"><span>Boost</span><span class="adv-val">${decelHtml}</span></div>
+                                <div class="adv-row"><span>Impact Dwell</span><span class="adv-val">${s.dwell || 0} ms</span></div>
+                                <div class="adv-row"><span>Extension</span><span class="adv-val" style="color:${extColor};">${extStr}</span></div>
+                                <div class="adv-row"><span>Push Force</span><span class="adv-val">${((s.push_force || 0) > 0 ? '+' : '') + (s.push_force || 0).toFixed(0)} N</span></div>
+                            </div>
+                        </details>
+                    </div>`;
+            });
+            detailsHTML += `</div></details>`; container.innerHTML = detailsHTML;
+        }
+
+        // --- Offline Viewer Logic ---
+        document.getElementById('openOfflineViewerBtn').onclick = () => { 
+            document.getElementById('dev-options-modal').close(); 
+            document.getElementById('offline-viewer-modal').showModal(); 
+        };
+        document.getElementById('closeOfflineViewerBtn').onclick = () => { document.getElementById('offline-viewer-modal').close(); };
+        document.getElementById('loadOfflineFileBtn').onclick = () => { document.getElementById('offlineHistoryInput').click(); };
+
+        document.getElementById('offlineHistoryInput').addEventListener('change', (event) => {
+            let file = event.target.files[0]; if (!file) return; let reader = new FileReader();
+            reader.onload = function(e) { try { let data = JSON.parse(e.target.result); renderOfflineMatches(data); document.getElementById('offlineHistoryInput').value = ''; } catch(err) { showToast("Error parsing JSON file."); } }; reader.readAsText(file);
+        });
+
+        function renderOfflineMatches(data) {
+            let container = document.getElementById('offline-matches-container'); container.innerHTML = '';
+            if (!Array.isArray(data) || data.length === 0) { container.innerHTML = '<div class="text-muted text-center p-5">File is empty or invalid.</div>'; return; }
+
+            let matches = {};
+            data.forEach(strike => { if (!matches[strike.matchID]) matches[strike.matchID] = []; matches[strike.matchID].push(strike); });
+            let matchIDs = Object.keys(matches).sort((a, b) => b - a);
+
+            let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
+            let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+            let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+
+            matchIDs.forEach(mID => {
+                let strikes = matches[mID]; strikes.sort((a, b) => a.secondsIntoMatch - b.secondsIntoMatch);
+                let mDate = new Date(mID * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                
+                let detailsHTML = `<details class="advanced-metrics active-match">
+                    <summary class="match-summary">
+                        ← ${strikes.length} Strokes &nbsp; | &nbsp; ${mDate}
+                    </summary>
+                    <div class="match-details">`;
+
+                strikes.forEach((s, idx) => {
+                    let speedStr = (s.zVel || 0).toFixed(1) + " m/s"; 
+                    let forceN = massKg * (s.peakG || 0) * 9.81;
+                    let forceStr = forceN.toFixed(0) + " N";
+                    
+                    let ballSpeedMPS = (s.zVel || 0) * (massKg * 1.8) / (massKg + 0.454); let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+                    let deflectionVal = Math.abs(s.peakTwist || 0) * ((s.dwell || 0) / 1000.0);
+                    let estAccRange = 35.0; if (deflectionVal > 0.0001) estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(deflectionVal * Math.PI / 180.0)));
+                    
+                    let ratingData = getStarRating(0, deflectionVal);
+                    let starHtml = ratingData.string !== "" ? `<span style="color: ${ratingData.color};" class="font-bold">${ratingData.string}</span>` : `<span class="text-muted">-</span>`;
+                    let extColor = (s.appliedForce || 0) > 2 ? 'var(--success)' : ((s.appliedForce || 0) < -2 ? 'var(--danger)' : 'var(--text-main)');
+                    let extStr = ((s.appliedForce || 0) > 0 ? '+' : '') + (s.appliedForce || 0).toFixed(0) + " N";
+                    
+                    let decelVal = s.decelFactor !== undefined ? s.decelFactor : 0;
+                    let downVal = s.downwardSwingTime || 0;
+                    let decelColor = decelVal > 0 ? 'var(--success)' : (decelVal < 0 ? 'var(--danger)' : 'var(--text-main)');
+                    let decelHtml = `<span style="color:${decelColor};">${decelVal > 0 ? '+' : ''}${decelVal}%</span>`;
+                    let downHtml = `${downVal} ms`;
+
+                    let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
+                    let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
+                    let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
+
+                    let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); pureImpactSensor.multiply(hardwareMountOffset);
+                    let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
+                    impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
+                    let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
+                    let strokeAoA = THREE.MathUtils.radToDeg(impactEuler.z);
+                    let locTwist = getShaftTwist(impactRawQuat);
+                    let faceAngleHtml = `${(locTwist > 0 ? '+' : '')}${locTwist.toFixed(1)}°`;
+
+                    detailsHTML += `
+                        <div class="history-card flat-card">
+                            <div class="card-header">
+                                <div><span class="swing-title">STROKE ${idx + 1}</span> &nbsp;${starHtml}</div>
+                                <div class="text-right">
+                                    <span class="swing-time">${s.exactTime || "Unknown Time"}</span><br>
+                                </div>
+                            </div>
+                            <div class="card-basic-stats">
+                                <div class="stat-block"><span class="stat-lbl">Speed</span><span class="stat-val">${speedStr}</span></div>
+                                <div class="stat-block"><span class="stat-lbl">Deflection</span><span class="stat-val text-warning">${deflectionVal.toFixed(1)}&deg;</span></div>
+                                <div class="stat-block"><span class="stat-lbl">Est Dist</span><span class="stat-val text-accent">${estDist.toFixed(0)} m</span></div>
+                                <div class="stat-block"><span class="stat-lbl">Target Acc</span><span class="stat-val">${estAccRange >= 35.0 ? "Center" : estAccRange.toFixed(0) + " m"}</span></div>
+                            </div>
+                            <details class="advanced-metrics" style="margin-bottom: 0;">
+                                <summary>Advanced Kinematics</summary>
+                                <div class="mt-4">
+                                    <div class="adv-row"><span>Impact Force</span><span class="adv-val">${forceStr}</span></div>
+                                    <div class="adv-row"><span>Face Angle</span><span class="adv-val">${faceAngleHtml}</span></div>
+                                    <div class="adv-row"><span>Angle of Attack</span><span class="adv-val">${strokeAoA.toFixed(1)}°</span></div>
+                                    <div class="adv-row"><span>Downswing Time</span><span class="adv-val">${downHtml}</span></div>
+                                    <div class="adv-row"><span>Strike PΔ</span><span class="adv-val">${dsPDeltaHtml}</span></div>
+                                    <div class="adv-row"><span>Boost</span><span class="adv-val">${decelHtml}</span></div>
+                                    <div class="adv-row"><span>Impact Dwell</span><span class="adv-val">${s.dwell || 0} ms</span></div>
+                                    <div class="adv-row"><span>Extension</span><span class="adv-val" style="color:${extColor};">${extStr}</span></div>
+                                    <div class="adv-row"><span>Push Force</span><span class="adv-val">${((s.pushForce || 0) > 0 ? '+' : '') + (s.pushForce || 0).toFixed(0)} N</span></div>
+                                </div>
+                            </details>
+                        </div>`;
+                });
+                detailsHTML += `</div></details>`; container.innerHTML += detailsHTML;
+            });
+        }
+        
+        document.getElementById('openAboutBtn').onclick = () => { document.getElementById('about-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
+        document.getElementById('closeAboutBtn').onclick = () => { document.getElementById('about-modal').close(); };
+
+        // --- MODAL TRIGGERS ---
+        document.getElementById('openMalletBtn').onclick = () => { document.getElementById('mallet-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
+        document.getElementById('closeMalletBtn').onclick = () => { document.getElementById('mallet-modal').close(); };
+        
+        document.getElementById('openPlayerBtn').onclick = () => { document.getElementById('player-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
+        document.getElementById('closePlayerBtn').onclick = () => { document.getElementById('player-modal').close(); };
+        
+        document.getElementById('openSystemBtn').onclick = () => { document.getElementById('system-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
+        document.getElementById('closeSystemBtn').onclick = () => { document.getElementById('system-modal').close(); };
+
+        document.getElementById('closeDevOptionsBtn').onclick = () => { document.getElementById('dev-options-modal').close(); };
+
+        // --- HISTORY-BASED DYNAMIC TUNING LOGIC ---
+        document.getElementById('enterTuningBtn').onclick = () => {
+            if (!window.currentlyViewedCast) return;
+            document.getElementById('tune-action-panel').classList.add('hidden');
+            document.getElementById('alignment-panel').style.display = 'block';
+            tuneBaseOffset.copy(hardwareMountOffset);
+            ['X', 'Y', 'Z'].forEach(axis => { document.getElementById('spin' + axis).value = "0.0"; });
+            
+            if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
+            ghostPivot.quaternion.identity(); 
+            updateSystemGeometry(); 
+            virtualBall.visible = true;
+            impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+
+            updateDynamicTuning();
+        };
+
+        ['X', 'Y', 'Z'].forEach(axis => {
+            let spinner = document.getElementById('spin' + axis);
+            spinner.addEventListener('input', () => { 
+                let val = parseFloat(spinner.value) || 0;
+                spinner.value = Math.max(-15, Math.min(15, val)); 
+                updateDynamicTuning(); 
+            });
+        });
+
+        function updateDynamicTuning() {
+            if (!window.currentlyViewedCast) return;
+            let x = THREE.MathUtils.degToRad(parseFloat(document.getElementById('spinX').value) || 0);
+            let y = THREE.MathUtils.degToRad(parseFloat(document.getElementById('spinY').value) || 0);
+            let z = THREE.MathUtils.degToRad(parseFloat(document.getElementById('spinZ').value) || 0);
+            
+            let euler = new THREE.Euler(x, y, z, 'YXZ');
+            let vQ = new THREE.Quaternion().setFromEuler(euler);
+            let hQ = new THREE.Quaternion(-vQ.z, vQ.x, -vQ.y, vQ.w);
+            
+            hardwareMountOffset.copy(tuneBaseOffset).multiply(hQ);
+            
+            let c = window.currentlyViewedCast;
+            if(!c.rawBLE) return; 
+
+            let pure = c.rawBLE.clone().multiply(hardwareMountOffset);
+            let raw = new THREE.Quaternion(pure.y, -pure.z, -pure.x, pure.w).normalize();
+            raw.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
+            let tunedQuat = baseQuatInverse.clone().multiply(raw);
+            
+            masterPivot.quaternion.copy(tunedQuat);
+            masterPivot.position.set(0, pivotBaseY + c.extension, 0);
+            masterBlock.position.set(0, -(loadedRadius + c.extension), 0);
+            headJoint.quaternion.identity();
+        }
+
+        document.getElementById('cancelTuneBtn').onclick = () => {
+            document.getElementById('alignment-panel').style.display = 'none';
+            hardwareMountOffset.copy(tuneBaseOffset); 
+            document.getElementById('exitPassViewBtn').click();
+            showToast("Tuning Cancelled. Matrix restored.");
+        };
+
+        document.getElementById('saveTuneBtn').onclick = async () => {
+            document.getElementById('alignment-panel').style.display = 'none';
+            saveSettings();
+            
+            let success = await window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z);
+            if(success) {
+                showToast("TUNED MATRIX BURNED TO MALLET."); 
+            } else {
+                showToast("MATRIX SAVED LOCALLY."); 
+            }
+            document.getElementById('exitPassViewBtn').click();
+        };
+
+        let versionTapCount = 0;
+        let versionTapTimer;
+        document.getElementById('version-text').onclick = () => {
+            versionTapCount++;
+            clearTimeout(versionTapTimer);
+            if (versionTapCount >= 3) {
+                versionTapCount = 0;
+                document.getElementById('about-modal').close();
+                document.getElementById('dev-options-modal').showModal();
+            } else {
+                versionTapTimer = setTimeout(() => { versionTapCount = 0; }, 500);
+            }
+        };
+
+        document.getElementById('themeToggleBtn').onclick = () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', newTheme);
+            if (newTheme === 'light') { scene.background = new THREE.Color(0xe2e8f0); hemiLight.intensity = 1.2; } 
+            else { scene.background = null; hemiLight.intensity = 1.0; }
+        };
+
+        function updateLawnSpeedLabel() {
+            let el = document.getElementById('lawnSpeedInput'); let lbl = document.getElementById('lawnSpeedLabel');
+            if (el && lbl) {
+                let plummers = parseFloat(el.value); let txt = plummers.toFixed(1);
+                if (plummers < 8) txt += " (Very Slow)"; else if (plummers < 9.5) txt += " (Slow)"; else if (plummers <= 11.5) txt += " (Medium)"; else if (plummers <= 13) txt += " (Fast)"; else txt += " (Very Fast)";
+                lbl.innerText = txt;
+            }
+        }
+        let lawnInput = document.getElementById('lawnSpeedInput');
+        if (lawnInput) lawnInput.addEventListener('input', updateLawnSpeedLabel);
+
+        window.addEventListener('beforeunload', () => { window.bleManager.disconnect(); });
+
+        function getStarRating(offsetCm, angleDeg) {
+            let activeTier = document.getElementById('difficultySelect').value || "intermediate"; let profile = difficultyMatrix[activeTier];
+            let ss = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; if (Math.abs(offsetCm) > ss) return { string: "", color: "var(--text-muted)" }; 
+            let angleRad = angleDeg * (Math.PI / 180.0); let checkHit = (distM) => Math.abs(offsetCm + (distM * 100.0) * Math.tan(angleRad)) <= 9.2; let stars = "";
+            if (checkHit(profile.distances[3])) stars = profile.starChar.repeat(4); else if (checkHit(profile.distances[2])) stars = profile.starChar.repeat(3); else if (checkHit(profile.distances[1])) stars = profile.starChar.repeat(2); else if (checkHit(profile.distances[0])) stars = profile.starChar.repeat(1);
+            return { string: stars, color: profile.starColor };
+        }
+
+        function getShaftTwist(q) {
+            let v = new THREE.Vector3(0, 0, 1).applyQuaternion(q); let up = new THREE.Vector3(0, 1, 0).applyQuaternion(q); let projZ = new THREE.Vector3(0, 0, 1).projectOnPlane(up);
+            if (projZ.lengthSq() < 0.0001) return 0; projZ.normalize(); let angle = v.angleTo(projZ); let cross = new THREE.Vector3().crossVectors(projZ, v);
+            if (cross.dot(up) < 0) angle = -angle; 
+            let deg = THREE.MathUtils.radToDeg(angle);
+            if (deg > 90) deg -= 180; else if (deg < -90) deg += 180;
+            return deg;
+        }
+
+        function showToast(text) {
+            const el = document.getElementById('toast-notification');
+            if(el) { 
+                el.innerText = text; 
+                try { el.showPopover(); } catch(e) {}
+                el.classList.add('show'); 
+                setTimeout(() => { 
+                    el.classList.remove('show'); 
+                    setTimeout(() => { try { el.hidePopover(); } catch(e) {} }, 300);
+                }, 3500); 
+            }
+        }
+        
+        function formatOffset(val) { if (val === null || val === undefined || isNaN(val)) return "--"; return (val >= 0 ? "+" : "") + Math.round(val) + "cm"; }
+
+        function saveSettings() {
+            try {
+                const settings = {};
+                settingsElements.forEach(id => { const el = document.getElementById(id); if(el) settings[id] = (el.type === 'checkbox') ? el.checked : el.value; });
+                settings['hwMatrixX'] = hardwareMountOffset.x; settings['hwMatrixY'] = hardwareMountOffset.y; settings['hwMatrixZ'] = hardwareMountOffset.z; settings['hwMatrixW'] = hardwareMountOffset.w;
+                settings['bleName'] = savedBleName; localStorage.setItem('LVE_Settings', JSON.stringify(settings));
+            } catch (e) {}
+            if (currentUser) { saveCloudProfile(); }
+        }
+
+        function updateSystemGeometry() {
+            let bZ = getDynamicBallZ(); 
+            if (virtualBall) {
+                let ballLocalPos = new THREE.Vector3(0, -loadedRadius, bZ);
+                if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+                    ballLocalPos.applyQuaternion(ghostPivot.quaternion);
+                }
+                ballLocalPos.y += pivotBaseY;
+                virtualBall.position.copy(ballLocalPos);
+            }
+            if(typeof masterPivot !== 'undefined' && masterPivot) masterPivot.position.set(0, pivotBaseY, 0); 
+            if(typeof ghostPivot !== 'undefined' && ghostPivot) ghostPivot.position.set(0, pivotBaseY, 0);
+            if(typeof masterBlock !== 'undefined' && masterBlock) masterBlock.position.set(0, -loadedRadius, 0); 
+            if(typeof ghostBlock !== 'undefined' && ghostBlock) ghostBlock.position.set(0, -loadedRadius, 0);
+        }
+
+        function updateMalletScale() {
+            if (!mainMalletMesh || !ghostMalletMesh) return;
+            let len = parseFloat(document.getElementById('malletLengthInput').value) || 27.6; let wid = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
+            let scaleX = len / baseStlSize.x; let scaleY = wid / baseStlSize.y; let scaleZ = wid / baseStlSize.z; 
+            mainMalletMesh.scale.set(scaleX, scaleY, scaleZ); ghostMalletMesh.scale.set(scaleX, scaleY, scaleZ);
+            mainMalletMesh.position.z = 0; ghostMalletMesh.position.z = 0; faceTrackerNode.position.set(0, 0, len / 2.0);
+            updateSystemGeometry(); rebuildArcPts(loadedRadius);
+        }
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem('LVE_Settings');
+                if (saved) {
+                    const settings = JSON.parse(saved);
+                    settingsElements.forEach(id => { 
+                        if (settings[id] !== undefined) { 
+                            const el = document.getElementById(id); 
+                            if (el) { 
+                                if (el.type === 'checkbox') el.checked = settings[id]; 
+                                else {
+                                    if (id === 'lawnSpeedInput') { let val = parseFloat(settings[id]); if (val < 4.0) val = 10 + (val - 0.50) / 0.075; el.value = val.toFixed(1); } 
+                                    else el.value = settings[id]; 
+                                }
+                            } 
+                        } 
+                    });
+                    if (settings['hwMatrixW'] !== undefined) hardwareMountOffset.set(settings['hwMatrixX'], settings['hwMatrixY'], settings['hwMatrixZ'], settings['hwMatrixW']);
+                    if (settings['bleName'] !== undefined) savedBleName = settings['bleName'];
+                    let audioEl = document.getElementById('audioThreshInput'); let impactEl = document.getElementById('impactInput');
+                    if(audioEl) audioThreshold = parseFloat(audioEl.value); if(impactEl) impactThreshold = parseFloat(impactEl.value);
+                }
+            } catch (e) {} 
+            updateLawnSpeedLabel(); updateMalletScale();
+        }
+
+        settingsElements.forEach(id => { let el = document.getElementById(id); if(el) el.addEventListener('change', () => { saveSettings(); updateMalletScale(); if (id === 'lawnSpeedInput') updateLawnSpeedLabel(); }); });
+
+        document.getElementById('exportProfileBtn').onclick = () => {
+            let profile = { hwMatrixX: hardwareMountOffset.x, hwMatrixY: hardwareMountOffset.y, hwMatrixZ: hardwareMountOffset.z, hwMatrixW: hardwareMountOffset.w };
+            settingsElements.forEach(id => { let el = document.getElementById(id); if(el) profile[id] = el.type === 'checkbox' ? el.checked : el.value; });
+            let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(profile));
+            let dlAnchorElem = document.createElement('a'); dlAnchorElem.setAttribute("href", dataStr);
+            let safeName = (profile.malletNameInput || "mallet").replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            dlAnchorElem.setAttribute("download", safeName + "_profile.lve"); document.body.appendChild(dlAnchorElem); dlAnchorElem.click(); document.body.removeChild(dlAnchorElem);
+            showToast("Hardware Profile Exported as .LVE"); document.getElementById('mallet-modal').close();
+        };
+
+        document.getElementById('importProfileBtn').onclick = () => { document.getElementById('importFileInput').click(); };
+        document.getElementById('importFileInput').addEventListener('change', (event) => {
+            let file = event.target.files[0]; if (!file) return; let reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    let profile = JSON.parse(e.target.result);
+                    if(profile.hwMatrixW !== undefined) hardwareMountOffset.set(profile.hwMatrixX, profile.hwMatrixY, profile.hwMatrixZ, profile.hwMatrixW);
+                    settingsElements.forEach(id => { 
+                        if (profile[id] !== undefined) { 
+                            let el = document.getElementById(id); 
+                            if(el) { 
+                                if (el.type === 'checkbox') el.checked = profile[id]; 
+                                else {
+                                    if (id === 'lawnSpeedInput') { let val = parseFloat(profile[id]); if (val < 4.0) val = 10 + (val - 0.50) / 0.075; el.value = val.toFixed(1); } 
+                                    else el.value = profile[id]; 
+                                }
+                            } 
+                        } 
+                    });
+                    saveSettings(); updateMalletScale(); updateLawnSpeedLabel(); showToast("Hardware Profile Loaded Successfully."); document.getElementById('importFileInput').value = ''; 
+                } catch(err) { showToast("Error parsing .LVE file."); }
+            }; reader.readAsText(file);
+        });
+
+        function calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwistDegPerSec, dwellMs) {
+            let faceWidthCM = parseFloat(document.getElementById('malletWidthInput').value) || 6.0; let isWhiff = Math.abs(strikeX) >= (faceWidthCM / 2.0);
+            let ssTolerance = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
+            let estAccRange = 0.0; let trueAccRange = 0.0; let trueLaunchDeg = locTwist; let estLaunchThetaRads = 0; let trueLaunchThetaRads = 0;
+            if (!isWhiff) {
+                let faceAngleRads = locTwist * (Math.PI / 180.0); estLaunchThetaRads = faceAngleRads;
+                if (Math.abs(strikeX) > ssTolerance) { estLaunchThetaRads = (0.80 * faceAngleRads) + (0.20 * pathAngleRads); }
+                if (Math.abs(estLaunchThetaRads) < 0.0001) estAccRange = 35.0; else estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(estLaunchThetaRads)));
+                let twistMagnitude = Math.abs(maxTwistDegPerSec); let collisionDeflection = twistMagnitude * (dwellMs / 1000.0); if (strikeX < 0) collisionDeflection = -collisionDeflection; 
+                let dynamicFaceAngleRads = (locTwist + (collisionDeflection * 0.5)) * (Math.PI / 180.0); trueLaunchThetaRads = dynamicFaceAngleRads;
+                if (Math.abs(strikeX) > ssTolerance) { trueLaunchThetaRads = (0.80 * dynamicFaceAngleRads) + (0.20 * pathAngleRads); }
+                trueLaunchDeg = trueLaunchThetaRads * (180.0 / Math.PI);
+                if (Math.abs(trueLaunchThetaRads) < 0.0001) trueAccRange = 35.0; else trueAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(trueLaunchThetaRads)));
+            }
+            return { isWhiff, estAccRange, trueAccRange, trueLaunchDeg, estLaunchRads: estLaunchThetaRads, trueLaunchRads: trueLaunchThetaRads };
+        }
+
+        function calculateImpactForce(speedMps) { let massEl = document.getElementById('massInput'); let massKg = massEl ? (parseFloat(massEl.value) / 1000.0) : 1.0; return (massKg * speedMps) / 0.002; }
+
+        function initAudio() {
+            if (!isAudioInitialized) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); oscillator = audioCtx.createOscillator(); gainNode = audioCtx.createGain();
+                oscillator.type = 'sine'; oscillator.frequency.value = 440; gainNode.gain.value = 0; oscillator.connect(gainNode); gainNode.connect(audioCtx.destination); oscillator.start(); isAudioInitialized = true;
+            } else { audioCtx.resume(); }
+        }
+        function playBeep(freq, duration) {
+            if (!audioCtx || !isSoundEnabled) return; let beepOsc = audioCtx.createOscillator(); let beepGain = audioCtx.createGain();
+            beepOsc.connect(beepGain); beepGain.connect(audioCtx.destination); beepOsc.type = 'sine'; beepOsc.frequency.value = freq;
+            beepGain.gain.setValueAtTime(0.5, audioCtx.currentTime); beepGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration); beepOsc.start(); beepOsc.stop(audioCtx.currentTime + duration);
+        }
+        function playDoubleBeep() {
+            if (!audioCtx || !isSoundEnabled) return; let now = audioCtx.currentTime;
+            let osc1 = audioCtx.createOscillator(); let gain1 = audioCtx.createGain(); osc1.connect(gain1); gain1.connect(audioCtx.destination); osc1.type = 'sine'; osc1.frequency.value = 600;
+            gain1.gain.setValueAtTime(0.5, now); gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.15); osc1.start(now); osc1.stop(now + 0.15);
+            let osc2 = audioCtx.createOscillator(); let gain2 = audioCtx.createGain(); osc2.connect(gain2); gain2.connect(audioCtx.destination); osc2.type = 'sine'; osc2.frequency.value = 1200;
+            gain2.gain.setValueAtTime(0.5, now + 0.15); gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.35); osc2.start(now + 0.15); osc2.stop(now + 0.35);
+        }
+        function playTick(freq, duration) {
+            if (!audioCtx || !isSoundEnabled) return; let tickOsc = audioCtx.createOscillator(); let tickGain = audioCtx.createGain();
+            tickOsc.connect(tickGain); tickGain.connect(audioCtx.destination); tickOsc.type = 'square'; tickOsc.frequency.value = freq;
+            tickGain.gain.setValueAtTime(0.6, audioCtx.currentTime); tickGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration); tickOsc.start(); tickOsc.stop(audioCtx.currentTime + duration);
+        }
+        
+        document.getElementById('flipViewBtn').onclick = () => {
+            isViewFlipped = !isViewFlipped; let radiusOffset = parseFloat(document.getElementById('radiusInput').value) || 127;
+            let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - radiusOffset, 0); controls.target.set(0, pivotBaseY - radiusOffset, 0); controls.update();
+            document.getElementById('menu-drawer').classList.remove('open');
+        };
+        document.getElementById('toggleSoundBtn').onclick = () => { isSoundEnabled = !isSoundEnabled; document.getElementById('toggleSoundBtn').classList.toggle('active', isSoundEnabled); if (!isSoundEnabled && isAudioInitialized) gainNode.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05); };
+
+        document.getElementById('launchWizardBtn').onclick = () => {
+            if (!window.bleManager.device || !window.bleManager.device.gatt.connected) { showToast("Connect sensor first before calibrating!"); return; }
+            document.getElementById('mallet-modal').close(); document.getElementById('wizard-modal').showModal();
+            isWizardActive = true; wizardStep = 0; updateWizardUI();
+        };
+
+        // --- NEW: Restore trace setting on Wizard Close ---
+        document.getElementById('closeWizardBtn').onclick = () => { 
+            isWizardActive = false; 
+            capturing = false; 
+            document.getElementById('wizard-modal').close(); 
+            if (wizardTableGroup) wizardTableGroup.visible = false;
+            masterBlock.position.set(0, -loadedRadius, 0); 
+            masterPivot.position.set(0, pivotBaseY, 0);
+            
+            let traceCheck = document.getElementById('showTraceCheck');
+            trailLine.visible = traceCheck ? traceCheck.checked : true;
+        };
+
+        const wizardInstructions = [
+            { title: "Step 1: Preparation", desc: "Remove the mallet shaft. You will need a perfectly flat table. Set a physical 'Heading Line' (like a table edge) and note 'True North'. Use two identical books if the sensor bulge prevents the head from sitting flat.", btn: "NEXT" },
+            { title: "Step 2: Top Face", desc: "Place the TOP face flat on the table. Align the Front striking face so it points exactly at 'True North' along your Heading Line.", btn: "CAPTURE TOP" },
+            { title: "Step 3: Bottom Face", desc: "Roll the head 180° over. Place the BOTTOM face flat. Ensure the Front striking face STILL points exactly at 'True North'.", btn: "CAPTURE BOTTOM" },
+            { title: "Step 4: Front Face", desc: "Stand the head up on its FRONT striking face. Point the Top face (shaft hole) directly at 'True North' along your Heading Line.", btn: "CAPTURE FRONT" },
+            { title: "Step 5: Back Face", desc: "Flip the head 180° to stand on its BACK striking face. The Top face (shaft hole) STILL points directly at 'True North'.", btn: "CAPTURE BACK" },
+            { title: "Step 6: Left Side", desc: "Lay the head resting flat on its LEFT side. Align the Front striking face so it points exactly at 'True North'.", btn: "CAPTURE LEFT" },
+            { title: "Step 7: Right Side", desc: "Roll it 180°. Place the head resting flat on its RIGHT side. The Front striking face STILL points exactly at 'True North'.", btn: "CAPTURE RIGHT" }
+        ];
+
+        function updateWizardUI() {
+            let config = wizardInstructions[wizardStep]; document.getElementById('wizard-step-title').innerText = config.title; document.getElementById('wizard-instruction').innerText = config.desc;
+            document.getElementById('wizard-progress').innerText = `Step ${wizardStep + 1} of 7`; let btn = document.getElementById('wizardCaptureBtn'); btn.innerText = config.btn; btn.disabled = false;
+        }
+
+        document.getElementById('wizardCaptureBtn').onclick = () => {
+            if (wizardStep === 0) { wizardStep++; updateWizardUI(); } 
+            else { let btn = document.getElementById('wizardCaptureBtn'); btn.innerText = "WAITING FOR SETTLE... (HANDS OFF)"; btn.disabled = true; wizardBuffer = []; capturing = true; }
+        };
+
+        function calculateRotationMatrix() {
+            let zAxis = new THREE.Vector3().subVectors(vectors.top, vectors.bottom).normalize(); let xAxis = new THREE.Vector3().subVectors(vectors.front, vectors.back).normalize();
+            let yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize(); xAxis.crossVectors(yAxis, zAxis).normalize();
+            let basisMat = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis); hardwareMountOffset.setFromRotationMatrix(basisMat).invert(); 
+            saveSettings(); isWizardActive = false; document.getElementById('wizard-modal').close(); 
+            
+            if (wizardTableGroup) wizardTableGroup.visible = false;
+            masterBlock.position.set(0, -loadedRadius, 0);
+            masterPivot.position.set(0, pivotBaseY, 0);
+
+            // --- NEW: Restore trace setting on calculation finish ---
+            let traceCheck = document.getElementById('showTraceCheck');
+            trailLine.visible = traceCheck ? traceCheck.checked : true;
+
+            window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z).then((success) => {
+                if(success) showToast("HARDWARE MATRIX BURNED SUCCESSFULLY TO MALLET.");
+                else showToast("HARDWARE MATRIX SAVED LOCALLY.");
+            });
+        }
+
+        const scene = new THREE.Scene(); const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+        let defaultRad = 127; camera.position.set(100, pivotBaseY - defaultRad, 0); 
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); renderer.setSize(window.innerWidth, window.innerHeight); 
+        renderer.domElement.style.position = 'absolute'; renderer.domElement.style.top = '0'; renderer.domElement.style.left = '0'; renderer.domElement.style.zIndex = '1';
+        document.body.appendChild(renderer.domElement);
+        
+        scene.background = new THREE.Color(0xe2e8f0); 
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2); hemiLight.position.set(0, 50, 0); scene.add(hemiLight);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement); controls.enableDamping = true; controls.target.set(0, pivotBaseY - defaultRad, 0); controls.update();
+        window.addEventListener('resize', () => { renderer.setSize(window.innerWidth, window.innerHeight); camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); controls.update(); });
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const headlamp = new THREE.DirectionalLight(0xffffff, 0.8); camera.add(headlamp); scene.add(camera);
+
+        const ballGeo = new THREE.SphereGeometry(4.6, 8, 6); const ballMat = new THREE.MeshBasicMaterial({ color: 0x0284c7, wireframe: true, transparent: true, opacity: 0.6 });
+        const virtualBall = new THREE.Mesh(ballGeo, ballMat); virtualBall.visible = false; scene.add(virtualBall);
+
+        const ghostRailMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 }); let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), ghostRailMat); 
+        ghostRail.visible = false;
+
+        const wizardTableGroup = new THREE.Group();
+        wizardTableGroup.visible = false;
+        scene.add(wizardTableGroup);
+
+        const tableGeo = new THREE.PlaneGeometry(80, 80);
+        const tableMat = new THREE.MeshBasicMaterial({color: 0x94a3b8, transparent: true, opacity: 0.2, side: THREE.DoubleSide});
+        const tableMesh = new THREE.Mesh(tableGeo, tableMat);
+        tableMesh.rotation.x = -Math.PI / 2;
+        tableMesh.position.y = pivotBaseY - defaultRad - 1.5; 
+        wizardTableGroup.add(tableMesh);
+
+        const arrowDir = new THREE.Vector3(0, 0, -1);
+        const arrowOrigin = new THREE.Vector3(0, pivotBaseY - defaultRad - 1, 25);
+        const headingArrow = new THREE.ArrowHelper(arrowDir, arrowOrigin, 50, 0xef4444, 5, 4);
+        wizardTableGroup.add(headingArrow);
+
+        const masterPivot = new THREE.Group(); scene.add(masterPivot); const masterBlock = new THREE.Group(); masterPivot.add(masterBlock);
+        const faceTrackerNode = new THREE.Group(); masterBlock.add(faceTrackerNode); const physicsTrackingNode = new THREE.Group(); physicsTrackingNode.position.set(0, 0, 0); masterBlock.add(physicsTrackingNode);
+        const headJoint = new THREE.Group(); masterBlock.add(headJoint);
+        
+        const ghostPivot = new THREE.Group(); scene.add(ghostPivot); const ghostBlock = new THREE.Group(); ghostPivot.add(ghostBlock); const ghostHeadJoint = new THREE.Group(); ghostBlock.add(    ghostHeadJoint);
+            ghostPivot.add(ghostRail); // <-- Attach the rail to the relative pivot
+
+        const loader = new THREE.STLLoader();
+        loader.load('./model.stl', function (geometry) {
+            geometry.center(); geometry.computeVertexNormals(); const material = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.6, roughness: 0.3 });
+            const customModel = new THREE.Mesh(geometry, material); geometry.computeBoundingBox(); geometry.boundingBox.getSize(baseStlSize);
+            customModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); mainMalletMesh = customModel; mainMalletMesh.position.set(0, 0, 0); headJoint.add(mainMalletMesh); 
+            const edgesGeo = new THREE.EdgesGeometry(geometry, 15); const ghostMaterial = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35 });
+            const ghostModel = new THREE.LineSegments(edgesGeo, ghostMaterial); ghostModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); ghostMalletMesh = ghostModel; ghostMalletMesh.position.set(0, 0, 0); ghostMalletMesh.visible = isGhostEnabled; ghostHeadJoint.add(ghostMalletMesh);
+            updateMalletScale(); mainMalletMesh.visible = false; ghostMalletMesh.visible = false;
+        });
+
+        function drawStrikeLaser(cast) {
+            impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+            if (!cast || !cast.pos || cast.isWhiff) return;
+            let laserGroup = new THREE.Group(); let cylGeo = new THREE.CylinderGeometry(0.15, 0.15, 1.5, 8); cylGeo.rotateX(Math.PI / 2); let cylMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+            let correctedRot = cast.rot.clone(); let laserDir = new THREE.Vector3(0, 0, 1).applyQuaternion(correctedRot);
+            if (laserDir.z < 0) { let flipRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); correctedRot.multiply(flipRot); }
+            let impactOffset = new THREE.Vector3(-cast.rawDev, 0, 0); let trueOrigin = impactOffset.applyQuaternion(correctedRot).add(cast.pos);
+            for(let i=0; i<10; i++) { let dash = new THREE.Mesh(cylGeo, cylMat); let forwardStep = new THREE.Vector3(0, 0, (i * 3.0) + 0.75); dash.position.copy(forwardStep.applyQuaternion(correctedRot).add(trueOrigin)); dash.quaternion.copy(correctedRot); laserGroup.add(dash); }
+            scene.add(laserGroup); impactLasers.push(laserGroup);
+        }
+
+        const trailGeometry = new THREE.BufferGeometry(); trailPositions.fill(0); trailColors.fill(0);
+        trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3)); trailGeometry.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+        trailGeometry.setDrawRange(0, 0); const trailMaterial = new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 3, transparent: true, opacity: 0.9 });
+        const trailLine = new THREE.Line(trailGeometry, trailMaterial); trailLine.frustumCulled = false; scene.add(trailLine);
+
+        function updateSmoothTrail(limitIndex = rawTracePoints.length) {
+            let pts = rawTracePoints.slice(0, limitIndex); if (pts.length < 2) { trailGeometry.setDrawRange(0, 0); return; }
+            let curve = new THREE.CatmullRomCurve3(pts.map(p => p.pos), false, 'centripetal', 0.5);
+            let sampleCount = pts.length * 3; if (sampleCount >= MAX_TRAIL_POINTS) sampleCount = MAX_TRAIL_POINTS - 1; let smoothPoints = curve.getPoints(sampleCount);
+            for (let i = 0; i <= sampleCount; i++) {
+                if (i >= MAX_TRAIL_POINTS) break;
+                trailPositions[i * 3] = smoothPoints[i].x; trailPositions[i * 3 + 1] = smoothPoints[i].y; trailPositions[i * 3 + 2] = smoothPoints[i].z;
+                let t = i / sampleCount; let rawIdx = Math.min(Math.floor(t * pts.length), pts.length - 1);
+                trailColors[i * 3] = pts[rawIdx].color.r; trailColors[i * 3 + 1] = pts[rawIdx].color.g; trailColors[i * 3 + 2] = pts[rawIdx].color.b;
+            }
+            trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, sampleCount + 1);
+        }
+
+        function rebuildArcPts(radius) {
+            let arcPts = []; let baseVec = new THREE.Vector3(0, -radius, 0); 
+            for(let i=-60; i<=60; i+=2) { 
+                    let a = THREE.MathUtils.degToRad(i); 
+                    let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); 
+                    arcPts.push(v); // Removed the v.y += pivotBaseY offset
+            }
+            let curve = new THREE.CatmullRomCurve3(arcPts); let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false); 
+            if (ghostRail.geometry) ghostRail.geometry.dispose(); ghostRail.geometry = tubeGeo;
+        }
+
+        loadSettings(); let loadedRadius = 127; let rInput = document.getElementById('radiusInput'); if(rInput && rInput.value) { loadedRadius = parseFloat(rInput.value); if (loadedRadius < 50) loadedRadius = 50; }
+        updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
+        if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5;
+        if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1;
+
+        if (rInput) { rInput.addEventListener('change', (e) => { let newRadius = parseFloat(e.target.value); if (newRadius < 50) { newRadius = 50; e.target.value = 50; } loadedRadius = newRadius; updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update(); rebuildArcPts(newRadius); if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5; if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1; }); }
+
+        const scrubberInput = document.getElementById('replayScrubber');
+        if (scrubberInput) {
+            scrubberInput.oninput = (e) => {
+                if (!playbackMode || recordedFrames.length === 0) return;
+                isPaused = true; document.getElementById('pauseBtn').innerText = "▶ PLAY"; playbackIndex = parseInt(e.target.value); let frame = recordedFrames[playbackIndex];
+                masterPivot.quaternion.copy(frame.rotation); masterPivot.position.copy(frame.pivotPos); masterBlock.position.set(0, -(loadedRadius + frame.extension), 0); headJoint.quaternion.identity(); updateSmoothTrail(frame.rawPtIndex); document.getElementById('scrubberLabel').innerText = `Frame: ${playbackIndex + 1} / ${recordedFrames.length}`;
+            };
+        }
+
+        const impactInput = document.getElementById('impactInput'); if(impactInput) impactInput.addEventListener('input', (e) => { impactThreshold = parseFloat(e.target.value); });
+        const audioThreshInput = document.getElementById('audioThreshInput'); if(audioThreshInput) audioThreshInput.addEventListener('input', (e) => { audioThreshold = parseFloat(e.target.value); });
+        const showTraceCheck = document.getElementById('showTraceCheck'); if(showTraceCheck) showTraceCheck.addEventListener('change', (e) => { trailLine.visible = e.target.checked; });
+
+        document.getElementById('btnUpdateFW').addEventListener('click', async () => {
+            let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
+            let payload = [ 67, parseInt(document.getElementById('radiusInput').value), parseInt(document.getElementById('massInput').value) / 10, parseFloat(document.getElementById('impactInput').value) * 10, parseFloat(document.getElementById('offsetYInput').value) * 10, parseInt(document.getElementById('timeoutInput').value), parseFloat(document.getElementById('sweetSpotInput').value) * 10, ledGuidance, 10 ];
+            let success = await sendBleCommand(payload, true);
+            if (success) showToast("Sync Complete"); else showToast("Bluetooth Error: Cannot sync.");
+        });
+
+        document.getElementById('btnResetFW').addEventListener('click', async () => { 
+            if(confirm("Force a hardware-level reboot?")) { 
+                let success = await sendBleCommand([82]); 
+                if (success) showToast("Reboot Command Sent."); 
+            } 
+        });
+
+        document.getElementById('btnWipeData').addEventListener('click', async () => {
+            if(confirm("Wipe ALL saved strikes and calibration matrix directly from the mallet memory?")) {
+                let success = await sendBleCommand([87]); 
+                if (success) showToast("Mallet flash memory wiped."); else showToast("Bluetooth Error.");
+            }
+        });
+
+        // --- GAME MODE CONTROLS ---
+        document.getElementById('startGameModeBtn').onclick = async () => {
+            let ts = Math.floor(Date.now() / 1000);
+            let payload = [75, ts & 0xFF, (ts >> 8) & 0xFF, (ts >> 16) & 0xFF, (ts >> 24) & 0xFF];
+            let success = await sendBleCommand(payload);
+            if (success) {
+                inGameMode = true; gmStrokeCount = 0;
+                document.getElementById('gm-stroke-count').innerText = "0";
+                document.getElementById('gm-latest-stats').innerHTML = "Awaiting Next Strike...";
+                document.getElementById('game-mode-dashboard').classList.remove('hidden');
+                showToast("On-Course Match Started!");
+            } else { showToast("BLE Error."); }
+        };
+
+        document.getElementById('endGameModeBtn').onclick = async () => {
+            let success = await sendBleCommand([76]);
+            if (success) {
+                inGameMode = false;
+                document.getElementById('game-mode-dashboard').classList.add('hidden');
+                showToast("On-Course Match Ended.");
+            }
+        };
+
+        document.getElementById('pauseBtn').onclick = () => { if (!playbackMode) return; isPaused = !isPaused; document.getElementById('pauseBtn').innerText = isPaused ? "▶ PLAY" : "⏸ PAUSE"; };
+        document.getElementById('slowMoBtn').onclick = () => { isSlowMo = !isSlowMo; document.getElementById('slowMoBtn').innerText = isSlowMo ? "🐌 SLOW: ON" : "🐌 SLOW: OFF"; };
+
+        document.getElementById('exitReplayBtn').onclick = () => {
+            playbackMode = false; isPaused = false; isReviewingLog = false; document.getElementById('playback-panel').classList.add('hidden');
+            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
+            if (recordedFrames.length > 0) updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
+            if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
+            masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
+        };
+
+        // --- NEW: Restore full swing trace buffer on exit ---
+        document.getElementById('exitPassViewBtn').onclick = () => {
+            isReviewingLog = false; window.currentlyViewedCast = null;
+            document.getElementById('tune-action-panel').classList.add('hidden');
+            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
+            
+            if (window.fullSwingTraceBuffer && window.fullSwingTraceBuffer.length > 0) {
+                rawTracePoints = window.fullSwingTraceBuffer;
+            }
+
+            if (recordedFrames.length > 0) updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
+            else updateSmoothTrail();
+
+            if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
+            impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+            masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
+        };
+
+        function animate() {
+            requestAnimationFrame(animate); controls.update();
+            let metronomeCheck = document.getElementById('metronomeCheck');
+            if (isAudioInitialized && metronomeCheck && metronomeCheck.checked && (appState === 3 || appState === 4)) {
+                let nowAudio = audioCtx.currentTime; if (nextMetronomeTime === 0) nextMetronomeTime = nowAudio + 0.1; 
+                if (nowAudio >= nextMetronomeTime) { playTick(900, 0.04); let bpm = parseFloat(document.getElementById('metronomeBpm').value) || 60; nextMetronomeTime += (60.0 / bpm); }
+            } else { nextMetronomeTime = 0; }
+
+            let countdownEl = document.getElementById('live-countdown');
+            if (appState === 3) {
+                let remain = Math.max(0, 30.0 - (Date.now() - armedUiStartTime) / 1000.0); countdownEl.classList.remove('hidden'); countdownEl.innerText = Math.ceil(remain) + "s"; countdownEl.className = remain <= 5.0 ? "gm-score text-danger" : "gm-score text-accent";
+            } else if (appState === 4) {
+                let limit = parseFloat(document.getElementById('practiceInput').value); let remain = Math.max(0, limit - (Date.now() - state4UiStartTime) / 1000.0); countdownEl.classList.remove('hidden'); countdownEl.innerText = Math.ceil(remain) + "s"; countdownEl.className = "gm-score text-danger";
+            } else { countdownEl.classList.add('hidden'); }
+
+            if (isLive && !playbackMode && !isReviewingLog && (appState >= 3 || (appState === 2 && calibrationPhase === 'ORANGE')) && appState < 4.5 && !inGameMode) {
+                let angleDiff = currentQuaternion.angleTo(targetQuaternion); let slerpSpeed = 1.0; 
+                if (angleDiff < 0.02) slerpSpeed = 0.02; else if (angleDiff < 0.1) slerpSpeed = 0.15; else slerpSpeed = 0.8; 
+                currentQuaternion.slerp(targetQuaternion, slerpSpeed); masterPivot.quaternion.copy(currentQuaternion); headJoint.quaternion.identity(); 
+            }
+
+            if (mainMalletMesh) {
+                if (isWizardActive) {
+                    wizardTableGroup.visible = true;
+                    mainMalletMesh.visible = true;
+                    ghostMalletMesh.visible = false;
+                    virtualBall.visible = false;
+                    ghostRail.visible = false;
+                    trailLine.visible = false;
+
+                    let tx = 0, ty = 0, tz = 0;
+                    switch(wizardStep) {
+                        case 0: tx = 0; ty = 0; tz = 0; break;
+                        case 1: tx = Math.PI; ty = 0; tz = 0; break;
+                        case 2: tx = 0; ty = Math.PI; tz = 0; break;
+                        case 3: tx = Math.PI / 2; ty = Math.PI; tz = 0; break;
+                        case 4: tx = -Math.PI / 2; ty = 0; tz = 0; break;
+                        case 5: tx = 0; ty = Math.PI; tz = -Math.PI / 2; break;
+                        case 6: tx = 0; ty = Math.PI; tz = Math.PI / 2; break;
+                    }
+
+                    let qTarget = new THREE.Quaternion().setFromEuler(new THREE.Euler(tx, ty, tz, 'YXZ'));
+                    masterPivot.quaternion.slerp(qTarget, 0.1);
+
+                    let len = parseFloat(document.getElementById('malletLengthInput').value) || 27.6;
+                    let wid = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
+                    
+                    let yOffset = (wizardStep === 3 || wizardStep === 4) ? (len / 2.0) : (wid / 2.0);
+                    let tableY = pivotBaseY - loadedRadius - 1.5; 
+                    
+                    masterPivot.position.set(0, tableY + yOffset, 0); 
+                    masterBlock.position.set(0, 0, 0); 
+                } 
+                else if (inGameMode) { mainMalletMesh.visible = false; ghostMalletMesh.visible = false; }
+                else if (appState === 6) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
+                else if (isReviewingLog) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; } 
+                else if (appState === 4.5) {
+                    let t = (Date.now() - rewindStartTime) / 500.0; if (t >= 1.0) { t = 1.0; appState = 5; }
+                    masterPivot.quaternion.copy(rewindStartQuat).slerp(finalReviewPivotQuat, t); masterPivot.position.lerpVectors(rewindStartPos, finalReviewPivotPos, t);
+                    let smoothExt = rewindStartExt + (finalReviewExtension - rewindStartExt) * t; masterBlock.position.set(0, -(loadedRadius + smoothExt), 0);
+                    headJoint.quaternion.identity(); mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled;
+                }
+                else if (appState === 5 && !playbackMode) {
+                    masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0);
+                    headJoint.quaternion.identity(); mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled;
+                } 
+                else if (playbackMode) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; } 
+                else { mainMalletMesh.visible = (appState !== 0); ghostMalletMesh.visible = (isGhostEnabled && appState !== 0 && appState >= 3); }
+            }
+
+            if (playbackMode && !isPaused && recordedFrames.length > 0) {
+                let now = Date.now(); let frameDelay = isSlowMo ? 200 : 40; 
+                if (now - lastPlaybackTime >= frameDelay) {
+                    lastPlaybackTime = now; let frame = recordedFrames[playbackIndex];
+                    masterPivot.quaternion.copy(frame.rotation); masterPivot.position.copy(frame.pivotPos); masterBlock.position.set(0, -(loadedRadius + frame.extension), 0); headJoint.quaternion.identity(); 
+                    updateSmoothTrail(frame.rawPtIndex);
+                    if (scrubberInput) scrubberInput.value = playbackIndex; let sLabel = document.getElementById('scrubberLabel'); if (sLabel) sLabel.innerText = `Frame: ${playbackIndex + 1} / ${recordedFrames.length}`;
+                    
+                    playbackIndex++;
+                    if (playbackIndex >= recordedFrames.length) {
+                        playbackMode = false; isPaused = false; document.getElementById('playback-panel').classList.add('hidden');
+                        updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
+                        let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
+                        if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
+                        masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
+                    }
+                }
+            }
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        function renderLiveCasts() {
+            let liveList = document.getElementById('live-tracking-list'); if (!liveList) return; liveList.innerHTML = '';
+            castData.forEach((c, i) => {
+                let twistStr = (c.faceAngle > 0 ? '+' : '') + (c.faceAngle || 0).toFixed(1) + '°';
+                let speedStr = `${(c.passSpeed || 0).toFixed(1)}m/s`; 
+                let forceStr = (c.appliedForce || 0) > 0 ? `+${Math.round(c.appliedForce)}N` : `${Math.round(c.appliedForce)}N`;
+                let starDisplay = c.stars !== "" ? `<span style="color: ${c.starColor};" class="font-bold">${c.stars}</span>` : `<span class="text-muted">-</span>`;
+                let prefix = c.isStrike ? "STRIKE" : (i+1);
+                let distStr = `Est: ${Math.round(c.estDist || 0)}m`; let pDeltaStr = `PΔ: ${formatOffset(c.pDelta)}`;
+                let traceAccStr = c.isWhiff ? `-` : `Acc: ${(c.estAccRange >= 35 ? 'Center' : Math.round(c.estAccRange) + 'm')}`;
+                let weightClass = c.isStrike ? "font-bold" : ""; let colClass = c.isStrike ? "" : "text-muted";
+
+                liveList.innerHTML += `
+                <div class="cast-row flex-col gap-2 ${colClass} ${weightClass}" onclick="highlightPass(${swingCount-1}, ${i})">
+                    <div class="flex justify-between">
+                        <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(0)}cm ${c.dir || 'C'}</span>
+                        <span class="w-25 text-center">${twistStr}</span>
+                        <span class="w-25 text-center">${forceStr}</span>
+                        <span class="w-25 text-right">${speedStr}</span>
+                    </div>
+                    <div class="flex justify-between text-muted font-normal">
+                        <span class="w-25">${starDisplay}</span>
+                        <span class="w-25 text-center">${traceAccStr}</span>
+                        <span class="w-25 text-center">${distStr}</span>
+                        <span class="w-25 text-right">${pDeltaStr}</span>
+                    </div>
+                </div>`;
+            });
+        }
+
+        window.triggerReplay = function(index) {
+            if (!swingDatabase[index]) return;
+            let data = swingDatabase[index]; recordedFrames = data.frames; finalReviewPivotQuat.copy(data.finalReviewPivotQuat); finalReviewPivotPos.copy(data.finalReviewPivotPos); finalReviewExtension = data.finalReviewExtension;
+            rawTracePoints = data.rawTracePoints; updateSmoothTrail();
+            playbackMode = true; isPaused = false; playbackIndex = 0; isReviewingLog = true; ghostMalletMesh.visible = isGhostEnabled; lastPlaybackTime = Date.now(); 
+            
+            // Reapply relative ghost anchor to properly display replay ball and target line
+            if (isBallEnabled) { 
+                ghostPivot.quaternion.copy(data.setupQuat || new THREE.Quaternion());
+                updateSystemGeometry(); 
+                virtualBall.visible = true; 
+            }
+            
+            if(scrubberInput) { scrubberInput.max = recordedFrames.length - 1; scrubberInput.value = 0; }
+            let sLabel = document.getElementById('scrubberLabel'); if(sLabel) sLabel.innerText = `Frame: 1 / ${recordedFrames.length}`;
+            if(data.casts && data.casts.length > 0) drawStrikeLaser(data.casts[data.casts.length - 1]); else { impactLasers.forEach(m => scene.remove(m)); impactLasers = []; }
+            document.getElementById('pauseBtn').innerText = "⏸ PAUSE"; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `REPLAYING SWING #${index + 1}...`; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
+            document.getElementById('playback-panel').classList.remove('hidden');
+            document.getElementById('tune-action-panel').classList.add('hidden');
+            document.getElementById('history-panel').classList.add('mobile-open');
+        };
+
+        // --- NEW: Trace isolation logic instead of darkening ---
+        window.highlightPass = function(swingIdx, castIdx) {
+            if (!swingDatabase[swingIdx]) return; let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
+            window.currentlyViewedCast = cast;
+            playbackMode = false; isPaused = false; isReviewingLog = true; 
+            document.getElementById('playback-panel').classList.add('hidden');
+            
+            let tunePanel = document.getElementById('tune-action-panel');
+            tunePanel.classList.remove('hidden');
+            tunePanel.classList.add('mt-3');
+            tunePanel.style.marginBottom = '0';
+            
+            let container = document.getElementById('cast-container-' + swingIdx);
+            if (container) {
+                container.appendChild(tunePanel);
+            }
+            
+            if (document.getElementById('allowRealtimeTuningCheck') && document.getElementById('allowRealtimeTuningCheck').checked) {
+                document.getElementById('enterTuningBtn').classList.remove('hidden');
+            } else {
+                document.getElementById('enterTuningBtn').classList.add('hidden');
+            }
+            
+            window.fullSwingTraceBuffer = swing.rawTracePoints;
+            let centerFrame = cast.trailIndex; 
+            let startFrame = Math.max(0, centerFrame - 15); 
+            let endFrame = Math.min(swing.rawTracePoints.length - 1, centerFrame + 15);
+            
+            rawTracePoints = swing.rawTracePoints.slice(startFrame, endFrame + 1);
+            updateSmoothTrail(); 
+            
+            masterPivot.quaternion.copy(cast.pivotQuat); masterPivot.position.copy(cast.pivotPos); masterBlock.position.set(0, -(loadedRadius + cast.extension), 0);
+            headJoint.quaternion.identity(); ghostMalletMesh.visible = isGhostEnabled; if (mainMalletMesh) mainMalletMesh.visible = true; drawStrikeLaser(cast);
+            
+            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `VIEWING PASS #${castIdx + 1}. DRAG CAMERA.`; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
+        };
+
+        document.getElementById('zeroArmBtn').onclick = async () => {
+            if (appState === 2 || appState === 3 || appState === 4 || appState === 4.5) return; 
+            let success = await sendBleCommand([90]); // 'Z'
+            if (!success) { showToast("BLE Error."); return; }
+            
+            zeroRawBLEQuat.copy(currentRawBLEQuat);
+            
+            if (isBallEnabled) { 
+                ghostPivot.quaternion.identity(); 
+                updateSystemGeometry(); 
+                virtualBall.visible = true; 
+            } else { virtualBall.visible = false; }
+
+            appState = 2; calibrationPhase = 'RED'; redStartTime = Date.now(); isReviewingLog = false;
+            
+            let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - loadedRadius, 0); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
+            
+            // Extract only the Y-Axis (Yaw/Heading) to zero out, preserving calibrated Pitch & Roll
+            let initialEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
+            let initialHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, initialEuler.y, 0, 'YXZ'));
+            baseQuatInverse.copy(initialHeading).invert(); 
+            targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); 
+            currentQuaternion.copy(targetQuaternion); 
+            masterPivot.quaternion.copy(currentQuaternion);
+
+            document.getElementById('ready-group').classList.add('hidden'); document.getElementById('cancelArmBtn').classList.remove('hidden');
+            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "ESTABLISHING HEADING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
+            document.getElementById('live-countdown').classList.add('hidden'); document.getElementById('calibration-container').classList.remove('hidden');
+            let calibBar = document.getElementById('calibration-bar'); calibBar.style.width = "0%"; calibBar.style.background = "var(--danger)";
+            preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = []; rawTracePoints = []; updateSmoothTrail(0);
+            calibrationHoldTimeMs = 0; lastJsTime = Date.now(); lastStableQuat.identity(); rebuildArcPts(loadedRadius); ghostRail.visible = false;
+            masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity(); finalReviewExtension = 0;
+            isForwardSwing = true; lastForwardPassTime = 0;
+        };
+
+        document.getElementById('cancelArmBtn').onclick = () => resetSystemState(false, false);
+        document.getElementById('resetMaxBtn').onclick = async () => await resetSystemState(false, true);
+
+        function handleHistoricalStrike(s) {
+            downloadedHistory.push({ 
+                matchID: s.matchID, 
+                secondsIntoMatch: s.secondsIntoMatch, 
+                exactTime: new Date((s.matchID + s.secondsIntoMatch) * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }), 
+                peakG: s.peakG, peakTwist: s.peakTwist, dwell: s.dwell, zVel: s.zVel, appliedForce: s.appliedForce, 
+                pushForce: s.pushForce, q0: s.q0, q1: s.q1, q2: s.q2, q3: s.q3, timestamp: s.timestamp,
+                downwardSwingTime: s.downwardSwingTime, decelFactor: s.decelFactor
+            }); 
+        }
+
+        function handleLiveStrike(s) {
+            currentSwingMaxG = s.peakG; maxTwist = s.peakTwist; currentSwingDwell = s.dwell;
+            let pristineVel = s.zVel; let appliedF = s.appliedForce; let pF = s.pushForce;
+            let downTime = s.downwardSwingTime; let decelFact = s.decelFactor;
+            
+            window.lastEdgeData = { zVel: pristineVel, appliedForce: appliedF, pushForce: pF, downwardSwingTime: downTime, decelFactor: decelFact };
+            
+            if (inGameMode) {
+                gmStrokeCount++; document.getElementById('gm-stroke-count').innerText = gmStrokeCount;
+                let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; let lawnMult = 0.50 + ((parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0) - 10) * 0.075;
+                let ballSpeedMPS = pristineVel * (massKg * 1.8) / (massKg + 0.454); let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+                document.getElementById('gm-latest-stats').innerHTML = `<div class="text-muted mb-2 uppercase" style="font-size:0.85rem;">LATEST STRIKE</div><div>Speed: <span class="text-main font-800">${pristineVel.toFixed(1)}</span> m/s</div><div>Est Dist: <span class="text-accent font-800">${estDist.toFixed(0)}</span> m</div>`;
+                return; 
+            }
+
+            let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); pureImpactSensor.multiply(hardwareMountOffset);
+            let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
+            impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
+            let iQuat = baseQuatInverse.clone().multiply(impactRawQuat);
+            let impactEuler = new THREE.Euler().setFromQuaternion(iQuat, 'YXZ'); currentSwingAoA = THREE.MathUtils.radToDeg(impactEuler.z);
+            let locTwist = getShaftTwist(iQuat);
+
+            let existingIndex = -1; if (castData.length > 0 && (globalHwTime - castData[castData.length - 1].time) < 1500) existingIndex = castData.length - 1;
+
+            if (existingIndex !== -1) {
+                let ec = castData[existingIndex]; ec.isStrike = true; ec.faceAngle = locTwist; ec.passSpeed = pristineVel; ec.passForce = pF; ec.appliedForce = appliedF;
+                
+                let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
+                if (downTime > 0) {
+                    ec.dsPDelta = (9.81 * Math.pow((2 * (downTime / 1000.0)) / Math.PI, 2) * 100.0) - sRad;
+                }
+
+                let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; let lawnMult = 0.50 + ((parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0) - 10) * 0.075;
+                let ballSpeedMPS = pristineVel * (massKg * 1.8) / (massKg + 0.454); ec.estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+                let accData = calcAccuracyData(ec.rawDev, locTwist, ec.pathAngleRads, maxTwist, currentSwingDwell);
+                ec.isWhiff = accData.isWhiff; ec.estAccRange = accData.estAccRange; ec.trueAccRange = accData.trueAccRange; ec.trueLaunchDeg = accData.trueLaunchDeg;
+                ec.estLaunchRads = accData.estLaunchRads; ec.trueLaunchRads = accData.trueLaunchRads; ec.maxAccRange = accData.trueAccRange; 
+                let freshRating = getStarRating(ec.rawDev, accData.trueLaunchDeg); ec.stars = freshRating.string; ec.starColor = freshRating.color;
+            }
+            if (appState === 4 || appState === 3) { impactDetected = true; clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 100); }
+        }
+
+        function handleParsedTelemetry(t) {
+            const hwTimestamp = t.hwTimestamp; globalHwTime = hwTimestamp; let jsNow = Date.now();
+            const q0 = t.q0; const q1 = t.q1; const q2 = t.q2; const q3 = t.q3;
+            const ax = t.ax; const ay = t.ay; const az = t.az;
+            const liveAppliedForce = t.appliedForce; const hwAppState = t.appState;
+            
+            prevRawBLEQuat.copy(currentRawBLEQuat);
+            currentRawBLEQuat.set(q1, q2, q3, q0);
+
+            let pureSensorQuat = currentRawBLEQuat.clone().multiply(hardwareMountOffset);
+            lastRawQuat = new THREE.Quaternion(pureSensorQuat.y, -pureSensorQuat.z, -pureSensorQuat.x, pureSensorQuat.w).normalize();
+            lastRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
+            prevTargetQuaternion.copy(targetQuaternion);
+
+            let rawForce = new THREE.Vector3(ax, ay, az); let magnitude = rawForce.length(); let deltaG = Math.abs(magnitude - prevMagnitude);
+            
+            if (isWizardActive && capturing) {
+                wizardBuffer.push(rawForce.clone()); if (wizardBuffer.length > WIZARD_BUFFER_SIZE) wizardBuffer.shift();
+                if (wizardBuffer.length === WIZARD_BUFFER_SIZE) {
+                    let minMag = 999, maxMag = -999; wizardBuffer.forEach(v => { let m = v.length(); if (m < minMag) minMag = m; if (m > maxMag) maxMag = m; });
+                    if ((maxMag - minMag) < WIZARD_VARIANCE_THRESH) {
+                        capturing = false; let avgX = 0, avgY = 0, avgZ = 0; wizardBuffer.forEach(v => { avgX += v.x; avgY += v.y; avgZ += v.z; });
+                        avgX /= WIZARD_BUFFER_SIZE; avgY /= WIZARD_BUFFER_SIZE; avgZ /= WIZARD_BUFFER_SIZE; let avgVec = new THREE.Vector3(avgX, avgY, avgZ).normalize();
+                        if (wizardStep === 1) vectors.top = avgVec; else if (wizardStep === 2) vectors.bottom = avgVec; else if (wizardStep === 3) vectors.front = avgVec;
+                        else if (wizardStep === 4) vectors.back = avgVec; else if (wizardStep === 5) vectors.left = avgVec; else if (wizardStep === 6) vectors.right = avgVec;
+                        wizardStep++; if (wizardStep < 7) { updateWizardUI(); } else { calculateRotationMatrix(); }
+                    }
+                }
+            }
+
+            let flatMag = parseFloat(document.getElementById('flatMagInput').value) || 4.0; let extension = 0;
+            if (appState >= 3 && liveAppliedForce > 2.0) { let clampedForce = Math.min(liveAppliedForce, 15.0); extension = clampedForce * (flatMag / 10.0); }
+            let currentDynamicRadius = loadedRadius + extension; let currentPivotLift = extension;
+
+            if (appState === 2) {
+                let dtMs = jsNow - lastJsTime; lastJsTime = jsNow; let calibBar = document.getElementById('calibration-bar'); let swingStateTxt = document.getElementById('swing-state');
+                if (calibrationPhase === 'RED') {
+                    let elapsed = jsNow - redStartTime; let pct = (elapsed / 3000.0) * 66.0; 
+                    if(calibBar) { calibBar.style.width = Math.min(pct, 66) + "%"; calibBar.style.background = "var(--danger)"; }
+                    if (elapsed >= 3000 && hwAppState === 6) {
+                        calibrationPhase = 'ORANGE'; calibrationHoldTimeMs = 0; orangeStartTime = jsNow; lastStableQuat.copy(lastRawQuat); 
+                        if(swingStateTxt) { swingStateTxt.innerText = "STEADYING..."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
+                        ghostRail.visible = true; 
+                    }
+                } else if (calibrationPhase === 'ORANGE') {
+                    if (orangeStartTime === 0) orangeStartTime = jsNow;
+                    let angleDiff = lastRawQuat.angleTo(lastStableQuat); let gDiff = Math.abs(magnitude - 1.0);
+                    if (angleDiff > 0.12 || gDiff > 0.25) { 
+                        calibrationHoldTimeMs = 0; lastStableQuat.copy(lastRawQuat); 
+                        if(calibBar) { calibBar.style.width = "66%"; calibBar.style.background = "var(--warning)"; } 
+                    } else { 
+                        calibrationHoldTimeMs += dtMs; let orangePct = (calibrationHoldTimeMs / 1000.0) * 34.0; let totalPct = 66.0 + orangePct; 
+                        if(calibBar) { calibBar.style.width = Math.min(totalPct, 100) + "%"; calibBar.style.background = "var(--warning)"; }
+                    }
+                    if (jsNow - orangeStartTime > 20000) { resetSystemState(true, false).then(() => { let txt = document.getElementById('swing-state'); if(txt) { txt.innerHTML = "STEADYING FAILED - TOO MUCH MOVEMENT. TRY AGAIN."; txt.className = "text-danger text-center font-bold mb-4"; } }); return; }
+                    let visualDiff = currentQuaternion.angleTo(targetQuaternion);
+                    if (calibrationHoldTimeMs >= 1000 && visualDiff < 0.02) { 
+
+                        calibrationPhase = 'NONE'; 
+                        // Extract and zero only the final settled Yaw/Heading
+                        let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
+                        let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YXZ'));
+                        baseQuatInverse.copy(finalHeading).invert(); 
+                        document.getElementById('calibration-container').classList.add('hidden');
+
+                        targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); 
+                        currentQuaternion.copy(targetQuaternion); 
+                        masterPivot.quaternion.copy(currentQuaternion);
+
+                        // --- NEW RELATIVE PLACEMENT ARCHITECTURE ---
+                        ghostPivot.quaternion.copy(currentQuaternion);
+                        updateSystemGeometry(); 
+
+                        let tiltedNormal = new THREE.Vector3(1, 0, 0).applyQuaternion(currentQuaternion);
+                        let tiltedCentroid = new THREE.Vector3(0, -loadedRadius, 0).applyQuaternion(currentQuaternion).add(new THREE.Vector3(0, pivotBaseY, 0));
+                        idealPlane = { centroid: tiltedCentroid, normal: tiltedNormal };
+                        // ------------------------------------------
+
+                        ignoreSpeedUntilTime = Date.now() + 500; currentAbsoluteSpeed = 0; prevZ = 0; prevFaceZ = 0; isForwardSwing = true; lastForwardPassTime = 0; impactDetected = false; isLive = true; 
+                        playbackMode = false; posHistory = []; currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
+                        window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; preRollBuffer = []; recordedFrames = []; rawTracePoints = []; castData = [];
+                        
+                        sendBleCommand([71]); // 'G'
+                        appState = 3; armedUiStartTime = Date.now(); document.getElementById('playback-panel').classList.add('hidden'); 
+                        document.getElementById('live-tracking-card').classList.remove('hidden');
+                        document.getElementById('live-tempo').innerText = '-- BPM'; document.getElementById('live-speed').innerText = '0.0 m/s'; document.getElementById('live-force').innerText = '0 N'; document.getElementById('live-dev').innerText = '-- cm'; document.getElementById('live-applied').innerText = '-- N';
+                        
+                        masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity(); finalReviewExtension = 0; playBeep(1000, 0.3); 
+
+                        if(swingStateTxt && !isDynamicCalibrationActive) { swingStateTxt.innerHTML = "TARGET LOCKED. LIFT AND SWING.<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Trace will activate on lift-off.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
+                        goTimeout = setTimeout(() => { if (appState === 3) { resetSystemState(true, false); showToast("Shot clock expired."); } }, 30000);
+                    }
+                }
+                targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat);
+            } else if (appState >= 3) { targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); }
+
+            if (isLive && !isReviewingLog && !isWizardActive) { 
+                if (appState === 2 && calibrationPhase === 'RED') { masterPivot.quaternion.identity(); currentDynamicRadius = loadedRadius; currentPivotLift = 0; } else { masterPivot.quaternion.copy(targetQuaternion); }
+                masterPivot.position.set(0, pivotBaseY + currentPivotLift, 0); masterBlock.position.set(0, -currentDynamicRadius, 0);
+                masterPivot.updateMatrixWorld(true); faceTrackerNode.updateMatrixWorld(true); physicsTrackingNode.updateMatrixWorld(true);
+            }
+            
+            let centerPosition = new THREE.Vector3(); physicsTrackingNode.getWorldPosition(centerPosition);
+            let facePosition = new THREE.Vector3(); faceTrackerNode.getWorldPosition(facePosition);
+            let currentZ = centerPosition.z; let deltaZ = currentZ - prevZ;
+            if (deltaZ > 0.05) isForwardSwing = true; else if (deltaZ < -0.05) isForwardSwing = false;
+            let nowTime = hwTimestamp; 
+
+            if (jsNow < ignoreSpeedUntilTime) { currentAbsoluteSpeed = 0; posHistory = []; preRollBuffer = []; rawTracePoints = []; updateSmoothTrail(0); } 
+            else {
+                posHistory.push({ pos: centerPosition.clone(), time: nowTime }); if (posHistory.length > 5) posHistory.shift(); currentAbsoluteSpeed = 0;
+                if (posHistory.length === 5) { let dt = (posHistory[4].time - posHistory[0].time) / 1000.0; if (dt > 0.01) currentAbsoluteSpeed = (posHistory[4].pos.distanceTo(posHistory[0].pos) / 100.0) / dt; }
+            }
+            
+            if (appState === 3 || appState === 4) {
+                let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
+                let liveForceN = magnitude * massKg * 9.81;
+                document.getElementById('live-speed').innerText = `${currentAbsoluteSpeed.toFixed(1)} m/s`; document.getElementById('live-force').innerText = `${liveForceN.toFixed(0)} N`; document.getElementById('live-applied').innerText = `${liveAppliedForce.toFixed(0)} N`; 
+            }
+
+            if (appState === 3 && jsNow >= ignoreSpeedUntilTime) {
+                preRollBuffer.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, pos: centerPosition.clone(), time: nowTime, isForward: isForwardSwing, pivotPos: masterPivot.position.clone(), extension: extension, rawBLE: currentRawBLEQuat.clone() });
+                while (preRollBuffer.length > 0 && nowTime - preRollBuffer[0].time > 2000) preRollBuffer.shift();
+
+                let triggeredNormal = (currentAbsoluteSpeed > 0.8); let triggeredImpact = (deltaG > impactThreshold);
+
+                if (triggeredNormal || triggeredImpact) {
+                    appState = 4; state4UiStartTime = Date.now(); clearTimeout(goTimeout); document.getElementById('singleSwingLabel').classList.add('hidden');
+                    state4StartTime = nowTime; recordTicks = 0; impactDetected = false; postImpactTicks = 0; recordedFrames = []; 
+                    currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0; window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; rawTracePoints = [];
+                    
+                    let cutoffTime = nowTime - 2000;
+                    preRollBuffer.forEach(f => {
+                        if (f.time >= cutoffTime && rawTracePoints.length < MAX_TRAIL_POINTS) {
+                            let r = 0.0, g = 1.0, b = 0.0; 
+                            if (!f.isForward) { r = 1.0; g = 1.0; b = 0.0; } 
+                            else {
+                                if (idealPlane) {
+                                    let ballWorldPos = virtualBall.position.clone(); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
+                                    let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
+                                    if(isNaN(t)) t = 0; r = t; g = 1.0 - t; b = 0.0;
+                                } else { r = 0.0; g = 1.0; b = 0.8; }
+                            }
+                            if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
+                            rawTracePoints.push({ pos: f.pos.clone(), color: {r: r, g: g, b: b}, isForward: f.isForward });
+                            recordedFrames.push({ rotation: f.rotation.clone(), forceMag: f.forceMag, rawPtIndex: rawTracePoints.length, pivotPos: f.pivotPos.clone(), extension: f.extension, rawBLE: f.rawBLE });
+                        }
+                    });
+                    updateSmoothTrail();
+                    let listDiv = document.getElementById('history-list'); if (listDiv && listDiv.innerHTML.includes("No swings recorded yet")) listDiv.innerHTML = '';
+                    let liveList = document.getElementById('live-tracking-list'); if (liveList) liveList.innerHTML = '';
+                    let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive) { swingStateTxt.innerText = "RECORDING SWING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
+                }
+            }
+
+            let currentFaceZ = facePosition.z; 
+
+            if (appState === 4 && jsNow >= ignoreSpeedUntilTime) {
+                let dynamicFaceZ = getDynamicFaceZ();
+                if (idealPlane && prevFaceZ <= dynamicFaceZ && currentFaceZ > dynamicFaceZ && isForwardSwing) {
+                    let t = (dynamicFaceZ - prevFaceZ) / (currentFaceZ - prevFaceZ); if (isNaN(t) || t < 0 || t > 1) t = 1.0; 
+                    let iQuat = prevTargetQuaternion.clone().slerp(targetQuaternion, t);
+                    let iRawBLE = prevRawBLEQuat.clone().slerp(currentRawBLEQuat, t);
+                    
+                    let tempPivot = new THREE.Group(); let tempBlock = new THREE.Group(); let tempFace = new THREE.Group();
+                    tempPivot.position.set(0, pivotBaseY + currentPivotLift, 0); tempBlock.position.set(0, -currentDynamicRadius, 0); tempFace.position.set(0, 0, dynamicFaceZ); 
+                    tempPivot.add(tempBlock); tempBlock.add(tempFace); tempPivot.quaternion.copy(iQuat); scene.add(tempPivot); tempPivot.updateMatrixWorld(true);
+                    let exactFacePos = new THREE.Vector3(); tempFace.getWorldPosition(exactFacePos); scene.remove(tempPivot);
+
+                    // Compute deviation entirely within the customized tilted setup plane
+                    ghostBlock.updateMatrixWorld(true);
+                    let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
+                    let localFaceAtImpact = exactFacePos.clone().applyMatrix4(ghostInvMat);
+
+                    let strikeX = localFaceAtImpact.x; 
+                    let strikeY = localFaceAtImpact.y; 
+                    let devCM = Math.abs(strikeX); if (devCM < 0.25) devCM = 0.0;
+                    let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C'); 
+                    let locTwist = getShaftTwist(iQuat); let passForce = calculateImpactForce(currentAbsoluteSpeed);
+                    let floatOffset = localFaceAtImpact.y; 
+                    let snapshotPos = new THREE.Vector3(0, (pivotBaseY + currentPivotLift) - floatOffset, 0);
+                    
+                    let pathAngleRads = 0;
+                    if (preRollBuffer.length > 5) { 
+                        let pastPos = preRollBuffer[preRollBuffer.length - 5].pos; 
+                        let pastLocal = pastPos.clone().applyMatrix4(ghostInvMat);
+                        let faceLocal = exactFacePos.clone().applyMatrix4(ghostInvMat);
+                        let dx = faceLocal.x - pastLocal.x; 
+                        let dz = faceLocal.z - pastLocal.z; 
+                        pathAngleRads = Math.atan2(dx, Math.abs(dz)); 
+                    }
+                    
+                    let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; 
+                    let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+                    let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+                    let ballSpeedMPS = currentAbsoluteSpeed * (massKg * 1.8) / (massKg + 0.454);
+                    let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+                    let accData = calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwist, currentSwingDwell); let passRating = getStarRating(strikeX, accData.trueLaunchDeg);
+
+                    if (lastForwardPassTime > 0) { let fullCycleSeconds = (nowTime - lastForwardPassTime) / 1000.0; if (fullCycleSeconds > 0.4 && fullCycleSeconds < 5.0) lastComputedTempo = 60.0 / fullCycleSeconds; }
+                    lastForwardPassTime = nowTime;
+                    let p_delta = null; if (lastComputedTempo > 0) { let T_sec = 60.0 / lastComputedTempo; let r_m = (9.81 * T_sec * T_sec) / (4.0 * Math.PI * Math.PI); p_delta = (r_m * 100.0) - loadedRadius; }
+
+                    let strikeCast = { 
+                        rawDev: strikeX, dev: devCM, dir: dir, isStrike: false, pos: exactFacePos.clone(), rot: tempFace.getWorldQuaternion(new THREE.Quaternion()), 
+                        localX: strikeX, localY: strikeY, faceAngle: locTwist, pathAngleRads: pathAngleRads, passSpeed: currentAbsoluteSpeed, passForce: passForce, appliedForce: liveAppliedForce, 
+                        stars: passRating.string, starColor: passRating.color, trailIndex: rawTracePoints.length, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime,
+                        isWhiff: accData.isWhiff, estAccRange: accData.estAccRange, trueAccRange: accData.trueAccRange, trueLaunchDeg: accData.trueLaunchDeg, 
+                        estLaunchRads: accData.estLaunchRads, trueLaunchRads: accData.trueLaunchRads, maxAccRange: accData.trueAccRange, estDist: estDist, pDelta: p_delta,
+                        rawBLE: iRawBLE 
+                    };
+
+                    if (impactDetected) { strikeCast.isStrike = true; if (castData.length > 0 && castData[castData.length - 1].isStrike) castData[castData.length - 1] = strikeCast; else castData.push(strikeCast); } 
+                    else { castData.push(strikeCast); }
+                    
+                    if(!isDynamicCalibrationActive) {
+                        document.getElementById('live-dev').innerText = `${devCM.toFixed(0)} cm ${dir}`;
+                        document.getElementById('live-tempo').innerText = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
+                        renderLiveCasts();
+                    }
+
+                    let ss = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; let tt = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
+                    let ledCmd = 72; if (devCM > ss) ledCmd = 74; else if (Math.abs(locTwist) > tt) ledCmd = 73; 
+                    if (document.getElementById('ledGuidanceCheck').checked) { sendBleCommand([ledCmd]); }
+                    if (document.getElementById('singleSwingCheck').checked && !impactDetected) { clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 800); }
+                }
+
+                if (rawTracePoints.length < MAX_TRAIL_POINTS) {
+                    if (magnitude > currentSwingMaxG) currentSwingMaxG = magnitude;
+                    let r = 0.0, g = 1.0, b = 0.0; 
+                    if (!isForwardSwing) { r = 1.0; g = 1.0; b = 0.0; } 
+                    else {
+                        if (idealPlane) {
+                            let ballWorldPos = virtualBall.position.clone(); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
+                            let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
+                            if(isNaN(t)) t = 0; r = t; g = 1.0 - t; b = 0.0;
+                        } else { r = 0.0; g = 1.0; b = 0.8; }
+                    }
+                    if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
+                    rawTracePoints.push({ pos: centerPosition.clone(), color: {r: r, g: g, b: b}, isForward: isForwardSwing }); updateSmoothTrail();
+                    recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, rawPtIndex: rawTracePoints.length, pivotPos: masterPivot.position.clone(), extension: extension, rawBLE: currentRawBLEQuat.clone() });
+                }
+
+                if (!impactDetected && deltaG > impactThreshold) { impactDetected = true; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive) { swingStateTxt.innerText = "IMPACT DETECTED! WAITING FOR EDGE PACKET..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; } }
+                if (!impactDetected && !document.getElementById('singleSwingCheck').checked) { let practiceTimeLimitMs = parseFloat(document.getElementById('practiceInput').value) * 1000; if ((nowTime - state4StartTime) >= practiceTimeLimitMs) { finalizeSwingData(nowTime); } }
+            }
+
+            prevFaceZ = currentFaceZ; prevZ = currentZ; prevMagnitude = magnitude;
+        }
+
+        async function finalizeSwingData(nowTime) {
+            if (appState !== 4) return;
+            
+            appState = 4.5; isLive = false; rewindStartTime = Date.now(); playDoubleBeep();
+            await sendBleCommand([79]); // 'O'
+            
+            document.getElementById('live-tracking-card').classList.add('hidden'); 
+            document.getElementById('live-countdown').classList.add('hidden');
+            document.getElementById('cancelArmBtn').classList.add('hidden'); 
+            document.getElementById('ready-group').classList.remove('hidden');
+
+            let lastFrame = recordedFrames.length > 0 ? recordedFrames[recordedFrames.length - 1] : null;
+            if (lastFrame) { rewindStartQuat.copy(lastFrame.rotation); rewindStartPos.copy(lastFrame.pivotPos); rewindStartExt = lastFrame.extension; } else { rewindStartQuat.copy(masterPivot.quaternion); rewindStartPos.copy(masterPivot.position); rewindStartExt = 0; }
+
+            let displayPass = null; if (impactDetected) { displayPass = castData.find(c => c.isStrike) || castData[castData.length - 1]; } else if (castData.length > 0) { displayPass = castData[castData.length - 1]; }
+            if (displayPass) drawStrikeLaser(displayPass);
+            if (displayPass) { finalReviewPivotQuat.copy(displayPass.pivotQuat); finalReviewPivotPos.copy(displayPass.pivotPos); finalReviewExtension = displayPass.extension; currentSwingDeviation = displayPass.dev; } 
+            else if (lastFrame) { finalReviewPivotQuat.copy(lastFrame.rotation); finalReviewPivotPos.copy(lastFrame.pivotPos); finalReviewExtension = lastFrame.extension; }
+
+            let effectiveMalletMass = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
+            if (impactDetected && displayPass) {
+                let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0; let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+                let ballSpeedMPS = displayPass.passSpeed * (effectiveMalletMass * 1.8) / (effectiveMalletMass + 0.454);
+                currentSwingDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+            } else { currentSwingDist = 0; }
+            
+            let hwAppliedForce = window.lastEdgeData.appliedForce; 
+            swingDatabase.push({ frames: [...recordedFrames], rawTracePoints: [...rawTracePoints], casts: [...castData], finalReviewPivotQuat: finalReviewPivotQuat.clone(), finalReviewPivotPos: finalReviewPivotPos.clone(), finalReviewExtension: finalReviewExtension, setupQuat: ghostPivot.quaternion.clone() });
+            let swingIndex = swingCount; swingCount++;
+            
+            let ssRad = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; let devColor = 'var(--danger)';
+            if (impactDetected || displayPass) { if (currentSwingDeviation <= 0.75) devColor = 'var(--success)'; else if (currentSwingDeviation <= ssRad) devColor = 'var(--warning)'; } else { devColor = 'var(--text-muted)'; }
+            let afColor = 'var(--text-main)'; if (hwAppliedForce > 2) afColor = 'var(--success)'; else if (hwAppliedForce < -2) afColor = 'var(--danger)'; 
+            
+            let forceN = currentSwingMaxG * 9.81 * effectiveMalletMass;
+            let forceHtml = impactDetected ? `${forceN.toFixed(0)} N` : `N/A`;
+            let devHtml   = (impactDetected || castData.length > 0) && displayPass ? `${currentSwingDeviation.toFixed(0)}cm ${displayPass.dir}` : `N/A`;
+            let velHtml   = displayPass ? `${displayPass.passSpeed.toFixed(1)} m/s` : `--`;
+            let tempoHtml = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
+            
+            let dwellHtml = impactDetected ? `${currentSwingDwell} ms` : `N/A`;
+            let aoaHtml = impactDetected ? currentSwingAoA.toFixed(1) + '°' : '--';
+            let distHtml  = impactDetected ? `${currentSwingDist.toFixed(0)}m` : `-`;
+            let faceAngleHtml = displayPass ? `${(displayPass.faceAngle > 0 ? '+' : '')}${displayPass.faceAngle.toFixed(1)}°` : `N/A`;
+            let twistDeflectionVal = Math.abs(maxTwist) * (currentSwingDwell / 1000.0);
+            if (displayPass && displayPass.rawDev < 0) twistDeflectionVal = -twistDeflectionVal; 
+            let twistDeflection = impactDetected ? twistDeflectionVal.toFixed(2) + '°' : `N/A`;
+            
+            let finalStars = displayPass ? displayPass.stars : ""; let finalStarColor = displayPass ? displayPass.starColor : "var(--text-muted)";
+            let starHtml  = finalStars !== "" ? `<span style="color: ${finalStarColor};" class="font-bold">${finalStars}</span>` : `<span class="text-muted">-</span>`;
+            let trueDir = displayPass && displayPass.trueLaunchRads > 0 ? 'R' : (displayPass && displayPass.trueLaunchRads < 0 ? 'L' : '');
+            let estAccHtml = displayPass ? (displayPass.isWhiff ? `-` : `${(displayPass.estAccRange >= 35 ? 'Center' : displayPass.estAccRange.toFixed(0) + 'm')}`) : `N/A`;
+            let trueAccHtml = (impactDetected && displayPass) ? (displayPass.isWhiff ? `-` : `${(displayPass.trueAccRange >= 35 ? 'Center' : displayPass.trueAccRange.toFixed(0) + 'm ' + trueDir)}`) : `<span class="text-muted">-</span>`;
+            
+            let pDeltaHtml = displayPass ? `${formatOffset(displayPass.pDelta)}` : `N/A`;
+
+            let downTime = window.lastEdgeData.downwardSwingTime || 0;
+            let decel = window.lastEdgeData.decelFactor || 0;
+            let decelColor = decel > 0 ? 'var(--success)' : (decel < 0 ? 'var(--danger)' : 'var(--text-main)');
+            let decelHtml = impactDetected ? `<span style="color:${decelColor};">${decel > 0 ? '+' : ''}${decel}%</span>` : `N/A`;
+            let downTimeHtml = impactDetected ? `${downTime} ms` : `N/A`;
+
+            let dsPDelta = downTime > 0 ? (9.81 * Math.pow((2 * (downTime / 1000.0)) / Math.PI, 2) * 100.0) - loadedRadius : null;
+            let dsPDeltaHtml = (impactDetected && dsPDelta !== null) ? formatOffset(dsPDelta) : `N/A`;
+
+            let castsHtml = '';
+            
+            if (castData.length > 0) {
+                let listItems = castData.map((c, i) => {
+                    let twistStr = (c.faceAngle > 0 ? '+' : '') + (c.faceAngle || 0).toFixed(1) + '°';
+                    let speedStr = `${(c.passSpeed || 0).toFixed(1)}m/s`; 
+                    let forceStr = (c.appliedForce || 0) > 0 ? `+${Math.round(c.appliedForce)}N` : `${Math.round(c.appliedForce)}N`;
+                    let starDisplay = c.stars !== "" ? `<span style="color: ${c.starColor};" class="font-bold">${c.stars}</span>` : `<span class="text-muted">-</span>`;
+                    let prefix = c.isStrike ? "STRIKE" : (i+1);
+                    let weightClass = c.isStrike ? "font-bold" : ""; let colClass = c.isStrike ? "" : "text-muted";
+                    let distStr = `d: ${Math.round(c.estDist || 0)}m`; let pDeltaStr = `PΔ: ${formatOffset(c.pDelta)}`;
+                    let traceAccStr = c.isWhiff ? `-` : `Acc: ${(c.estAccRange >= 35 ? 'Center' : Math.round(c.estAccRange) + 'm')}`;
+
+                    return `
+                    <div class="cast-row flex-col gap-2 ${colClass} ${weightClass}" onclick="highlightPass(${swingIndex}, ${i})">
+                        <div class="flex justify-between">
+                            <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(0)}cm ${c.dir || 'C'}</span>
+                            <span class="w-25 text-center">${twistStr}</span>
+                            <span class="w-25 text-center">${forceStr}</span>
+                            <span class="w-25 text-right">${speedStr}</span>
+                        </div>
+                        <div class="flex justify-between text-muted font-normal">
+                            <span class="w-25">${starDisplay}</span>
+                            <span class="w-25 text-center">${traceAccStr}</span>
+                            <span class="w-25 text-center">${distStr}</span>
+                            <span class="w-25 text-right">${pDeltaStr}</span>
+                        </div>
+                    </div>`;
+                }).join('');
+                
+                castsHtml = `
+                <details class="advanced-metrics mt-4">
+                    <summary>View Casting Traces</summary>
+                    <div id="cast-container-${swingIndex}">
+                        ${listItems}
+                    </div>
+                </details>`;
+            }
+
+            let logHtml = `
+                <div class="history-card">
+                    <div class="card-header">
+                        <div><span class="swing-title">SWING #${swingCount}</span> &nbsp;${starHtml}</div>
+                        <div class="flex items-center gap-2">
+                            <span class="swing-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+                            <button class="icon-btn" onclick="triggerReplay(${swingIndex})" title="Replay Trace" style="color: var(--accent-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="card-basic-stats">
+                        <div class="stat-block"><span class="stat-lbl">Velocity</span><span class="stat-val">${velHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl">Path Dev</span><span class="stat-val" style="color:${devColor}">${devHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl">Face Angle</span><span class="stat-val">${faceAngleHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val text-accent">${tempoHtml}</span></div>
+                    </div>
+
+                    <details class="advanced-metrics">
+                        <summary>Advanced Kinematics</summary>
+                        <div class="mt-4">
+                            <div class="adv-row"><span>Estimated Dist</span><span class="adv-val">${distHtml}</span></div>
+                            <div class="adv-row"><span>Edge Z-Velocity</span><span class="adv-val">${window.lastEdgeData.zVel.toFixed(2)} m/s</span></div>
+                            <div class="adv-row"><span>Impact Force</span><span class="adv-val">${forceHtml}</span></div>
+                            <div class="adv-row"><span>Collision Deflection</span><span class="adv-val">${twistDeflection}</span></div>
+                            <div class="adv-row"><span>Downswing Time</span><span class="adv-val">${downTimeHtml}</span></div>
+                            <div class="adv-row"><span>Strike PΔ</span><span class="adv-val">${dsPDeltaHtml}</span></div>
+                            <div class="adv-row"><span>Tempo PΔ</span><span class="adv-val">${pDeltaHtml}</span></div>
+                            <div class="adv-row"><span>Boost</span><span class="adv-val">${decelHtml}</span></div>
+                            <div class="adv-row"><span>Impact Dwell</span><span class="adv-val">${dwellHtml}</span></div>
+                            <div class="adv-row"><span>Angle of Attack</span><span class="adv-val">${aoaHtml}</span></div>
+                            <div class="adv-row"><span>Extension</span><span class="adv-val" style="color:${afColor};">${hwAppliedForce > 0 ? '+' : ''}${hwAppliedForce.toFixed(0)} N</span></div>
+                            <div class="adv-row"><span>Est. Accuracy</span><span class="adv-val">${estAccHtml}</span></div>
+                            <div class="adv-row"><span>True Accuracy</span><span class="adv-val">${trueAccHtml}</span></div>
+                        </div>
+                    </details>
+                    ${castsHtml}
+                </div>
+            `;
+
+            let listDiv = document.getElementById('history-list');
+            if (listDiv) { if (swingCount === 1) listDiv.innerHTML = ''; listDiv.insertAdjacentHTML('afterbegin', logHtml); }
+
+            if (window.innerWidth <= 768) { document.getElementById('history-panel').classList.add('mobile-open'); } 
+            else { document.getElementById('history-panel').classList.remove('desktop-closed'); }
+            
+            let swingStateTxt = document.getElementById('swing-state');
+            if(swingStateTxt) { swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Aim square to target line. Do not hold handle.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
+        }
+
+        window.bleManager.onStateChange = (isConnected, name) => {
+            if (!isConnected) {
+                const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-disconnected";
+                document.getElementById('swing-state').innerHTML = "CONNECT BLUETOOTH MALLET<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Turn on sensor and ensure Bluetooth is enabled.</span>"; 
+                document.getElementById('swing-state').className = "text-center font-bold mb-4";
+                document.getElementById('centerConnectBtn').classList.remove('hidden');
+                document.getElementById('ready-group').classList.add('hidden');
+                document.getElementById('cancelArmBtn').classList.add('hidden');
+                document.getElementById('battery-display').classList.add('hidden'); 
+                document.getElementById('device-name-display').classList.add('hidden');
+                document.getElementById('topSyncBtn').classList.add('hidden');
+                document.getElementById('calibration-container').classList.add('hidden'); 
+                appState = 0; 
+                showToast("Sensor Link Severed. Mallet Frozen.");
+                if (inGameMode) { showToast("Mallet disconnected, but match tracking continues offline."); }
+            } else {
+                savedBleName = name || "LVE Mallet"; document.getElementById('malletNameInput').value = savedBleName; saveSettings(); 
+                const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-connected";
+                appState = 1; initAudio(); 
+                
+                let swingStateTxt = document.getElementById('swing-state'); 
+                if(swingStateTxt) { swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Aim square to target line. Do not hold handle.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
+                
+                document.getElementById('centerConnectBtn').classList.add('hidden'); 
+                document.getElementById('ready-group').classList.remove('hidden');
+                document.getElementById('battery-display').classList.remove('hidden'); 
+                if(currentUser) document.getElementById('topSyncBtn').classList.remove('hidden');
+                let nameDisp = document.getElementById('device-name-display'); nameDisp.classList.remove('hidden'); nameDisp.innerText = savedBleName;
+
+                let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
+                let payload = [ 67, parseInt(document.getElementById('radiusInput').value), parseInt(document.getElementById('massInput').value) / 10, parseFloat(document.getElementById('impactInput').value) * 10, parseFloat(document.getElementById('offsetYInput').value) * 10, parseInt(document.getElementById('timeoutInput').value), parseFloat(document.getElementById('sweetSpotInput').value) * 10, ledGuidance, 10 ];
+                window.bleManager.sendCommand(payload, true).then(() => {
+                    if(inGameMode) { window.bleManager.sendCommand([75]); } else { window.bleManager.sendCommand([76]); }
+                    showToast(`Connected to ${savedBleName} & Config Synced!`);
+                });
+            }
+        };
+
+        window.bleManager.onBatteryUpdate = (batteryPct, isCharging, availStrikes) => {
+            let batTxt = `🔋 ${batteryPct}%`; let batClass = 'text-success';
+            if (isCharging) {
+                batClass = 'text-warning'; 
+                if (lastBatteryVal !== -1 && batteryPct > lastBatteryVal) { chargeRatePerMs = (Date.now() - lastBatteryCheckTime) / (batteryPct - lastBatteryVal); lastBatteryCheckTime = Date.now(); lastBatteryVal = batteryPct; } 
+                else if (lastBatteryVal === -1 || batteryPct < lastBatteryVal) { lastBatteryVal = batteryPct; lastBatteryCheckTime = Date.now(); chargeRatePerMs = 0; }
+                batTxt = batteryPct === 100 ? `⚡ FULL` : `⚡ ${batteryPct}%`;
+            } else { lastBatteryVal = -1; }
+            
+            let batDisplay = document.getElementById('battery-display'); if (batDisplay) { batDisplay.innerText = batTxt; batDisplay.className = batClass; } 
+            let storeDisp = document.getElementById('about-storage-display'); if (storeDisp) { storeDisp.innerText = availStrikes; }
+        };
+
+        window.bleManager.onFirmwareVersion = (ver) => {
+            let aboutFw = document.getElementById('about-fw-display'); if (aboutFw) aboutFw.innerText = ver;
+        };
+
+        window.bleManager.onCalibrationLoaded = (w, x, y, z) => {
+            if (w !== 1.0 || x !== 0.0 || y !== 0.0 || z !== 0.0) { 
+                hardwareMountOffset.set(x, y, z, w); 
+                showToast("Calibration Matrix loaded from Mallet!"); 
+            }
+        };
+
+        window.bleManager.onTelemetryData = handleParsedTelemetry;
+        window.bleManager.onHistoricalStrike = handleHistoricalStrike;
+        window.bleManager.onLiveStrike = handleLiveStrike;
+        window.bleManager.onError = showToast;
+
+        document.getElementById('btToggleBtn').addEventListener('click', () => window.bleManager.connect());
+        document.getElementById('centerConnectBtn').addEventListener('click', () => window.bleManager.connect());
+
+    </script>
+</body>
+</html>
