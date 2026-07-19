@@ -204,7 +204,7 @@ class LevelEdgeBLEManager {
             return;
         }
 
-        // Must be a 32-byte strike structure (Header 'H' for History, 'S' for Live)
+        // Must be exactly 32 bytes for the full structural payload
         if (data.byteLength < 32) return;
         if (header !== 72 && header !== 83) return;
 

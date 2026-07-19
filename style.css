@@ -96,7 +96,7 @@
         .syncing svg { animation: spin 1.5s linear infinite; color: var(--accent-primary); }
 
         /* --- ACCORDION MENU STYLES --- */
-        #menu-drawer { position: absolute; top: 60px; left: -300px; width: 280px; height: calc(100vh - 60px); background: var(--bg-panel); border-right: 1px solid var(--border-color); z-index: 35; transition: left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); padding: 20px; box-sizing: border-box; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+        #menu-drawer { position: absolute; top: 60px; left: -300px; width: 280px; height: calc(100dvh - 60px); background: var(--bg-panel); border-right: 1px solid var(--border-color); z-index: 35; transition: left 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94); padding: 20px; padding-bottom: 40px; box-sizing: border-box; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
         #menu-drawer.open { left: 0; }
         .drawer-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-main); padding: 12px; border-radius: var(--radius-md); font-family: var(--font-sans); font-size: 0.95rem; font-weight: 600; cursor: pointer; text-align: left; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
         .drawer-btn:hover { background: var(--bg-base); border-color: var(--accent-primary); }
@@ -247,4 +247,6 @@
             #history-panel.mobile-open { right: 0; }
             .setting-item.span-2 { grid-column: span 1 !important; }
             #alignment-panel { width: 90%; right: 5%; left: 5%; top: 120px; }
+
+            .brand-text { display: none; }
         }
