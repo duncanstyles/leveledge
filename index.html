@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LevelEdge v7.7.01</title>
+    <title>LevelEdge v8.0.03</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpolyline points='25,20 25,80 75,80' fill='none' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cline x1='45' y1='20' x2='75' y2='20' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3Cline x1='55' y1='50' x2='65' y2='50' stroke='%2338bdf8' stroke-width='12' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -356,31 +356,24 @@
     <div id="toast-notification" popover="manual">Notification Text</div>
 
     <div id="ui-layer">
-        <div class="instructions">Version 7.7.01</div>
+        <div class="instructions">Version 8.0.03</div>
     </div>
 
     <div id="alignment-panel">
-        <h3 style="margin-top:0; font-size:1.1rem; color:var(--text-main); text-transform:uppercase;">Tune Alignment</h3>
-        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:15px;">Adjust spin values until mallet face is flush with the virtual ball.</p>
+        <h3 style="margin-top:0; font-size:1.1rem; color:var(--text-main); text-transform:uppercase;">Align Target Line</h3>
+        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:15px;">Rotate the environment grid to perfectly match your physical swing path.</p>
         
-        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px;">
-            <div>
-                <label for="spinX" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">PITCH</label>
-                <input type="number" id="spinX" step="0.1" value="0.0" class="tune-val-box">
-            </div>
-            <div>
-                <label for="spinY" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">YAW</label>
-                <input type="number" id="spinY" step="0.1" value="0.0" class="tune-val-box">
-            </div>
-            <div>
-                <label for="spinZ" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">ROLL</label>
-                <input type="number" id="spinZ" step="0.1" value="0.0" class="tune-val-box">
-            </div>
+        <button id="snapYawBtn" class="btn-primary" style="background-color: #38bdf8; color: #000; font-size: 0.8rem; padding: 8px; margin-bottom: 15px;">SNAP GRID TO SWING PATH</button>
+
+        <div>
+            <label for="spinY" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">TARGET LINE YAW</label>
+            <input type="range" id="spinY" min="-45" max="45" step="0.5" value="0.0" style="width:100%;">
+            <div id="spinYValue" class="tune-val-box mt-2">0.0°</div>
         </div>
         
         <div style="display:flex; gap:10px; margin-top:20px;">
             <button id="cancelTuneBtn" class="btn-primary btn-danger btn-small" style="flex:1;">CANCEL</button>
-            <button id="saveTuneBtn" class="btn-primary btn-success btn-small" style="flex:1;">SAVE</button>
+            <button id="saveTuneBtn" class="btn-primary btn-success btn-small" style="flex:1;">SAVE OFFSET</button>
         </div>
     </div>
 
@@ -400,11 +393,8 @@
         <button id="centerConnectBtn" class="btn-primary">CONNECT</button>
         
         <div id="ready-group" class="hidden flex-col items-center gap-2 w-full">
-            <button id="zeroArmBtn" class="btn-primary btn-warning">SWING TRAINER</button>
-            <button id="startGameModeBtn" class="btn-primary btn-success">START MATCH</button>
-            <label id="singleSwingLabel" class="text-muted small-help cursor-pointer" style="font-size: 0.85rem;">
-                <input type="checkbox" id="singleSwingCheck" style="vertical-align: middle;"> Single Swing Pass
-            </label>
+            <button id="openTrainerModalBtn" class="btn-primary btn-warning" style="color: #111;">SWING TRAINER</button>
+            <button id="openMatchModalBtn" class="btn-primary btn-success">START MATCH</button>
         </div>
         
         <div id="live-countdown" class="hidden">0s</div>
@@ -470,6 +460,69 @@
         </div>
     </div>
 
+    <!-- ========================================== -->
+    <!-- NEW ACTIVITY SETUP DIALOGS                 -->
+    <!-- ========================================== -->
+    
+    <dialog id="trainer-setup-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>SWING TRAINER SETUP</h2>
+                <button id="closeTrainerSetupBtn" class="btn-primary btn-danger btn-small">CANCEL</button>
+            </div>
+            <div class="flex-col gap-4 mb-5">
+                <div class="setting-item">
+                    <label>Target Distance (m)</label>
+                    <input type="number" id="trainerDistSetup" value="10" step="0.5" min="1" max="40">
+                </div>
+                <div class="setting-item">
+                    <label>Calculated Twist Tolerance (±°)</label>
+                    <input type="number" id="trainerTwistSetup" value="0.53" step="0.01" min="0.1" max="15.0">
+                </div>
+                <div class="setting-item">
+                    <label>Lawn Speed (Plummers)</label>
+                    <input type="number" id="trainerLawnSetup" step="0.5" value="10.0">
+                </div>
+                <div class="setting-item setting-checkbox mt-2">
+                    <label for="singleSwingCheck">Single Swing Pass</label>
+                    <input type="checkbox" id="singleSwingCheck">
+                </div>
+            </div>
+            <button id="confirmStartTrainerBtn" class="btn-primary btn-warning" style="color:#111;">START TRAINER</button>
+        </div>
+    </dialog>
+
+    <dialog id="match-setup-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>MATCH MODE SETUP</h2>
+                <button id="closeMatchSetupBtn" class="btn-primary btn-danger btn-small">CANCEL</button>
+            </div>
+            <div class="flex-col gap-4 mb-5">
+                <div class="setting-item setting-checkbox">
+                    <label for="matchLedToggle">Enable LED Coaching</label>
+                    <input type="checkbox" id="matchLedToggle" checked>
+                </div>
+                <div id="matchToleranceGroup" class="flex-col gap-4" style="transition: 0.2s;">
+                    <div class="setting-item">
+                        <label>Target Distance (m)</label>
+                        <input type="number" id="matchDistSetup" value="10" step="0.5" min="1" max="40">
+                    </div>
+                    <div class="setting-item">
+                        <label>Calculated Twist Tolerance (±°)</label>
+                        <input type="number" id="matchTwistSetup" value="0.53" step="0.01" min="0.1" max="15.0">
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label>Lawn Speed (Plummers)</label>
+                    <input type="number" id="matchLawnSetup" step="0.5" value="10.0">
+                </div>
+            </div>
+            <button id="confirmStartMatchBtn" class="btn-primary btn-success">START MATCH</button>
+        </div>
+    </dialog>
+
+    <!-- --- STANDARD SETTINGS DIALOGS --- -->
     <dialog id="auth-modal" class="modal">
         <div class="settings-container">
             <div class="modal-header justify-center">
@@ -536,7 +589,6 @@
 
             <div class="flex-col gap-3">
                 <button id="btnSaveMatchEdit" class="btn-primary btn-success">SAVE DETAILS</button>
-                <!-- New Delete Button added here -->
                 <button id="btnDeleteMatch" class="drawer-btn justify-center text-danger" style="border-color: var(--danger);">DELETE MATCH</button>
             </div>
         </div>
@@ -648,7 +700,7 @@
                 <div class="setting-item setting-checkbox span-2"><label for="showTraceCheck">Render 3D Trace:</label><input type="checkbox" id="showTraceCheck" checked></div>
                 
                 <div class="setting-item mt-2"><button id="btnUpdateFW" class="btn-primary">Sync FW</button></div>
-                <div class="setting-item mt-2"><button id="btnResetFW" class="btn-primary btn-warning">Reboot HW</button></div>
+                <div class="setting-item mt-2"><button id="btnResetFW" class="btn-primary btn-warning" style="color:#111;">Reboot HW</button></div>
                 <div class="setting-item mt-2"><button id="btnDownloadData" class="btn-primary">Export JSON</button></div>
                 <div class="setting-item mt-2"><button id="btnWipeData" class="btn-primary btn-danger">Wipe Mallet</button></div>
             </div>
@@ -676,12 +728,12 @@
             </div>
             <div class="font-800 text-accent mb-4" style="font-size: 1.2rem;">LevelEdge Kinematics</div>
             <div class="font-mono mb-2" style="font-size: 0.9rem;">
-                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">7.7.01</span>
+                HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">8.0.03</span>
             </div>
             <div class="font-mono mb-5" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
                 Offline Strokes: <span id="about-storage-display" class="text-accent">--</span><br>
-                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 7.6.01</span>
+                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 8.0.03</span>
             </div>
             <div class="text-muted line-height-15" style="font-size: 0.8rem;">
                 &copy; Duncan Styles<br>
@@ -699,11 +751,153 @@
             </div>
             <div class="flex-col gap-3 mt-4">
                 <button id="openOfflineViewerBtn" class="btn-primary">LOAD OFFLINE JSON (.JSON)</button>
+                <button id="toggleDiagnosticHudBtn" class="btn-primary">TOGGLE KINEMATIC HUD</button>
+                <button id="devResetCalibrationBtn" class="btn-primary btn-warning" style="margin-top: 15px; color: #111;">WIPE CALIBRATION (ZERO MATRIX)</button>
             </div>
         </div>
     </dialog>
 
     <script>
+        // --- 1. NEW LOGIC: LINKED SPINNERS ---
+        function bindLinkedSpinners(distId, twistId) {
+            const distEl = document.getElementById(distId);
+            const twistEl = document.getElementById(twistId);
+            
+            distEl.addEventListener('input', () => {
+                let d = parseFloat(distEl.value) || 10;
+                if (d < 0.1) d = 0.1;
+                // Calculate allowable twist: arctan(0.092 / Distance)
+                let angle = Math.atan(0.092 / d) * (180 / Math.PI);
+                twistEl.value = angle.toFixed(2);
+            });
+            
+            twistEl.addEventListener('input', () => {
+                let a = parseFloat(twistEl.value) || 1.0;
+                if (a < 0.01) a = 0.01;
+                // Reverse calculation: Distance = 0.092 / tan(angle)
+                let dist = 0.092 / Math.tan(a * Math.PI / 180);
+                distEl.value = dist.toFixed(1);
+            });
+        }
+        
+        bindLinkedSpinners('trainerDistSetup', 'trainerTwistSetup');
+        bindLinkedSpinners('matchDistSetup', 'matchTwistSetup');
+
+        // --- 2. NEW LOGIC: MATCH MODE LED TOGGLE UI ---
+        document.getElementById('matchLedToggle').addEventListener('change', (e) => {
+            const grp = document.getElementById('matchToleranceGroup');
+            if (e.target.checked) {
+                grp.style.opacity = '1'; grp.style.pointerEvents = 'auto';
+            } else {
+                grp.style.opacity = '0.4'; grp.style.pointerEvents = 'none';
+            }
+        });
+
+        // --- 3. NEW LOGIC: INTERCEPTING THE START BUTTONS ---
+        document.getElementById('openTrainerModalBtn').onclick = () => {
+            document.getElementById('trainerLawnSetup').value = document.getElementById('lawnSpeedInput').value;
+            document.getElementById('trainer-setup-modal').showModal();
+        };
+
+        document.getElementById('openMatchModalBtn').onclick = () => {
+            document.getElementById('matchLawnSetup').value = document.getElementById('lawnSpeedInput').value;
+            document.getElementById('matchLedToggle').checked = document.getElementById('ledGuidanceCheck').checked;
+            document.getElementById('matchLedToggle').dispatchEvent(new Event('change'));
+            document.getElementById('match-setup-modal').showModal();
+        };
+
+        document.getElementById('closeTrainerSetupBtn').onclick = () => document.getElementById('trainer-setup-modal').close();
+        document.getElementById('closeMatchSetupBtn').onclick = () => document.getElementById('match-setup-modal').close();
+
+        // --- 4. NEW LOGIC: SYNC CONFIG TO MALLET ON THE FLY ---
+        async function syncConfigurationToMallet() {
+            let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
+            let radius = parseInt(document.getElementById('radiusInput').value) || 127;
+            let mass = parseInt(document.getElementById('massInput').value) || 1000;
+            let impact = parseFloat(document.getElementById('impactInput').value) || 4.0;
+            let offsetY = parseFloat(document.getElementById('offsetYInput').value) || 5.5;
+            let timeout = parseInt(document.getElementById('timeoutInput').value) || 5;
+            let sweetSpot = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
+            let twist = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
+
+            let payload = [ 67, radius, mass / 10, impact * 10, offsetY * 10, timeout, sweetSpot * 10, ledGuidance, Math.round(twist * 10) ];
+            await sendBleCommand(payload, true);
+        }
+
+        // --- 5. NEW LOGIC: EXECUTING THE MODAL "START" ACTIONS ---
+        document.getElementById('confirmStartTrainerBtn').onclick = async () => {
+            document.getElementById('lawnSpeedInput').value = document.getElementById('trainerLawnSetup').value;
+            updateLawnSpeedLabel(); 
+            document.getElementById('twistToleranceInput').value = parseFloat(document.getElementById('trainerTwistSetup').value) || 1.0;
+            document.getElementById('ledGuidanceCheck').checked = true;
+            
+            await syncConfigurationToMallet();
+            document.getElementById('trainer-setup-modal').close();
+            startTrainerSequence();
+        };
+
+        document.getElementById('confirmStartMatchBtn').onclick = async () => {
+            document.getElementById('lawnSpeedInput').value = document.getElementById('matchLawnSetup').value;
+            updateLawnSpeedLabel();
+            
+            let useLed = document.getElementById('matchLedToggle').checked;
+            document.getElementById('ledGuidanceCheck').checked = useLed;
+            document.getElementById('twistToleranceInput').value = parseFloat(document.getElementById('matchTwistSetup').value) || 1.0;
+
+            await syncConfigurationToMallet();
+            document.getElementById('match-setup-modal').close();
+            startMatchSequence();
+        };
+
+        // --- 6. CORE START SEQUENCES ---
+        async function startTrainerSequence() {
+            if (appState === 2 || appState === 3 || appState === 4 || appState === 4.5) return; 
+            let success = await sendBleCommand([90]); // 'Z'
+            if (!success) { showToast("BLE Error."); return; }
+            
+            zeroRawBLEQuat.copy(currentRawBLEQuat);
+            
+            if (isBallEnabled) { 
+                ghostPivot.quaternion.identity(); 
+                updateSystemGeometry(); 
+                virtualBall.visible = true; 
+            } else { virtualBall.visible = false; }
+
+            appState = 2; calibrationPhase = 'RED'; redStartTime = Date.now(); isReviewingLog = false;
+            
+            let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - loadedRadius, 0); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
+            
+            let initialEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
+            let initialHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, initialEuler.y, 0, 'YXZ'));
+            baseQuatInverse.copy(initialHeading).invert(); 
+            targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); 
+            currentQuaternion.copy(targetQuaternion); 
+            masterPivot.quaternion.copy(currentQuaternion);
+
+            document.getElementById('ready-group').classList.add('hidden'); document.getElementById('cancelArmBtn').classList.remove('hidden');
+            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "ESTABLISHING HEADING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
+            document.getElementById('live-countdown').classList.add('hidden'); document.getElementById('calibration-container').classList.remove('hidden');
+            let calibBar = document.getElementById('calibration-bar'); calibBar.style.width = "0%"; calibBar.style.background = "var(--danger)";
+            preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = []; rawTracePoints = []; updateSmoothTrail(0);
+            calibrationHoldTimeMs = 0; lastJsTime = Date.now(); lastStableQuat.identity(); rebuildArcPts(loadedRadius); ghostRail.visible = false;
+            masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity(); finalReviewExtension = 0;
+            isForwardSwing = true; lastForwardPassTime = 0;
+        }
+
+        async function startMatchSequence() {
+            let ts = Math.floor(Date.now() / 1000);
+            let payload = [75, ts & 0xFF, (ts >> 8) & 0xFF, (ts >> 16) & 0xFF, (ts >> 24) & 0xFF];
+            let success = await sendBleCommand(payload);
+            if (success) {
+                inGameMode = true; gmStrokeCount = 0;
+                document.getElementById('gm-stroke-count').innerText = "0";
+                document.getElementById('gm-latest-stats').innerHTML = "Awaiting Next Strike...";
+                document.getElementById('game-mode-dashboard').classList.remove('hidden');
+                document.getElementById('ready-group').classList.add('hidden');
+                showToast("On-Course Match Started!");
+            } else { showToast("BLE Error."); }
+        }
+
         // --- UI Interactions ---
         document.getElementById('menuToggleBtn').onclick = () => { document.getElementById('menu-drawer').classList.toggle('open'); };
         
@@ -740,7 +934,7 @@
         }
 
         // --- Core Variables ---
-        const MIN_SUPPORTED_FW = "7.3.01";
+        const MIN_SUPPORTED_FW = "8.0.03";
         function getDynamicFaceZ() { let el = document.getElementById('malletLengthInput'); return el ? (parseFloat(el.value) || 27.6) / 2.0 : 13.8; }
         function getDynamicBallZ() { return getDynamicFaceZ() + 4.6; }
 
@@ -1113,19 +1307,12 @@
         document.getElementById('btnDeleteMatch').onclick = async () => {
             let id = document.getElementById('editMatchId').value;
             
-            // Trigger browser native confirmation
             if (confirm("Are you sure you want to permanently delete this match and all its recorded strokes? This cannot be undone.")) {
-                
                 document.getElementById('btnDeleteMatch').innerText = "DELETING...";
                 document.getElementById('btnDeleteMatch').disabled = true;
 
-                // Execute Supabase deletion
-                const { error } = await supabaseClient
-                    .from('matches')
-                    .delete()
-                    .eq('id', id);
+                const { error } = await supabaseClient.from('matches').delete().eq('id', id);
 
-                // Reset button state
                 document.getElementById('btnDeleteMatch').innerText = "DELETE MATCH";
                 document.getElementById('btnDeleteMatch').disabled = false;
 
@@ -1134,13 +1321,10 @@
                 } else { 
                     showToast("Match deleted."); 
                     document.getElementById('match-edit-modal').close(); 
-                    
-                    // Refresh the match list to remove the deleted item
                     fetchCloudMatches(); 
                 }
             }
         };
-
 
         // --- CLOUD LOCKER UI ---
         async function fetchCloudMatches() {
@@ -1215,7 +1399,8 @@
                 let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
                 let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
 
-                let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); pureImpactSensor.multiply(hardwareMountOffset);
+                let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); 
+                // No local hardware matrix multiplication needed!
                 let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
                 impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
                 let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
@@ -1256,6 +1441,8 @@
             detailsHTML += `</div></details>`; container.innerHTML = detailsHTML;
         }
 
+        document.getElementById('toggleDiagnosticHudBtn').addEventListener('click', toggleDeveloperHUD);
+
         // --- Offline Viewer Logic ---
         document.getElementById('openOfflineViewerBtn').onclick = () => { 
             document.getElementById('dev-options-modal').close(); 
@@ -1268,6 +1455,32 @@
             let file = event.target.files[0]; if (!file) return; let reader = new FileReader();
             reader.onload = function(e) { try { let data = JSON.parse(e.target.result); renderOfflineMatches(data); document.getElementById('offlineHistoryInput').value = ''; } catch(err) { showToast("Error parsing JSON file."); } }; reader.readAsText(file);
         });
+
+        // --- DEV OPTIONS: WIPE CALIBRATION ---
+        document.getElementById('devResetCalibrationBtn').onclick = () => {
+            if (confirm("Reset calibration matrix to perfect zero (Identity)? This will reset both the app and the connected mallet.")) {
+                
+                // 1. Reset local math to Identity (w=1, x=0, y=0, z=0)
+                hardwareMountOffset.set(0, 0, 0, 1);
+                saveSettings();
+                
+                // 2. Push the zeroed matrix to the hardware
+                if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
+                    window.bleManager.sendCalibrationMatrix(1.0, 0.0, 0.0, 0.0).then((success) => {
+                        if (success) {
+                            showToast("Calibration wiped locally and on mallet!");
+                        } else {
+                            showToast("Wiped locally, but hardware sync failed.");
+                        }
+                    });
+                } else {
+                    showToast("Calibration wiped locally (Mallet not connected).");
+                }
+                
+                document.getElementById('dev-options-modal').close();
+            }
+        };
+
 
         function renderOfflineMatches(data) {
             let container = document.getElementById('offline-matches-container'); container.innerHTML = '';
@@ -1315,7 +1528,8 @@
                     let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
                     let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
 
-                    let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); pureImpactSensor.multiply(hardwareMountOffset);
+                    let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); 
+                    // No local hardware matrix multiplication needed!
                     let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
                     impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
                     let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
@@ -1372,77 +1586,99 @@
 
         document.getElementById('closeDevOptionsBtn').onclick = () => { document.getElementById('dev-options-modal').close(); };
 
-        // --- HISTORY-BASED DYNAMIC TUNING LOGIC ---
+        /// --- HISTORY-BASED DYNAMIC TUNING LOGIC ---
         document.getElementById('enterTuningBtn').onclick = () => {
             if (!window.currentlyViewedCast) return;
             document.getElementById('tune-action-panel').classList.add('hidden');
             document.getElementById('alignment-panel').style.display = 'block';
             tuneBaseOffset.copy(hardwareMountOffset);
-            ['X', 'Y', 'Z'].forEach(axis => { document.getElementById('spin' + axis).value = "0.0"; });
             
-            if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
-            ghostPivot.quaternion.identity(); 
-            updateSystemGeometry(); 
-            virtualBall.visible = true;
-            impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
-
-            updateDynamicTuning();
-        };
-
-        ['X', 'Y', 'Z'].forEach(axis => {
-            let spinner = document.getElementById('spin' + axis);
-            spinner.addEventListener('input', () => { 
-                let val = parseFloat(spinner.value) || 0;
-                spinner.value = Math.max(-15, Math.min(15, val)); 
-                updateDynamicTuning(); 
-            });
-        });
-
-        function updateDynamicTuning() {
-            if (!window.currentlyViewedCast) return;
-            let x = THREE.MathUtils.degToRad(parseFloat(document.getElementById('spinX').value) || 0);
-            let y = THREE.MathUtils.degToRad(parseFloat(document.getElementById('spinY').value) || 0);
-            let z = THREE.MathUtils.degToRad(parseFloat(document.getElementById('spinZ').value) || 0);
-            
-            let euler = new THREE.Euler(x, y, z, 'YXZ');
-            let vQ = new THREE.Quaternion().setFromEuler(euler);
-            let hQ = new THREE.Quaternion(-vQ.z, vQ.x, -vQ.y, vQ.w);
-            
-            hardwareMountOffset.copy(tuneBaseOffset).multiply(hQ);
+            document.getElementById('spinY').value = 0.0;
+            document.getElementById('spinYValue').innerText = "0.0°";
             
             let c = window.currentlyViewedCast;
-            if(!c.rawBLE) return; 
-
-            let pure = c.rawBLE.clone().multiply(hardwareMountOffset);
-            let raw = new THREE.Quaternion(pure.y, -pure.z, -pure.x, pure.w).normalize();
-            raw.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
-            let tunedQuat = baseQuatInverse.clone().multiply(raw);
             
-            masterPivot.quaternion.copy(tunedQuat);
-            masterPivot.position.set(0, pivotBaseY + c.extension, 0);
+            // Lock BOTH solid and ghost mallets perfectly to the raw swing data
+            masterPivot.quaternion.copy(c.pivotQuat);
+            masterPivot.position.copy(c.pivotPos);
             masterBlock.position.set(0, -(loadedRadius + c.extension), 0);
-            headJoint.quaternion.identity();
-        }
+            
+            ghostPivot.quaternion.copy(c.pivotQuat);
+            ghostPivot.position.copy(c.pivotPos);
+            ghostBlock.position.set(0, -(loadedRadius + c.extension), 0);
+            
+            if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
+            virtualBall.visible = false; // Hide the ball, we are focusing on the trace line
+            impactLasers.forEach(m => scene.remove(m)); impactLasers = [];
+
+            // Show the grid/arrow, reset rotation, and force arc to be visible
+            if (typeof targetEnvironmentGroup !== 'undefined') {
+                targetEnvironmentGroup.rotation.y = 0; 
+                if (typeof floorGrid !== 'undefined') floorGrid.visible = true;
+                if (typeof targetArrow !== 'undefined') targetArrow.visible = true;
+                if (typeof ghostRail !== 'undefined') ghostRail.visible = true;
+            }
+        };
+
+        // Manual Slider interaction
+        document.getElementById('spinY').addEventListener('input', (e) => { 
+            let val = parseFloat(e.target.value) || 0;
+            document.getElementById('spinYValue').innerText = val.toFixed(1) + "°";
+            // Rotate the environment!
+            if (typeof targetEnvironmentGroup !== 'undefined') {
+                targetEnvironmentGroup.rotation.y = THREE.MathUtils.degToRad(val); 
+            }
+        });
+
+        // The Auto-Snap Button
+        document.getElementById('snapYawBtn').onclick = () => {
+            if (!window.currentlyViewedCast) return;
+            
+            // The kinematics engine already calculated the path angle! 
+            let pathRads = window.currentlyViewedCast.pathAngleRads;
+            let pathDeg = THREE.MathUtils.radToDeg(pathRads);
+            
+            // Snap the slider and environment grid instantly to the path
+            document.getElementById('spinY').value = pathDeg.toFixed(1);
+            document.getElementById('spinYValue').innerText = pathDeg.toFixed(1) + "°";
+            if (typeof targetEnvironmentGroup !== 'undefined') {
+                targetEnvironmentGroup.rotation.y = pathRads;
+            }
+        };
 
         document.getElementById('cancelTuneBtn').onclick = () => {
             document.getElementById('alignment-panel').style.display = 'none';
             hardwareMountOffset.copy(tuneBaseOffset); 
+            if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
+            if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
             document.getElementById('exitPassViewBtn').click();
             showToast("Tuning Cancelled. Matrix restored.");
         };
 
-        document.getElementById('saveTuneBtn').onclick = async () => {
-            document.getElementById('alignment-panel').style.display = 'none';
-            saveSettings();
-            
-            let success = await window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z);
-            if(success) {
-                showToast("TUNED MATRIX BURNED TO MALLET."); 
-            } else {
-                showToast("MATRIX SAVED LOCALLY."); 
-            }
-            document.getElementById('exitPassViewBtn').click();
-        };
+        document.getElementById('saveTuneBtn').addEventListener('click', () => {
+            let yawCorrectionDeg = -parseFloat(document.getElementById('spinY').value) || 0;
+            let yawRads = yawCorrectionDeg * (Math.PI / 180);
+
+            let baseQuat = new THREE.Quaternion(hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z, hardwareMountOffset.w);
+            let tuningEuler = new THREE.Euler(0, yawRads, 0, 'YXZ'); 
+            let tuningQuat = new THREE.Quaternion().setFromEuler(tuningEuler);
+
+            let unifiedQuat = new THREE.Quaternion();
+            unifiedQuat.multiplyQuaternions(tuningQuat, baseQuat).normalize(); 
+
+            window.bleManager.sendCalibrationMatrix(unifiedQuat.w, unifiedQuat.x, unifiedQuat.y, unifiedQuat.z).then((success) => {
+                if (success) {
+                    showToast("Target Line Offset Saved & Burned to Mallet.");
+                    hardwareMountOffset.copy(unifiedQuat);
+                    document.getElementById('alignment-panel').style.display = 'none';
+                    if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
+                    if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
+                    saveSettings();
+                } else {
+                    showToast("Hardware transmission failure.");
+                }
+            });
+        });
 
         let versionTapCount = 0;
         let versionTapTimer;
@@ -1535,6 +1771,19 @@
             if(typeof ghostPivot !== 'undefined' && ghostPivot) ghostPivot.position.set(0, pivotBaseY, 0);
             if(typeof masterBlock !== 'undefined' && masterBlock) masterBlock.position.set(0, -loadedRadius, 0); 
             if(typeof ghostBlock !== 'undefined' && ghostBlock) ghostBlock.position.set(0, -loadedRadius, 0);
+            
+            // --- NEW: Update Environment Grid Geometry ---
+            if(typeof targetEnvironmentGroup !== 'undefined' && targetEnvironmentGroup) {
+                targetEnvironmentGroup.position.set(0, pivotBaseY, 0);
+                
+                // FIX 1: Lock the Arc and Environment to the exact setup angle of the ghost ball
+                if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+                    targetEnvironmentGroup.quaternion.copy(ghostPivot.quaternion);
+                }
+                
+                if(typeof floorGrid !== 'undefined') floorGrid.position.y = -loadedRadius;
+                if(typeof targetArrow !== 'undefined') targetArrow.position.y = -loadedRadius + 0.1;
+            }
         }
 
         function updateMalletScale() {
@@ -1663,7 +1912,6 @@
             isWizardActive = true; wizardStep = 0; updateWizardUI();
         };
 
-        // --- NEW: Restore trace setting on Wizard Close ---
         document.getElementById('closeWizardBtn').onclick = () => { 
             isWizardActive = false; 
             capturing = false; 
@@ -1706,7 +1954,6 @@
             masterBlock.position.set(0, -loadedRadius, 0);
             masterPivot.position.set(0, pivotBaseY, 0);
 
-            // --- NEW: Restore trace setting on calculation finish ---
             let traceCheck = document.getElementById('showTraceCheck');
             trailLine.visible = traceCheck ? traceCheck.checked : true;
 
@@ -1758,7 +2005,25 @@
         const headJoint = new THREE.Group(); masterBlock.add(headJoint);
         
         const ghostPivot = new THREE.Group(); scene.add(ghostPivot); const ghostBlock = new THREE.Group(); ghostPivot.add(ghostBlock); const ghostHeadJoint = new THREE.Group(); ghostBlock.add(    ghostHeadJoint);
-            ghostPivot.add(ghostRail); // <-- Attach the rail to the relative pivot
+            
+        // --- NEW TARGET ENVIRONMENT GROUP ---
+        const targetEnvironmentGroup = new THREE.Group(); 
+        // We leave this group visible at all times so the ghostRail can be seen!
+        scene.add(targetEnvironmentGroup);
+        
+        targetEnvironmentGroup.add(ghostRail); 
+
+        const floorGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
+        floorGrid.material.transparent = true; 
+        floorGrid.material.opacity = 0.5;
+        floorGrid.visible = false; // Only show during tuning
+        targetEnvironmentGroup.add(floorGrid);
+
+        const targetArrowDir = new THREE.Vector3(0, 0, 1);
+        const targetArrowOrigin = new THREE.Vector3(0, 0, -20);
+        const targetArrow = new THREE.ArrowHelper(targetArrowDir, targetArrowOrigin, 40, 0xef4444, 4, 3);
+        targetArrow.visible = false; // Only show during tuning
+        targetEnvironmentGroup.add(targetArrow);
 
         const loader = new THREE.STLLoader();
         loader.load('./model.stl', function (geometry) {
@@ -1804,7 +2069,7 @@
             for(let i=-60; i<=60; i+=2) { 
                     let a = THREE.MathUtils.degToRad(i); 
                     let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); 
-                    arcPts.push(v); // Removed the v.y += pivotBaseY offset
+                    arcPts.push(v);
             }
             let curve = new THREE.CatmullRomCurve3(arcPts); let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false); 
             if (ghostRail.geometry) ghostRail.geometry.dispose(); ghostRail.geometry = tubeGeo;
@@ -1831,10 +2096,8 @@
         const showTraceCheck = document.getElementById('showTraceCheck'); if(showTraceCheck) showTraceCheck.addEventListener('change', (e) => { trailLine.visible = e.target.checked; });
 
         document.getElementById('btnUpdateFW').addEventListener('click', async () => {
-            let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
-            let payload = [ 67, parseInt(document.getElementById('radiusInput').value), parseInt(document.getElementById('massInput').value) / 10, parseFloat(document.getElementById('impactInput').value) * 10, parseFloat(document.getElementById('offsetYInput').value) * 10, parseInt(document.getElementById('timeoutInput').value), parseFloat(document.getElementById('sweetSpotInput').value) * 10, ledGuidance, 10 ];
-            let success = await sendBleCommand(payload, true);
-            if (success) showToast("Sync Complete"); else showToast("Bluetooth Error: Cannot sync.");
+            await syncConfigurationToMallet();
+            showToast("Sync Complete");
         });
 
         document.getElementById('btnResetFW').addEventListener('click', async () => { 
@@ -1852,24 +2115,12 @@
         });
 
         // --- GAME MODE CONTROLS ---
-        document.getElementById('startGameModeBtn').onclick = async () => {
-            let ts = Math.floor(Date.now() / 1000);
-            let payload = [75, ts & 0xFF, (ts >> 8) & 0xFF, (ts >> 16) & 0xFF, (ts >> 24) & 0xFF];
-            let success = await sendBleCommand(payload);
-            if (success) {
-                inGameMode = true; gmStrokeCount = 0;
-                document.getElementById('gm-stroke-count').innerText = "0";
-                document.getElementById('gm-latest-stats').innerHTML = "Awaiting Next Strike...";
-                document.getElementById('game-mode-dashboard').classList.remove('hidden');
-                showToast("On-Course Match Started!");
-            } else { showToast("BLE Error."); }
-        };
-
         document.getElementById('endGameModeBtn').onclick = async () => {
             let success = await sendBleCommand([76]);
             if (success) {
                 inGameMode = false;
                 document.getElementById('game-mode-dashboard').classList.add('hidden');
+                document.getElementById('ready-group').classList.remove('hidden');
                 showToast("On-Course Match Ended.");
             }
         };
@@ -1885,8 +2136,13 @@
             masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
         };
 
-        // --- NEW: Restore full swing trace buffer on exit ---
         document.getElementById('exitPassViewBtn').onclick = () => {
+
+            if (typeof targetEnvironmentGroup !== 'undefined') {
+                if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
+                if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
+            }
+
             isReviewingLog = false; window.currentlyViewedCast = null;
             document.getElementById('tune-action-panel').classList.add('hidden');
             let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
@@ -2031,7 +2287,6 @@
             rawTracePoints = data.rawTracePoints; updateSmoothTrail();
             playbackMode = true; isPaused = false; playbackIndex = 0; isReviewingLog = true; ghostMalletMesh.visible = isGhostEnabled; lastPlaybackTime = Date.now(); 
             
-            // Reapply relative ghost anchor to properly display replay ball and target line
             if (isBallEnabled) { 
                 ghostPivot.quaternion.copy(data.setupQuat || new THREE.Quaternion());
                 updateSystemGeometry(); 
@@ -2047,7 +2302,6 @@
             document.getElementById('history-panel').classList.add('mobile-open');
         };
 
-        // --- NEW: Trace isolation logic instead of darkening ---
         window.highlightPass = function(swingIdx, castIdx) {
             if (!swingDatabase[swingIdx]) return; let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
             window.currentlyViewedCast = cast;
@@ -2084,40 +2338,6 @@
             let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `VIEWING PASS #${castIdx + 1}. DRAG CAMERA.`; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
         };
 
-        document.getElementById('zeroArmBtn').onclick = async () => {
-            if (appState === 2 || appState === 3 || appState === 4 || appState === 4.5) return; 
-            let success = await sendBleCommand([90]); // 'Z'
-            if (!success) { showToast("BLE Error."); return; }
-            
-            zeroRawBLEQuat.copy(currentRawBLEQuat);
-            
-            if (isBallEnabled) { 
-                ghostPivot.quaternion.identity(); 
-                updateSystemGeometry(); 
-                virtualBall.visible = true; 
-            } else { virtualBall.visible = false; }
-
-            appState = 2; calibrationPhase = 'RED'; redStartTime = Date.now(); isReviewingLog = false;
-            
-            let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - loadedRadius, 0); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
-            
-            // Extract only the Y-Axis (Yaw/Heading) to zero out, preserving calibrated Pitch & Roll
-            let initialEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
-            let initialHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, initialEuler.y, 0, 'YXZ'));
-            baseQuatInverse.copy(initialHeading).invert(); 
-            targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat); 
-            currentQuaternion.copy(targetQuaternion); 
-            masterPivot.quaternion.copy(currentQuaternion);
-
-            document.getElementById('ready-group').classList.add('hidden'); document.getElementById('cancelArmBtn').classList.remove('hidden');
-            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "ESTABLISHING HEADING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
-            document.getElementById('live-countdown').classList.add('hidden'); document.getElementById('calibration-container').classList.remove('hidden');
-            let calibBar = document.getElementById('calibration-bar'); calibBar.style.width = "0%"; calibBar.style.background = "var(--danger)";
-            preRollBuffer = []; castData = []; impactLasers.forEach(m => scene.remove(m)); impactLasers = []; rawTracePoints = []; updateSmoothTrail(0);
-            calibrationHoldTimeMs = 0; lastJsTime = Date.now(); lastStableQuat.identity(); rebuildArcPts(loadedRadius); ghostRail.visible = false;
-            masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity(); finalReviewExtension = 0;
-            isForwardSwing = true; lastForwardPassTime = 0;
-        };
 
         document.getElementById('cancelArmBtn').onclick = () => resetSystemState(false, false);
         document.getElementById('resetMaxBtn').onclick = async () => await resetSystemState(false, true);
@@ -2148,7 +2368,7 @@
                 return; 
             }
 
-            let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); pureImpactSensor.multiply(hardwareMountOffset);
+            let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0);
             let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
             impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
             let iQuat = baseQuatInverse.clone().multiply(impactRawQuat);
@@ -2177,19 +2397,16 @@
 
         function handleParsedTelemetry(t) {
             const hwTimestamp = t.hwTimestamp; globalHwTime = hwTimestamp; let jsNow = Date.now();
-            const q0 = t.q0; const q1 = t.q1; const q2 = t.q2; const q3 = t.q3;
-            const ax = t.ax; const ay = t.ay; const az = t.az;
-            const liveAppliedForce = t.appliedForce; const hwAppState = t.appState;
             
             prevRawBLEQuat.copy(currentRawBLEQuat);
-            currentRawBLEQuat.set(q1, q2, q3, q0);
+            currentRawBLEQuat.set(t.q1, t.q2, t.q3, t.q0);
 
-            let pureSensorQuat = currentRawBLEQuat.clone().multiply(hardwareMountOffset);
-            lastRawQuat = new THREE.Quaternion(pureSensorQuat.y, -pureSensorQuat.z, -pureSensorQuat.x, pureSensorQuat.w).normalize();
+            // Directly project onto tracking nodes without sub-multiplying local offsets
+            lastRawQuat = new THREE.Quaternion(currentRawBLEQuat.y, -currentRawBLEQuat.z, -currentRawBLEQuat.x, currentRawBLEQuat.w).normalize();
             lastRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
             prevTargetQuaternion.copy(targetQuaternion);
 
-            let rawForce = new THREE.Vector3(ax, ay, az); let magnitude = rawForce.length(); let deltaG = Math.abs(magnitude - prevMagnitude);
+            let rawForce = new THREE.Vector3(t.ax, t.ay, t.az); let magnitude = rawForce.length(); let deltaG = Math.abs(magnitude - prevMagnitude);
             
             if (isWizardActive && capturing) {
                 wizardBuffer.push(rawForce.clone()); if (wizardBuffer.length > WIZARD_BUFFER_SIZE) wizardBuffer.shift();
@@ -2206,7 +2423,7 @@
             }
 
             let flatMag = parseFloat(document.getElementById('flatMagInput').value) || 4.0; let extension = 0;
-            if (appState >= 3 && liveAppliedForce > 2.0) { let clampedForce = Math.min(liveAppliedForce, 15.0); extension = clampedForce * (flatMag / 10.0); }
+            if (appState >= 3 && t.appliedForce > 2.0) { let clampedForce = Math.min(t.appliedForce, 15.0); extension = clampedForce * (flatMag / 10.0); }
             let currentDynamicRadius = loadedRadius + extension; let currentPivotLift = extension;
 
             if (appState === 2) {
@@ -2214,7 +2431,7 @@
                 if (calibrationPhase === 'RED') {
                     let elapsed = jsNow - redStartTime; let pct = (elapsed / 3000.0) * 66.0; 
                     if(calibBar) { calibBar.style.width = Math.min(pct, 66) + "%"; calibBar.style.background = "var(--danger)"; }
-                    if (elapsed >= 3000 && hwAppState === 6) {
+                    if (elapsed >= 3000 && t.appState === 6) {
                         calibrationPhase = 'ORANGE'; calibrationHoldTimeMs = 0; orangeStartTime = jsNow; lastStableQuat.copy(lastRawQuat); 
                         if(swingStateTxt) { swingStateTxt.innerText = "STEADYING..."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
                         ghostRail.visible = true; 
@@ -2234,7 +2451,6 @@
                     if (calibrationHoldTimeMs >= 1000 && visualDiff < 0.02) { 
 
                         calibrationPhase = 'NONE'; 
-                        // Extract and zero only the final settled Yaw/Heading
                         let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
                         let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YXZ'));
                         baseQuatInverse.copy(finalHeading).invert(); 
@@ -2244,14 +2460,12 @@
                         currentQuaternion.copy(targetQuaternion); 
                         masterPivot.quaternion.copy(currentQuaternion);
 
-                        // --- NEW RELATIVE PLACEMENT ARCHITECTURE ---
                         ghostPivot.quaternion.copy(currentQuaternion);
                         updateSystemGeometry(); 
 
                         let tiltedNormal = new THREE.Vector3(1, 0, 0).applyQuaternion(currentQuaternion);
                         let tiltedCentroid = new THREE.Vector3(0, -loadedRadius, 0).applyQuaternion(currentQuaternion).add(new THREE.Vector3(0, pivotBaseY, 0));
                         idealPlane = { centroid: tiltedCentroid, normal: tiltedNormal };
-                        // ------------------------------------------
 
                         ignoreSpeedUntilTime = Date.now() + 500; currentAbsoluteSpeed = 0; prevZ = 0; prevFaceZ = 0; isForwardSwing = true; lastForwardPassTime = 0; impactDetected = false; isLive = true; 
                         playbackMode = false; posHistory = []; currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
@@ -2292,7 +2506,7 @@
             if (appState === 3 || appState === 4) {
                 let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
                 let liveForceN = magnitude * massKg * 9.81;
-                document.getElementById('live-speed').innerText = `${currentAbsoluteSpeed.toFixed(1)} m/s`; document.getElementById('live-force').innerText = `${liveForceN.toFixed(0)} N`; document.getElementById('live-applied').innerText = `${liveAppliedForce.toFixed(0)} N`; 
+                document.getElementById('live-speed').innerText = `${currentAbsoluteSpeed.toFixed(1)} m/s`; document.getElementById('live-force').innerText = `${liveForceN.toFixed(0)} N`; document.getElementById('live-applied').innerText = `${t.appliedForce.toFixed(0)} N`; 
             }
 
             if (appState === 3 && jsNow >= ignoreSpeedUntilTime) {
@@ -2302,7 +2516,7 @@
                 let triggeredNormal = (currentAbsoluteSpeed > 0.8); let triggeredImpact = (deltaG > impactThreshold);
 
                 if (triggeredNormal || triggeredImpact) {
-                    appState = 4; state4UiStartTime = Date.now(); clearTimeout(goTimeout); document.getElementById('singleSwingLabel').classList.add('hidden');
+                    appState = 4; state4UiStartTime = Date.now(); clearTimeout(goTimeout);
                     state4StartTime = nowTime; recordTicks = 0; impactDetected = false; postImpactTicks = 0; recordedFrames = []; 
                     currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0; window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; rawTracePoints = [];
                     
@@ -2335,16 +2549,15 @@
             if (appState === 4 && jsNow >= ignoreSpeedUntilTime) {
                 let dynamicFaceZ = getDynamicFaceZ();
                 if (idealPlane && prevFaceZ <= dynamicFaceZ && currentFaceZ > dynamicFaceZ && isForwardSwing) {
-                    let t = (dynamicFaceZ - prevFaceZ) / (currentFaceZ - prevFaceZ); if (isNaN(t) || t < 0 || t > 1) t = 1.0; 
-                    let iQuat = prevTargetQuaternion.clone().slerp(targetQuaternion, t);
-                    let iRawBLE = prevRawBLEQuat.clone().slerp(currentRawBLEQuat, t);
+                    let tm = (dynamicFaceZ - prevFaceZ) / (currentFaceZ - prevFaceZ); if (isNaN(tm) || tm < 0 || tm > 1) tm = 1.0; 
+                    let iQuat = prevTargetQuaternion.clone().slerp(targetQuaternion, tm);
+                    let iRawBLE = prevRawBLEQuat.clone().slerp(currentRawBLEQuat, tm);
                     
                     let tempPivot = new THREE.Group(); let tempBlock = new THREE.Group(); let tempFace = new THREE.Group();
                     tempPivot.position.set(0, pivotBaseY + currentPivotLift, 0); tempBlock.position.set(0, -currentDynamicRadius, 0); tempFace.position.set(0, 0, dynamicFaceZ); 
                     tempPivot.add(tempBlock); tempBlock.add(tempFace); tempPivot.quaternion.copy(iQuat); scene.add(tempPivot); tempPivot.updateMatrixWorld(true);
                     let exactFacePos = new THREE.Vector3(); tempFace.getWorldPosition(exactFacePos); scene.remove(tempPivot);
 
-                    // Compute deviation entirely within the customized tilted setup plane
                     ghostBlock.updateMatrixWorld(true);
                     let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
                     let localFaceAtImpact = exactFacePos.clone().applyMatrix4(ghostInvMat);
@@ -2355,8 +2568,8 @@
                     let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C'); 
                     let locTwist = getShaftTwist(iQuat); let passForce = calculateImpactForce(currentAbsoluteSpeed);
                     let floatOffset = localFaceAtImpact.y; 
-                    let snapshotPos = new THREE.Vector3(0, (pivotBaseY + currentPivotLift) - floatOffset, 0);
-                    
+                    let snapshotPos = new THREE.Vector3(0, pivotBaseY + currentPivotLift, 0);
+
                     let pathAngleRads = 0;
                     if (preRollBuffer.length > 5) { 
                         let pastPos = preRollBuffer[preRollBuffer.length - 5].pos; 
@@ -2380,7 +2593,7 @@
 
                     let strikeCast = { 
                         rawDev: strikeX, dev: devCM, dir: dir, isStrike: false, pos: exactFacePos.clone(), rot: tempFace.getWorldQuaternion(new THREE.Quaternion()), 
-                        localX: strikeX, localY: strikeY, faceAngle: locTwist, pathAngleRads: pathAngleRads, passSpeed: currentAbsoluteSpeed, passForce: passForce, appliedForce: liveAppliedForce, 
+                        localX: strikeX, localY: strikeY, faceAngle: locTwist, pathAngleRads: pathAngleRads, passSpeed: currentAbsoluteSpeed, passForce: passForce, appliedForce: t.appliedForce, 
                         stars: passRating.string, starColor: passRating.color, trailIndex: rawTracePoints.length, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime,
                         isWhiff: accData.isWhiff, estAccRange: accData.estAccRange, trueAccRange: accData.trueAccRange, trueLaunchDeg: accData.trueLaunchDeg, 
                         estLaunchRads: accData.estLaunchRads, trueLaunchRads: accData.trueLaunchRads, maxAccRange: accData.trueAccRange, estDist: estDist, pDelta: p_delta,
@@ -2396,10 +2609,20 @@
                         renderLiveCasts();
                     }
 
-                    let ss = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; let tt = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
-                    let ledCmd = 72; if (devCM > ss) ledCmd = 74; else if (Math.abs(locTwist) > tt) ledCmd = 73; 
-                    if (document.getElementById('ledGuidanceCheck').checked) { sendBleCommand([ledCmd]); }
-                    if (document.getElementById('singleSwingCheck').checked && !impactDetected) { clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 800); }
+                    let ss = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; 
+                    
+                    // HYBRID LED LOGIC:
+                    // 72 ('H') = Path is good, let Firmware evaluate twist.
+                    // 74 ('J') = Path is bad, force LED to Blink Red!
+                    let ledCmd = 72; 
+                    if (devCM > ss) ledCmd = 74; 
+                    
+                    if (document.getElementById('ledGuidanceCheck').checked) { 
+                        sendBleCommand([ledCmd]); 
+                    }
+
+                    let singleSwingInput = document.getElementById('singleSwingCheck');
+                    if (singleSwingInput && singleSwingInput.checked && !impactDetected) { clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 800); }
                 }
 
                 if (rawTracePoints.length < MAX_TRAIL_POINTS) {
@@ -2409,8 +2632,8 @@
                     else {
                         if (idealPlane) {
                             let ballWorldPos = virtualBall.position.clone(); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
-                            let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
-                            if(isNaN(t)) t = 0; r = t; g = 1.0 - t; b = 0.0;
+                            let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let tm = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
+                            if(isNaN(tm)) tm = 0; r = tm; g = 1.0 - tm; b = 0.0;
                         } else { r = 0.0; g = 1.0; b = 0.8; }
                     }
                     if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
@@ -2418,8 +2641,9 @@
                     recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, rawPtIndex: rawTracePoints.length, pivotPos: masterPivot.position.clone(), extension: extension, rawBLE: currentRawBLEQuat.clone() });
                 }
 
+                let singleSwingInput = document.getElementById('singleSwingCheck');
                 if (!impactDetected && deltaG > impactThreshold) { impactDetected = true; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive) { swingStateTxt.innerText = "IMPACT DETECTED! WAITING FOR EDGE PACKET..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; } }
-                if (!impactDetected && !document.getElementById('singleSwingCheck').checked) { let practiceTimeLimitMs = parseFloat(document.getElementById('practiceInput').value) * 1000; if ((nowTime - state4StartTime) >= practiceTimeLimitMs) { finalizeSwingData(nowTime); } }
+                if (!impactDetected && (!singleSwingInput || !singleSwingInput.checked)) { let practiceTimeLimitMs = parseFloat(document.getElementById('practiceInput').value) * 1000; if ((nowTime - state4StartTime) >= practiceTimeLimitMs) { finalizeSwingData(nowTime); } }
             }
 
             prevFaceZ = currentFaceZ; prevZ = currentZ; prevMagnitude = magnitude;
@@ -2610,7 +2834,16 @@
                 let nameDisp = document.getElementById('device-name-display'); nameDisp.classList.remove('hidden'); nameDisp.innerText = savedBleName;
 
                 let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
-                let payload = [ 67, parseInt(document.getElementById('radiusInput').value), parseInt(document.getElementById('massInput').value) / 10, parseFloat(document.getElementById('impactInput').value) * 10, parseFloat(document.getElementById('offsetYInput').value) * 10, parseInt(document.getElementById('timeoutInput').value), parseFloat(document.getElementById('sweetSpotInput').value) * 10, ledGuidance, 10 ];
+                let radius = parseInt(document.getElementById('radiusInput').value) || 127;
+                let mass = parseInt(document.getElementById('massInput').value) || 1000;
+                let impact = parseFloat(document.getElementById('impactInput').value) || 4.0;
+                let offsetY = parseFloat(document.getElementById('offsetYInput').value) || 5.5;
+                let timeout = parseInt(document.getElementById('timeoutInput').value) || 5;
+                let sweetSpot = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
+                let twist = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
+
+                let payload = [ 67, radius, mass / 10, impact * 10, offsetY * 10, timeout, sweetSpot * 10, ledGuidance, Math.round(twist * 10) ];
+                
                 window.bleManager.sendCommand(payload, true).then(() => {
                     if(inGameMode) { window.bleManager.sendCommand([75]); } else { window.bleManager.sendCommand([76]); }
                     showToast(`Connected to ${savedBleName} & Config Synced!`);
@@ -2636,8 +2869,15 @@
         };
 
         window.bleManager.onCalibrationLoaded = (w, x, y, z) => {
-            if (w !== 1.0 || x !== 0.0 || y !== 0.0 || z !== 0.0) { 
-                hardwareMountOffset.set(x, y, z, w); 
+            // FIX: Remove the 'if' trap and unconditionally accept the hardware's truth
+            hardwareMountOffset.set(x, y, z, w); 
+            
+            // Force the local cache and Cloud Profile to mirror the hardware state
+            saveSettings(); 
+            
+            if (w === 1.0 && x === 0.0 && y === 0.0 && z === 0.0) {
+                showToast("Mallet Matrix Confirmed Zeroed.");
+            } else {
                 showToast("Calibration Matrix loaded from Mallet!"); 
             }
         };
@@ -2649,6 +2889,103 @@
 
         document.getElementById('btToggleBtn').addEventListener('click', () => window.bleManager.connect());
         document.getElementById('centerConnectBtn').addEventListener('click', () => window.bleManager.connect());
+
+        // --- SAFE BATTERY POLLING ---
+        setInterval(() => {
+            if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
+                // Only poll if the mallet is completely idle/disarmed
+                if (appState === 1) { 
+                    sendBleCommand([80]); // 'P'
+                }
+            }
+        }, 10000);
+
+        // --- DEVELOPER MODE STATE ---
+        let devHudEnabled = false;
+
+        // --- GLOBAL POWER TRACKERS ---
+        window.lveBatteryVolts = "WAIT...";
+        window.lveBatteryPct = "WAIT...";
+        window.lveIsCharging = "WAIT...";
+
+        /// --- HUD TOGGLE LOGIC ---
+        function toggleDeveloperHUD() {
+            devHudEnabled = !devHudEnabled;
+            let existingDiv = document.getElementById('lve-diagnostic-hud');
+            
+            if (devHudEnabled) {
+                if (!existingDiv) {
+                    const debugDiv = document.createElement('div');
+                    debugDiv.id = 'lve-diagnostic-hud';
+                    // FIX: Changed top/left to bottom/right
+                    debugDiv.style.cssText = "position:fixed; bottom:20px; right:20px; background:rgba(0,0,0,0.85); color:#32cd32; padding:15px; border-radius:8px; z-index:9999; font-family:var(--font-mono, monospace); font-size:12px; pointer-events:none; border: 1px solid #32cd32; box-shadow: 0 4px 6px rgba(0,0,0,0.5);";
+                    document.body.appendChild(debugDiv);
+                } else {
+                    existingDiv.style.display = 'block';
+                }
+                if(typeof showToast === "function") showToast("DIAGNOSTIC HUD ENABLED");
+            } else {
+                if (existingDiv) existingDiv.style.display = 'none';
+                if(typeof showToast === "function") showToast("DIAGNOSTIC HUD DISABLED");
+            }
+        }
+
+        // --- BATTERY INTERCEPTOR ---
+        const originalBatteryUpdate = window.bleManager.onBatteryUpdate;
+
+        window.bleManager.onBatteryUpdate = function(voltage_mV, isCharging, availStrikes) {
+            let calculatedPct = Math.round(((voltage_mV - 3300) / (4050 - 3300)) * 100);
+            calculatedPct = Math.max(0, Math.min(100, calculatedPct)); 
+            if (originalBatteryUpdate) originalBatteryUpdate(calculatedPct, isCharging, availStrikes);
+            window.lveBatteryVolts = (voltage_mV / 1000).toFixed(2) + "V";
+            window.lveBatteryPct = calculatedPct + "%";
+            window.lveIsCharging = isCharging ? "YES" : "NO";
+        };
+
+        // --- TELEMETRY INTERCEPTOR ---
+        const originalAppTelemetry = window.bleManager.onTelemetryData;
+
+        window.bleManager.onTelemetryData = function(t) {
+            if (originalAppTelemetry) originalAppTelemetry(t);
+            
+            if (devHudEnabled) {
+                let debugDiv = document.getElementById('lve-diagnostic-hud');
+                if (debugDiv) {
+                    let cleanNumber = (num) => {
+                        let val = Number(num.toFixed(3));
+                        if (val === 0) return "+0.000"; 
+                        return val > 0 ? "+" + val.toFixed(3) : val.toFixed(3);
+                    };
+                    
+                    let mag = Math.sqrt(t.ax*t.ax + t.ay*t.ay + t.az*t.az);
+                    let calMat = typeof hardwareMountOffset !== 'undefined' ? hardwareMountOffset : {w:1, x:0, y:0, z:0};
+                    let calQ = typeof lastRawQuat !== 'undefined' ? lastRawQuat : {w:1, x:0, y:0, z:0};
+
+                    debugDiv.innerHTML = `
+                        <strong style="color:#fff;">--- LVE DIAGNOSTICS ---</strong><br><br>
+                        
+                        <strong style="color:#ef4444;">POWER MANAGEMENT:</strong><br>
+                        Voltage: ${window.lveBatteryVolts} (${window.lveBatteryPct}) | Charging: ${window.lveIsCharging}<br><br>
+
+                        <strong style="color:#32cd32;">RAW ACCELEROMETER:</strong><br>
+                        X: ${cleanNumber(t.ax)} | Y: ${cleanNumber(t.ay)} | Z: ${cleanNumber(t.az)}<br>
+                        Mag: ${cleanNumber(mag)} G<br><br>
+                        
+                        <strong style="color:#32cd32;">RAW SILICON QUATERNION:</strong><br>
+                        W: ${cleanNumber(t.q0)} | X: ${cleanNumber(t.q1)}<br>
+                        Y: ${cleanNumber(t.q2)} | Z: ${cleanNumber(t.q3)}<br><br>
+
+                        <strong style="color:#f59e0b;">HARDWARE MATRIX (BASE):</strong><br>
+                        W: ${cleanNumber(calMat.w)} | X: ${cleanNumber(calMat.x)}<br>
+                        Y: ${cleanNumber(calMat.y)} | Z: ${cleanNumber(calMat.z)}<br><br>
+
+                        <strong style="color:#38bdf8;">FINAL UI QUATERNION:</strong><br>
+                        W: ${cleanNumber(calQ.w)} | X: ${cleanNumber(calQ.x)}<br>
+                        Y: ${cleanNumber(calQ.y)} | Z: ${cleanNumber(calQ.z)}
+                    `;
+                }
+            }
+        };
 
     </script>
 </body>
