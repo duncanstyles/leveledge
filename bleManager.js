@@ -195,12 +195,17 @@ class LevelEdgeBLEManager {
             return; 
         }
 
-        // Header 'B' (66): Battery Status
+        // Header 'B' (66): Battery Status (Compressed 5-Byte Payload)
         if (header === 66 && data.byteLength >= 5) { 
-            const batteryPct = data.getUint8(1); 
+            const compressed_V = data.getUint8(1); 
+            
+            // DECOMPRESSION: Multiply by 5 and add the 3000mV baseline back
+            const voltage_mV = (compressed_V * 5) + 3000;
+            
             const isCharging = data.getUint8(2) === 1; 
             const availStrikes = data.getUint16(3, true); 
-            if (this.onBatteryUpdate) this.onBatteryUpdate(batteryPct, isCharging, availStrikes);
+            
+            if (this.onBatteryUpdate) this.onBatteryUpdate(voltage_mV, isCharging, availStrikes);
             return;
         }
 
