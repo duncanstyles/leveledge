@@ -154,13 +154,17 @@ async function startMatchSequence() {
     let payload = [75, ts & 0xFF, (ts >> 8) & 0xFF, (ts >> 16) & 0xFF, (ts >> 24) & 0xFF];
     let success = await sendBleCommand(payload);
     if (success) {
-        inGameMode = true; gmStrokeCount = 0;
+        inGameMode = true; 
+        appState = 7; // Sync front-end state with STATE_GAME_MODE
+        gmStrokeCount = 0;
         document.getElementById('gm-stroke-count').innerText = "0";
         document.getElementById('gm-latest-stats').innerHTML = "Awaiting Next Strike...";
         document.getElementById('game-mode-dashboard').classList.remove('hidden');
         document.getElementById('ready-group').classList.add('hidden');
         showToast("On-Course Match Started!");
-    } else { showToast("BLE Error."); }
+    } else { 
+        showToast("BLE Error."); 
+    }
 }
 
 // --- UI Interactions ---
@@ -1733,7 +1737,7 @@ window.bleManager.onStateChange = (isConnected, name) => {
         document.getElementById('topSyncBtn').classList.add('hidden');
         document.getElementById('calibration-container').classList.add('hidden'); 
         appState = 0; 
-        showToast("Sensor Link Severed. Mallet Frozen.");
+        showToast("Mallet disconnected ");
         if (inGameMode) { showToast("Mallet disconnected, but match tracking continues offline."); }
     } else {
         savedBleName = name || "LVE Mallet"; document.getElementById('malletNameInput').value = savedBleName; saveSettings(); 
@@ -1767,18 +1771,27 @@ window.bleManager.onStateChange = (isConnected, name) => {
     }
 };
 
-window.bleManager.onBatteryUpdate = (batteryPct, isCharging, availStrikes) => {
-    let batTxt = `🔋 ${batteryPct}%`; let batClass = 'text-success';
-    if (isCharging) {
-        batClass = 'text-warning'; 
-        if (lastBatteryVal !== -1 && batteryPct > lastBatteryVal) { chargeRatePerMs = (Date.now() - lastBatteryCheckTime) / (batteryPct - lastBatteryVal); lastBatteryCheckTime = Date.now(); lastBatteryVal = batteryPct; } 
-        else if (lastBatteryVal === -1 || batteryPct < lastBatteryVal) { lastBatteryVal = batteryPct; lastBatteryCheckTime = Date.now(); chargeRatePerMs = 0; }
-        batTxt = batteryPct === 100 ? `⚡ FULL` : `⚡ ${batteryPct}%`;
-    } else { lastBatteryVal = -1; }
+bleManager.onBatteryUpdate = (alreadyCalculatedPct, isCharging, availStrikes) => {
+    const batteryDisplay = document.getElementById('battery-display');
+    batteryDisplay.classList.remove('hidden');
     
-    let batDisplay = document.getElementById('battery-display'); if (batDisplay) { batDisplay.innerText = batTxt; batDisplay.className = batClass; } 
-    let storeDisp = document.getElementById('about-storage-display'); if (storeDisp) { storeDisp.innerText = availStrikes; }
+    if (isCharging) {
+        batteryDisplay.innerHTML = `<span class="syncing">⚡</span> Charging`;
+        batteryDisplay.style.color = "var(--warning)";
+    } else {
+        // The Interceptor at the bottom of main.js already did the math!
+        // We just print the number directly.
+        batteryDisplay.innerText = `🔋 ${alreadyCalculatedPct}%`;
+        
+        if (alreadyCalculatedPct <= 20) {
+            batteryDisplay.style.color = "var(--danger)";
+        } else {
+            batteryDisplay.style.color = "var(--text-main)";
+        }
+    }
 };
+
+// You can completely delete the calculateBatteryPercentage() function!
 
 window.bleManager.onFirmwareVersion = (ver) => {
     let aboutFw = document.getElementById('about-fw-display'); if (aboutFw) aboutFw.innerText = ver;
@@ -1831,10 +1844,31 @@ function toggleDeveloperHUD() {
     
     if (devHudEnabled) {
         if (!existingDiv) {
+            // Create the main wrapper
             const debugDiv = document.createElement('div');
             debugDiv.id = 'lve-diagnostic-hud';
-            // FIX: Changed top/left to bottom/right
-            debugDiv.style.cssText = "position:fixed; bottom:20px; right:20px; background:rgba(0,0,0,0.85); color:#32cd32; padding:15px; border-radius:8px; z-index:9999; font-family:var(--font-mono, monospace); font-size:12px; pointer-events:none; border: 1px solid #32cd32; box-shadow: 0 4px 6px rgba(0,0,0,0.5);";
+            
+            // Create the persistent close button
+            const closeBtn = document.createElement('button');
+            closeBtn.innerHTML = '✕';
+            
+            // Forcing pointer-events: auto and adding padding for a better mobile tap target
+            closeBtn.style.cssText = 'position:absolute; top:0px; right:5px; padding:10px; background:none; border:none; color:var(--danger); font-size:16px; font-weight:bold; cursor:pointer; pointer-events:auto;';
+            
+            // Bulletproof click listener
+            closeBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation(); // Prevents the click from passing through to the 3D scene
+                toggleDeveloperHUD();
+            });
+            
+            // Create the inner container for the rapid telemetry text
+            const contentDiv = document.createElement('div');
+            contentDiv.id = 'lve-diagnostic-hud-content';
+            
+            // Assemble and attach to screen
+            debugDiv.appendChild(closeBtn);
+            debugDiv.appendChild(contentDiv);
             document.body.appendChild(debugDiv);
         } else {
             existingDiv.style.display = 'block';
@@ -1892,7 +1926,8 @@ window.bleManager.onTelemetryData = function(t) {
     if (originalAppTelemetry) originalAppTelemetry(t);
     
     if (devHudEnabled) {
-        let debugDiv = document.getElementById('lve-diagnostic-hud');
+        // FIX: Target the inner content div so we don't overwrite the close button!
+        let debugDiv = document.getElementById('lve-diagnostic-hud-content');
         if (debugDiv) {
             let cleanNumber = (num) => {
                 let val = Number(num.toFixed(3));
