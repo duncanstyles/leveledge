@@ -143,16 +143,14 @@
 
     <div id="control-panel">
         <div id="swing-state">CONNECT MALLET<br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal;">Turn on sensor and ensure Bluetooth is enabled.</span></div>
-        <button id="centerConnectBtn" class="btn-primary">CONNECT</button>
-        
-        <div id="ready-group" class="hidden flex-col items-center gap-2 w-full">
-            <button id="openTrainerModalBtn" class="btn-primary btn-warning" style="color: #111;">SWING TRAINER</button>
-            <button id="openMatchModalBtn" class="btn-primary btn-success">START MATCH</button>
+        <div id="ready-group" class="hidden flex justify-center gap-3 w-full" style="padding: 0 10px;">
+            <button id="openTrainerModalBtn" class="btn-primary btn-warning flex-1" style="color: #111; border-radius: 50px; font-size: 0.85rem; padding: 12px 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">SWING TRAINER</button>
+            <button id="openMatchModalBtn" class="btn-primary btn-success flex-1" style="border-radius: 50px; font-size: 0.85rem; padding: 12px 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">START MATCH</button>
         </div>
         
         <div id="live-countdown" class="hidden">0s</div>
         <div id="calibration-container" class="hidden"><div id="calibration-bar"></div></div>
-        <button id="cancelArmBtn" class="btn-primary btn-danger hidden mt-2">CANCEL</button>
+        <button id="cancelArmBtn" class="btn-primary btn-danger hidden mt-2" style="max-width: 200px; margin: 10px auto 0; border-radius: 50px;">CANCEL</button>
     </div>
 
     <div id="history-panel" class="desktop-closed">
@@ -192,7 +190,7 @@
                     <span class="swing-title text-warning">[ LIVE TRACKING ]</span>
                     <span id="live-tempo" class="swing-time text-accent font-bold">-- BPM</span>
                 </div>
-                <div class="live-stat-row">
+                <div class="live-stat-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
                     <div class="stat-block"><span class="stat-lbl">Speed</span><span id="live-speed" class="stat-val">0 m/s</span></div>
                     <div class="stat-block"><span class="stat-lbl">Force (N)</span><span id="live-force" class="stat-val">0 N</span></div>
                     <div class="stat-block"><span class="stat-lbl">Deviation</span><span id="live-dev" class="stat-val">-- cm</span></div>
@@ -385,7 +383,7 @@
                 <h2>MALLET & HARDWARE</h2>
                 <button id="closeMalletBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                 <div class="setting-item span-2"><label for="malletNameInput">Profile Name:</label><input type="text" id="malletNameInput" value="Primary Mallet"></div>
                 <div class="setting-item"><label for="malletLengthInput">Head Length (cm):</label><input type="number" id="malletLengthInput" value="27.6" step="0.1"></div>
                 <div class="setting-item"><label for="malletWidthInput">Face Width (cm):</label><input type="number" id="malletWidthInput" value="6.0" step="0.1"></div>
@@ -418,7 +416,7 @@
                 <h2>PLAYER & DIFFICULTY</h2>
                 <button id="closePlayerBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                 <div class="setting-item">
                     <label for="radiusInput">Swing Radius (cm):</label>
                     <input type="number" id="radiusInput" value="127" step="1">
@@ -455,7 +453,7 @@
                 <h2>SYSTEM & ALGORITHMS</h2>
                 <button id="closeSystemBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                 <div class="setting-item setting-checkbox span-2"><label for="ledGuidanceCheck">Real-Time LED Guidance:</label><input type="checkbox" id="ledGuidanceCheck" checked></div>
                 <div class="setting-item"><label for="impactInput">Impact Jerk (ΔG):</label><input type="number" id="impactInput" value="4.0" step="0.5"></div>
                 

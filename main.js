@@ -1853,7 +1853,6 @@ window.bleManager.onStateChange = (isConnected, name) => {
         const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-disconnected";
         document.getElementById('swing-state').innerHTML = "CONNECT BLUETOOTH MALLET<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Turn on sensor and ensure Bluetooth is enabled.</span>"; 
         document.getElementById('swing-state').className = "text-center font-bold mb-4";
-        document.getElementById('centerConnectBtn').classList.remove('hidden');
         document.getElementById('ready-group').classList.add('hidden');
         document.getElementById('cancelArmBtn').classList.add('hidden');
         document.getElementById('powerOffBtn').classList.add('hidden');
@@ -1872,7 +1871,6 @@ window.bleManager.onStateChange = (isConnected, name) => {
         let swingStateTxt = document.getElementById('swing-state'); 
         if(swingStateTxt) { swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
 
-        document.getElementById('centerConnectBtn').classList.add('hidden'); 
         document.getElementById('ready-group').classList.remove('hidden');
         document.getElementById('powerOffBtn').classList.remove('hidden');
         document.getElementById('battery-display').classList.remove('hidden'); 
@@ -1941,7 +1939,6 @@ window.bleManager.onLiveStrike = handleLiveStrike;
 window.bleManager.onError = showToast;
 
 document.getElementById('btToggleBtn').addEventListener('click', () => window.bleManager.connect());
-document.getElementById('centerConnectBtn').addEventListener('click', () => window.bleManager.connect());
 
 setInterval(() => {
     if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
