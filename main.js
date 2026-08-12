@@ -242,12 +242,36 @@ document.getElementById('menuToggleBtn').onclick = () => { document.getElementBy
 
 document.getElementById('topToggleHistoryBtn').onclick = () => { 
     const panel = document.getElementById('history-panel');
+    const controlPanel = document.getElementById('control-panel');
+    
     if (window.innerWidth <= 768) {
         panel.classList.toggle('mobile-open'); 
+        
+        // Hide the whole control panel when history is open
+        if (panel.classList.contains('mobile-open')) {
+            controlPanel?.classList.add('hidden');
+        } else {
+            controlPanel?.classList.remove('hidden');
+        }
     } else {
         panel.classList.toggle('desktop-closed');
     }
 };
+
+let closeHistBtn = document.getElementById('closeHistoryBtn');
+if (closeHistBtn) {
+    closeHistBtn.addEventListener('click', () => {
+        const panel = document.getElementById('history-panel');
+        const controlPanel = document.getElementById('control-panel');
+        
+        if (window.innerWidth <= 768) {
+            panel.classList.remove('mobile-open'); 
+            controlPanel?.classList.remove('hidden'); // Bring the buttons back
+        } else {
+            panel.classList.add('desktop-closed');
+        }
+    });
+}
 
 document.getElementById('tab-training-btn').onclick = () => switchHistoryTab('training');
 document.getElementById('tab-match-btn').onclick = () => switchHistoryTab('match');
@@ -1841,8 +1865,12 @@ async function finalizeSwingData(nowTime) {
     let listDiv = document.getElementById('history-list');
     if (listDiv) { if (swingCount === 1) listDiv.innerHTML = ''; listDiv.insertAdjacentHTML('afterbegin', logHtml); }
 
-    if (window.innerWidth <= 768) { document.getElementById('history-panel').classList.add('mobile-open'); } 
-    else { document.getElementById('history-panel').classList.remove('desktop-closed'); }
+    if (window.innerWidth <= 768) { 
+        document.getElementById('history-panel').classList.add('mobile-open'); 
+        document.getElementById('control-panel')?.classList.add('hidden'); // Hide the controls!
+    } else { 
+        document.getElementById('history-panel').classList.remove('desktop-closed'); 
+    }
     
     let swingStateTxt = document.getElementById('swing-state');
     if(swingStateTxt) { swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
