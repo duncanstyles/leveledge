@@ -143,9 +143,9 @@
 
     <div id="control-panel">
         <div id="swing-state">CONNECT MALLET<br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal;">Turn on sensor and ensure Bluetooth is enabled.</span></div>
-        <div id="ready-group" class="hidden flex justify-center gap-3 w-full" style="padding: 0 10px;">
-            <button id="openTrainerModalBtn" class="btn-primary btn-warning flex-1" style="color: #111; border-radius: 50px; font-size: 0.85rem; padding: 12px 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">SWING TRAINER</button>
-            <button id="openMatchModalBtn" class="btn-primary btn-success flex-1" style="border-radius: 50px; font-size: 0.85rem; padding: 12px 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.15);">START MATCH</button>
+        <div id="ready-group" class="hidden flex justify-center gap-2 w-full">
+            <button id="openTrainerModalBtn" class="btn-primary btn-warning flex-1" style="color: #111; border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">SWING TRAINER</button>
+            <button id="openMatchModalBtn" class="btn-primary btn-success flex-1" style="border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">START MATCH</button>
         </div>
         
         <div id="live-countdown" class="hidden">0s</div>
@@ -199,13 +199,13 @@
                 <div id="live-tracking-list" class="mt-4"></div>
             </div>
 
-            <div id="history-list">
+            <div id="history-list" style="padding-bottom: 80px;">
                 <div class="text-muted italic text-center mt-5" style="font-size: 0.85rem;">No swings recorded yet. Arm and swing!</div>
             </div>
         </div>
 
         <div id="match-tab-content" class="hidden">
-            <div id="cloud-matches-container" class="flex-col gap-2">
+            <div id="cloud-matches-container" class="flex-col gap-2" style="padding-bottom: 80px;">
                 <div class="text-muted text-center p-5">Please log in to view Cloud Matches.</div>
             </div>
         </div>
@@ -218,40 +218,43 @@
     <dialog id="trainer-setup-modal" class="modal">
     <div class="settings-container">
         <div class="modal-header">
-            <h2>SWING TRAINER SETUP</h2>
+            <h2 style="font-size: 1.1rem;">SWING TRAINER SETUP</h2>
             <button id="closeTrainerSetupBtn" class="btn-primary btn-danger btn-small">CANCEL</button>
         </div>
         
-        <p class="text-accent text-center font-bold mb-4">PLACE MALLET BEHIND BALL<br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal;">Aim square to target line. Do not hold handle.</span></p>
+        <p class="text-accent text-center font-bold mb-2" style="font-size: 0.85rem; line-height: 1.2;">
+            PLACE MALLET BEHIND BALL<br>
+            <span class="small-help text-muted" style="font-size: 0.7rem; font-weight: normal;">Aim square to target line. Do not hold handle.</span>
+        </p>
         
-        <div class="flex-col gap-4 mb-5">
-            <div class="setting-item">
-                <label for="trainerDistSetup" class="flex justify-between">
+        <div class="flex-col gap-2 mb-3">
+            <div class="setting-item" style="padding: 8px;">
+                <label for="trainerDistSetup" class="flex justify-between" style="font-size: 0.85rem;">
                     <span>Target Distance (m):</span>
-                    <span id="trainerDistLabel" class="text-accent">10.0</span>
+                    <span id="trainerDistLabel" class="text-accent font-bold">10.0</span>
                 </label>
                 <input type="range" id="trainerDistSetup" min="1" max="40" step="0.5" value="10" style="padding: 0; margin-top: 5px;">
             </div>
             
-            <div class="setting-item setting-checkbox mt-2">
-                <label for="singleSwingCheck">Single Swing Pass</label>
+            <div class="setting-item setting-checkbox" style="padding: 8px;">
+                <label for="singleSwingCheck" style="font-size: 0.85rem;">Single Swing Pass</label>
                 <input type="checkbox" id="singleSwingCheck">
             </div>
             
-            <div class="setting-item setting-checkbox mt-2">
-                <label for="metronomeCheck">Metronome Training</label>
+            <div class="setting-item setting-checkbox" style="padding: 8px;">
+                <label for="metronomeCheck" style="font-size: 0.85rem;">Metronome Training</label>
                 <input type="checkbox" id="metronomeCheck">
             </div>
             
-            <div class="setting-item hidden" id="metronomeBpmContainer">
-                <label for="metronomeBpm">Target BPM</label>
-                <input type="number" id="metronomeBpm" value="60" step="1">
+            <div class="setting-item hidden" id="metronomeBpmContainer" style="padding: 8px;">
+                <label for="metronomeBpm" style="font-size: 0.85rem;">Target BPM</label>
+                <input type="number" id="metronomeBpm" value="60" step="1" style="padding: 4px;">
             </div>
         </div>
         
         <input type="hidden" id="trainerTwistSetup" value="0.53">
         
-        <button id="confirmStartTrainerBtn" class="btn-primary btn-warning" style="color:#111;">START TRAINER</button>
+        <button id="confirmStartTrainerBtn" class="btn-primary btn-warning" style="color:#111; border-radius: 50px; padding: 10px; font-size: 0.85rem;">START TRAINER</button>
     </div>
 </dialog>
 
