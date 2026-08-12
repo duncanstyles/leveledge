@@ -221,9 +221,9 @@
     <!-- NEW ACTIVITY SETUP DIALOGS                 -->
     <!-- ========================================== -->
     
-    <dialog id="trainer-setup-modal" class="modal">
-        <!-- ADDED MAX-WIDTH, MARGIN AUTO, AND TIGHTER PADDING HERE -->
-        <div class="settings-container" style="max-width: 320px; margin: 0 auto; padding: 15px;">
+    <dialog id="trainer-setup-modal" class="modal" style="width: 95%; max-width: 280px; padding: 0;">
+        <!-- THE FIX: Added 'min-width: 0;' to override the CSS file -->
+        <div class="settings-container" style="min-width: 0; padding: 15px; margin: 0 auto; width: 100%;">
             <div class="modal-header">
                 <h2 style="font-size: 1.1rem;">SWING TRAINER SETUP</h2>
                 <button id="closeTrainerSetupBtn" class="btn-primary btn-danger btn-small">CANCEL</button>
