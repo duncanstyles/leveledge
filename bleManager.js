@@ -166,6 +166,9 @@ class LevelEdgeBLEManager {
         }
         this._lastRawTs = rawTs; 
 
+        const rawAppState = data.getUint8(17);
+        const isGameMode = rawAppState >= 80;
+
         const telemetryObject = {
             hwTimestamp: rawTs + this._tsOffset,
             q0: data.getInt16(2, true) / 10000.0,
@@ -176,7 +179,10 @@ class LevelEdgeBLEManager {
             ay: data.getInt16(12, true) / 100.0,
             az: data.getInt16(14, true) / 100.0,
             appliedForce: data.getInt8(16),
-            appState: data.getUint8(17)
+            rawAppState: rawAppState,
+            appState: isGameMode ? 7 : rawAppState, // 7 corresponds to STATE_GAME_MODE
+            isGameMode: isGameMode,
+            gameSubState: isGameMode ? (rawAppState - 80) : 0
         };
 
         this.onTelemetryData(telemetryObject);
@@ -218,6 +224,8 @@ class LevelEdgeBLEManager {
             peakG: data.getInt16(1, true) / 100.0,
             peakTwist: data.getInt16(3, true) / 10.0,
             dwell: data.getUint8(5),
+            backArc: data.getInt16(6, true) / 10.0,   
+            faceAngle: data.getInt16(8, true) / 10.0,
             zVel: data.getInt16(10, true) / 100.0,
             appliedForce: data.getInt8(12),
             pushForce: data.getInt16(13, true) / 10.0,

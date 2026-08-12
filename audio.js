@@ -51,3 +51,19 @@ export function playTick(freq, duration) {
     tickOsc.connect(tickGain); tickGain.connect(audioCtx.destination); tickOsc.type = 'square'; tickOsc.frequency.value = freq;
     tickGain.gain.setValueAtTime(0.6, audioCtx.currentTime); tickGain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + duration); tickOsc.start(); tickOsc.stop(audioCtx.currentTime + duration);
 }
+
+export function playSuccessSound() {
+    if (!audioCtx || !isSoundEnabled) return; 
+    let now = audioCtx.currentTime;
+    // Play a pleasant, quick C-Major chord (C5, E5, G5)
+    [523.25, 659.25, 783.99].forEach((freq, i) => {
+        let osc = audioCtx.createOscillator(); 
+        let gain = audioCtx.createGain();
+        osc.connect(gain); gain.connect(audioCtx.destination); 
+        osc.type = 'sine'; osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, now); 
+        gain.gain.linearRampToValueAtTime(0.3, now + 0.05); 
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4 + (i * 0.1)); 
+        osc.start(now); osc.stop(now + 0.5 + (i * 0.1));
+    });
+}

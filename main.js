@@ -1,6 +1,6 @@
+import { initAudio, audioCtx, playBeep, playDoubleBeep, playTick, isAudioInitialized, isSoundEnabled, toggleSoundState, playSuccessSound } from './audio.js';
 import { difficultyMatrix, getStarRating, getShaftTwist, calcAccuracyData, calculateImpactForce } from './kinematics.js';
 import { showToast, formatOffset } from './utils.js';
-import { initAudio, playBeep, playDoubleBeep, playTick, isAudioInitialized, isSoundEnabled, toggleSoundState } from './audio.js';
 import { supabaseClient, currentUser, setCurrentUser, loadCloudProfile, saveCloudProfile, fetchCloudMatches, fetchCloudStrikes } from './cloud.js';
 import { 
     scene, camera, renderer, controls, defaultRad, pivotBaseY, loadedRadius, setLoadedRadius,
@@ -10,20 +10,97 @@ import {
     wizardTableGroup, tableMesh, headingArrow,
     mainMalletMesh, ghostMalletMesh, baseStlSize, impactLasers, clearImpactLasers,
     MAX_TRAIL_POINTS, trailPositions, trailColors, rawTracePoints, trailGeometry, trailLine,
-    initScene, drawStrikeLaser, updateSmoothTrail, rebuildArcPts 
+    initScene, drawStrikeLaser, updateSmoothTrail, rebuildArcPts, hemiLight
 } from './scene.js';
 
-// Add it here, right below the imports!
+// --- CACHED APP CONFIG & DOM ELEMENTS FOR PERFORMANCE ---
+const AppConfig = {
+    metronomeEnabled: false,
+    metronomeBpm: 60,
+    practiceLimitSec: 10.0,
+    massKg: 1.0,
+    flatMag: 4.0,
+    malletLengthCm: 27.6,
+    malletWidthCm: 6.0,
+    sweetSpot: 1.5,
+    lawnSpeed: 10.0,
+    ledGuidance: true,
+    singleSwing: false,
+    radiusInput: 127
+};
+
+const DisplayElements = {
+    countdown: document.getElementById('live-countdown'),
+    liveSpeed: document.getElementById('live-speed'),
+    liveForce: document.getElementById('live-force'),
+    liveApplied: document.getElementById('live-applied'),
+    liveDev: document.getElementById('live-dev'),
+    liveTempo: document.getElementById('live-tempo')
+};
+
+const LastRendered = {
+    countdownText: "",
+    countdownClass: ""
+};
+
+function syncAppConfig() {
+    let metroCheck = document.getElementById('metronomeCheck');
+    AppConfig.metronomeEnabled = metroCheck ? metroCheck.checked : false;
+
+    let bpmContainer = document.getElementById('metronomeBpmContainer');
+    if (bpmContainer && metroCheck) {
+        if (metroCheck.checked) {
+            bpmContainer.classList.remove('hidden');
+        } else {
+            bpmContainer.classList.add('hidden');
+        }
+    }
+    
+    let metroBpm = document.getElementById('metronomeBpm');
+    AppConfig.metronomeBpm = metroBpm ? (parseFloat(metroBpm.value) || 60) : 60;
+    
+    let pracInp = document.getElementById('practiceInput');
+    AppConfig.practiceLimitSec = pracInp ? (parseFloat(pracInp.value) || 10.0) : 10.0;
+    
+    let massInp = document.getElementById('massInput');
+    AppConfig.massKg = massInp ? ((parseFloat(massInp.value) || 1000) / 1000.0) : 1.0;
+    
+    let magInp = document.getElementById('flatMagInput');
+    AppConfig.flatMag = magInp ? (parseFloat(magInp.value) || 4.0) : 4.0;
+    
+    let lenInp = document.getElementById('malletLengthInput');
+    AppConfig.malletLengthCm = lenInp ? (parseFloat(lenInp.value) || 27.6) : 27.6;
+    
+    let widInp = document.getElementById('malletWidthInput');
+    AppConfig.malletWidthCm = widInp ? (parseFloat(widInp.value) || 6.0) : 6.0;
+    
+    let ssInp = document.getElementById('sweetSpotInput');
+    AppConfig.sweetSpot = ssInp ? (parseFloat(ssInp.value) || 1.5) : 1.5;
+    
+    let lawnInp = document.getElementById('lawnSpeedInput');
+    AppConfig.lawnSpeed = lawnInp ? (parseFloat(lawnInp.value) || 10.0) : 10.0;
+    
+    let ledCheck = document.getElementById('ledGuidanceCheck');
+    AppConfig.ledGuidance = ledCheck ? ledCheck.checked : true;
+    
+    let singleCheck = document.getElementById('singleSwingCheck');
+    AppConfig.singleSwing = singleCheck ? singleCheck.checked : false;
+    
+    let radInp = document.getElementById('radiusInput');
+    AppConfig.radiusInput = radInp ? (parseFloat(radInp.value) || 127) : 127;
+}
+
+document.body.addEventListener('input', syncAppConfig);
+document.body.addEventListener('change', syncAppConfig);
+
 window.syncHardwareOffsetFromCloud = function(x, y, z, w) {
     hardwareMountOffset.set(x, y, z, w);
     updateMalletScale();
     saveSettings();
 };
 
-// Initialize the 3D Scene
 initScene();
 
-// --- 1. NEW LOGIC: LINKED SPINNERS ---
 function bindLinkedSpinners(distId, twistId) {
     const distEl = document.getElementById(distId);
     const twistEl = document.getElementById(twistId);
@@ -31,7 +108,6 @@ function bindLinkedSpinners(distId, twistId) {
     distEl.addEventListener('input', () => {
         let d = parseFloat(distEl.value) || 10;
         if (d < 0.1) d = 0.1;
-        // Calculate allowable twist: arctan(0.092 / Distance)
         let angle = Math.atan(0.092 / d) * (180 / Math.PI);
         twistEl.value = angle.toFixed(2);
     });
@@ -39,7 +115,6 @@ function bindLinkedSpinners(distId, twistId) {
     twistEl.addEventListener('input', () => {
         let a = parseFloat(twistEl.value) || 1.0;
         if (a < 0.01) a = 0.01;
-        // Reverse calculation: Distance = 0.092 / tan(angle)
         let dist = 0.092 / Math.tan(a * Math.PI / 180);
         distEl.value = dist.toFixed(1);
     });
@@ -48,7 +123,6 @@ function bindLinkedSpinners(distId, twistId) {
 bindLinkedSpinners('trainerDistSetup', 'trainerTwistSetup');
 bindLinkedSpinners('matchDistSetup', 'matchTwistSetup');
 
-// --- 2. NEW LOGIC: MATCH MODE LED TOGGLE UI ---
 document.getElementById('matchLedToggle').addEventListener('change', (e) => {
     const grp = document.getElementById('matchToleranceGroup');
     if (e.target.checked) {
@@ -58,43 +132,38 @@ document.getElementById('matchLedToggle').addEventListener('change', (e) => {
     }
 });
 
-// --- 3. NEW LOGIC: INTERCEPTING THE START BUTTONS ---
 document.getElementById('openTrainerModalBtn').onclick = () => {
-    document.getElementById('trainerLawnSetup').value = document.getElementById('lawnSpeedInput').value;
     document.getElementById('trainer-setup-modal').showModal();
 };
 
 document.getElementById('openMatchModalBtn').onclick = () => {
-    document.getElementById('matchLawnSetup').value = document.getElementById('lawnSpeedInput').value;
-    document.getElementById('matchLedToggle').checked = document.getElementById('ledGuidanceCheck').checked;
-    document.getElementById('matchLedToggle').dispatchEvent(new Event('change'));
+    let matchLed = document.getElementById('matchLedToggle');
+    if (matchLed) matchLed.dispatchEvent(new Event('change'));
+    
     document.getElementById('match-setup-modal').showModal();
 };
 
 document.getElementById('closeTrainerSetupBtn').onclick = () => document.getElementById('trainer-setup-modal').close();
 document.getElementById('closeMatchSetupBtn').onclick = () => document.getElementById('match-setup-modal').close();
 
-// --- 4. NEW LOGIC: SYNC CONFIG TO MALLET ON THE FLY ---
 async function syncConfigurationToMallet() {
-    let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
-    let radius = parseInt(document.getElementById('radiusInput').value) || 127;
-    let mass = parseInt(document.getElementById('massInput').value) || 1000;
+    let ledGuidance = AppConfig.ledGuidance ? 1 : 0;
+    let radius = AppConfig.radiusInput;
+    let mass = AppConfig.massKg * 1000;
     let impact = parseFloat(document.getElementById('impactInput').value) || 4.0;
     let offsetY = parseFloat(document.getElementById('offsetYInput').value) || 5.5;
     let timeout = parseInt(document.getElementById('timeoutInput').value) || 5;
-    let sweetSpot = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
+    let sweetSpot = AppConfig.sweetSpot;
     let twist = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
 
     let payload = [ 67, radius, mass / 10, impact * 10, offsetY * 10, timeout, sweetSpot * 10, ledGuidance, Math.round(twist * 10) ];
     await sendBleCommand(payload, true);
 }
 
-// --- 5. NEW LOGIC: EXECUTING THE MODAL "START" ACTIONS ---
 document.getElementById('confirmStartTrainerBtn').onclick = async () => {
-    document.getElementById('lawnSpeedInput').value = document.getElementById('trainerLawnSetup').value;
-    updateLawnSpeedLabel(); 
     document.getElementById('twistToleranceInput').value = parseFloat(document.getElementById('trainerTwistSetup').value) || 1.0;
     document.getElementById('ledGuidanceCheck').checked = true;
+    syncAppConfig();
     
     await syncConfigurationToMallet();
     document.getElementById('trainer-setup-modal').close();
@@ -108,13 +177,13 @@ document.getElementById('confirmStartMatchBtn').onclick = async () => {
     let useLed = document.getElementById('matchLedToggle').checked;
     document.getElementById('ledGuidanceCheck').checked = useLed;
     document.getElementById('twistToleranceInput').value = parseFloat(document.getElementById('matchTwistSetup').value) || 1.0;
+    syncAppConfig();
 
     await syncConfigurationToMallet();
     document.getElementById('match-setup-modal').close();
     startMatchSequence();
 };
 
-// --- 6. CORE START SEQUENCES ---
 async function startTrainerSequence() {
     if (appState === 2 || appState === 3 || appState === 4 || appState === 4.5) return; 
     let success = await sendBleCommand([90]); // 'Z'
@@ -141,7 +210,7 @@ async function startTrainerSequence() {
 
     document.getElementById('ready-group').classList.add('hidden'); document.getElementById('cancelArmBtn').classList.remove('hidden');
     let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "ESTABLISHING HEADING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
-    document.getElementById('live-countdown').classList.add('hidden'); document.getElementById('calibration-container').classList.remove('hidden');
+    DisplayElements.countdown.classList.add('hidden'); document.getElementById('calibration-container').classList.remove('hidden');
     let calibBar = document.getElementById('calibration-bar'); calibBar.style.width = "0%"; calibBar.style.background = "var(--danger)";
     preRollBuffer = []; castData = []; clearImpactLasers(); rawTracePoints.length = 0; updateSmoothTrail(0);
     calibrationHoldTimeMs = 0; lastJsTime = Date.now(); lastStableQuat.identity(); rebuildArcPts(loadedRadius); ghostRail.visible = false;
@@ -155,10 +224,12 @@ async function startMatchSequence() {
     let success = await sendBleCommand(payload);
     if (success) {
         inGameMode = true; 
-        appState = 7; // Sync front-end state with STATE_GAME_MODE
+        appState = 7; 
         gmStrokeCount = 0;
+        window.matchAligned = false;
+        window.matchSwinging = false;
         document.getElementById('gm-stroke-count').innerText = "0";
-        document.getElementById('gm-latest-stats').innerHTML = "Awaiting Next Strike...";
+        document.getElementById('gm-latest-stats').innerHTML = "Awaiting Next Strike...<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Double-Tap sensor to align and practice cast.</span>";
         document.getElementById('game-mode-dashboard').classList.remove('hidden');
         document.getElementById('ready-group').classList.add('hidden');
         showToast("On-Course Match Started!");
@@ -167,7 +238,6 @@ async function startMatchSequence() {
     }
 }
 
-// --- UI Interactions ---
 document.getElementById('menuToggleBtn').onclick = () => { document.getElementById('menu-drawer').classList.toggle('open'); };
 
 document.getElementById('topToggleHistoryBtn').onclick = () => { 
@@ -179,9 +249,28 @@ document.getElementById('topToggleHistoryBtn').onclick = () => {
     }
 };
 
-// --- HISTORY PANEL TAB LOGIC ---
 document.getElementById('tab-training-btn').onclick = () => switchHistoryTab('training');
 document.getElementById('tab-match-btn').onclick = () => switchHistoryTab('match');
+
+// --- EXPERIMENTAL FEATURE GATING ---
+function updateExperimentalFeatures() {
+    const isExperimental = document.getElementById('experimentalCheck')?.checked || false;
+    const matchBtn = document.getElementById('openMatchModalBtn');
+    const matchTab = document.getElementById('tab-match-btn');
+
+    if (isExperimental) {
+        if (matchBtn) matchBtn.style.display = ''; 
+        if (matchTab) matchTab.style.display = '';
+    } else {
+        if (matchBtn) matchBtn.style.display = 'none';
+        if (matchTab) matchTab.style.display = 'none';
+        
+        // If they toggle it off while on the Match tab, kick them back to Training
+        if (matchTab && matchTab.classList.contains('active')) {
+            switchHistoryTab('training');
+        }
+    }
+}
 
 function switchHistoryTab(tab) {
     if (tab === 'training') {
@@ -202,9 +291,8 @@ function switchHistoryTab(tab) {
     }
 }
 
-// --- Core Variables ---
 const MIN_SUPPORTED_FW = "8.0.03";
-function getDynamicFaceZ() { let el = document.getElementById('malletLengthInput'); return el ? (parseFloat(el.value) || 27.6) / 2.0 : 13.8; }
+function getDynamicFaceZ() { return AppConfig.malletLengthCm / 2.0; }
 function getDynamicBallZ() { return getDynamicFaceZ() + 4.6; }
 
 let globalHwTime = 0;
@@ -216,7 +304,6 @@ let lastRawQuat = new THREE.Quaternion(); let baseQuatInverse = new THREE.Quater
 let targetQuaternion = new THREE.Quaternion(); let prevTargetQuaternion = new THREE.Quaternion(); let currentQuaternion = new THREE.Quaternion();
 let finalReviewPivotQuat = new THREE.Quaternion(); let finalReviewPivotPos = new THREE.Vector3(); let finalReviewExtension = 0; 
 
-// Dynamic Tuning Core Variables
 let hardwareMountOffset = new THREE.Quaternion(); let isWizardActive = false; let wizardStep = 0; let capturing = false;
 let tuneBaseOffset = new THREE.Quaternion(); window.currentlyViewedCast = null;
 let currentRawBLEQuat = new THREE.Quaternion(); let prevRawBLEQuat = new THREE.Quaternion();
@@ -241,23 +328,30 @@ let impactDetected = false; let impactThreshold = 4.0; let audioThreshold = 2.0;
 let isLive = true; let recordedFrames = []; let swingDatabase = []; let playbackMode = false; let playbackIndex = 0;
 let isPaused = false; let isSlowMo = false; let lastPlaybackTime = 0;
 
-// --- GAME MODE VARS ---
 let inGameMode = false;
 let gmStrokeCount = 0;
+window.matchAligned = false;
+window.matchSwinging = false;
 
 let downloadedHistory = [];
 let isGhostEnabled = true;
 let isBallEnabled = true;
 let isViewFlipped = false;
 
-const settingsElements = ['malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'allowRealtimeTuningCheck'];
+const settingsElements = [
+    'malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 
+    'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 
+    'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 
+    'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'allowRealtimeTuningCheck',
+    'trainerDistSetup', 'trainerTwistSetup', 'singleSwingCheck', 
+    'matchLedToggle', 'matchAudioToggle', 'matchDistSetup', 'matchTwistSetup', 'matchLawnSetup',
+    'experimentalCheck'
+];
 
-// --- BLE HELPER ---
 async function sendBleCommand(cmdArray, withResponse = false) {
     return await window.bleManager.sendCommand(cmdArray, withResponse);
 }
 
-// --- RESET SYSTEM STATE HELPER ---
 async function resetSystemState(silent = false, wipeHistory = false) {
     clearTimeout(goTimeout); 
     appState = 1; 
@@ -268,8 +362,10 @@ async function resetSystemState(silent = false, wipeHistory = false) {
     playbackMode = false; 
     recordedFrames = [];
     isDynamicCalibrationActive = false;
+    window.matchAligned = false;
+    window.matchSwinging = false;
 
-    if (!silent) { await sendBleCommand([79]); } // 'O' for Off/Disarm
+    if (!silent) { await sendBleCommand([79]); }
 
     document.getElementById('cancelArmBtn').classList.add('hidden'); 
     document.getElementById('ready-group').classList.remove('hidden');
@@ -281,7 +377,7 @@ async function resetSystemState(silent = false, wipeHistory = false) {
     
     let swingStateTxt = document.getElementById('swing-state'); 
     if(swingStateTxt) { 
-        swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Aim square to target line. Do not hold handle.</span>"; 
+        swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; 
         swingStateTxt.className = "text-accent text-center font-bold mb-4"; 
     }
     
@@ -314,7 +410,6 @@ async function resetSystemState(silent = false, wipeHistory = false) {
     }
 }
 
-// --- AUTHENTICATION & CLOUD SETTINGS LOGIC ---
 const authModal = document.getElementById('auth-modal');
 document.getElementById('openAuthBtn').onclick = () => { authModal.showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
 document.getElementById('btnCloseAuth').onclick = () => { authModal.close(); };
@@ -354,6 +449,9 @@ document.getElementById('btnForgotPassword').onclick = async () => {
     }
 };
 
+
+let hasLoadedCloudProfile = false;
+
 supabaseClient.auth.onAuthStateChange((event, session) => {
     if (event === 'PASSWORD_RECOVERY') {
         document.getElementById('update-password-modal').showModal();
@@ -362,15 +460,30 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
     if (session && session.user) {
         setCurrentUser(session.user);
         document.getElementById('openAuthBtn').innerHTML = 'Sign Out <span>👋</span>';
-        document.getElementById('openAuthBtn').onclick = async () => { await supabaseClient.auth.signOut(); showToast("Signed out."); };
+        document.getElementById('openAuthBtn').onclick = async () => { 
+            await supabaseClient.auth.signOut(); 
+            showToast("Signed out."); 
+        };
+        
         if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
             document.getElementById('topSyncBtn').classList.remove('hidden');
         }
-        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') loadCloudProfile();
+        
+        // --- THE FIX: Only load the profile if we haven't done it yet ---
+        if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+            if (!hasLoadedCloudProfile) {
+                loadCloudProfile();
+                hasLoadedCloudProfile = true;
+            }
+        }
     } else {
         currentUser = null;
+        hasLoadedCloudProfile = false; // Reset the flag if they sign out
         document.getElementById('openAuthBtn').innerHTML = 'Cloud Login <span>👤</span>';
-        document.getElementById('openAuthBtn').onclick = () => { authModal.showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
+        document.getElementById('openAuthBtn').onclick = () => { 
+            authModal.showModal(); 
+            document.getElementById('menu-drawer').classList.remove('open'); 
+        };
         document.getElementById('topSyncBtn').classList.add('hidden');
     }
 });
@@ -397,7 +510,6 @@ document.getElementById('btnCloseUpdatePassword').onclick = () => {
     document.getElementById('update-password-modal').close(); 
 };
 
-// --- CLOUD SYNC & EXPORT LOGIC ---
 document.getElementById('topSyncBtn').onclick = async () => {
     if(!window.bleManager.device || !window.bleManager.device.gatt.connected) return showToast("Connect to Mallet first!");
     if(!currentUser) return showToast("Please log in to Cloud.");
@@ -418,9 +530,9 @@ document.getElementById('topSyncBtn').onclick = async () => {
             matches[s.matchID].push(s);
         });
         
-        let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
-        let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
-        let lawnSpd = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+        let massKg = AppConfig.massKg;
+        let sRad = AppConfig.radiusInput;
+        let lawnSpd = AppConfig.lawnSpeed;
 
         for (let mID of Object.keys(matches)) {
             const { data: existingMatch } = await supabaseClient.from('matches').select('id').eq('match_time_id', mID).eq('user_id', currentUser.id).limit(1);
@@ -445,39 +557,23 @@ document.getElementById('topSyncBtn').onclick = async () => {
                 while (usedKeys.has(uniqueSec)) uniqueSec++;
                 usedKeys.add(uniqueSec);
                 strikesToInsert.push({
-                    match_id: dbMatchId, user_id: currentUser.id, seconds_into_match: uniqueSec,
-                    peak_g: s.peakG, peak_twist: s.peakTwist, dwell: s.dwell, z_vel: s.zVel, 
-                    applied_force: s.appliedForce, push_force: s.pushForce, q0: s.q0, q1: s.q1, q2: s.q2, q3: s.q3,
-                    downward_swing_time: s.downwardSwingTime, decel_factor: s.decelFactor
-                });
+                match_id: dbMatchId, user_id: currentUser.id, seconds_into_match: uniqueSec,
+                peak_g: s.peakG, peak_twist: s.peakTwist, dwell: s.dwell, z_vel: s.zVel, 
+                applied_force: s.appliedForce, push_force: s.pushForce, q0: s.q0, q1: s.q1, q2: s.q2, q3: s.q3,
+                downward_swing_time: s.downwardSwingTime, decel_factor: s.decelFactor,
+                back_arc: s.backArc,       
+                face_angle: s.faceAngle
+            });
             }
             await supabaseClient.from('strikes').upsert(strikesToInsert, { onConflict: 'user_id, match_id, seconds_into_match' });
         }
         
-        await sendBleCommand([87]); // 'W' wipe
+        await sendBleCommand([87]); // 'W'
         showToast(`Synced ${downloadedHistory.length} strokes & Wiped Mallet!`);
         if (!document.getElementById('match-tab-content').classList.contains('hidden')) { fetchCloudMatches(); }
     }, 3000); 
 };
 
-document.getElementById('btnDownloadData').addEventListener('click', async () => {
-    if(!window.bleManager.device || !window.bleManager.device.gatt.connected) return showToast("Connect to Mallet first!");
-    downloadedHistory = []; 
-    let success = await sendBleCommand([68]); // 'D'
-    if (!success) { showToast("Bluetooth Error."); return; }
-    showToast("Downloading strike history...");
-    setTimeout(() => {
-        if (downloadedHistory.length > 0) {
-            let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(downloadedHistory, null, 2));
-            let dlAnchorElem = document.createElement('a'); dlAnchorElem.setAttribute("href", dataStr);
-            dlAnchorElem.setAttribute("download", "mallet_strike_history.json"); 
-            document.body.appendChild(dlAnchorElem); dlAnchorElem.click(); document.body.removeChild(dlAnchorElem);
-            showToast(`Exported ${downloadedHistory.length} strokes!`);
-        } else { showToast("No historical strokes found on mallet."); }
-    }, 3000); 
-});
-
-// Edit Match Metadata Flow
 function openMatchEdit(id, loc, opp, evt, spd, notes) {
     document.getElementById('editMatchId').value = id;
     document.getElementById('editLocation').value = loc.includes('Untitled Match') ? '' : loc;
@@ -516,7 +612,6 @@ document.getElementById('btnSaveMatchEdit').onclick = async () => {
     }
 };
 
-// --- DELETE MATCH LOGIC ---
 document.getElementById('btnDeleteMatch').onclick = async () => {
     let id = document.getElementById('editMatchId').value;
     
@@ -539,32 +634,14 @@ document.getElementById('btnDeleteMatch').onclick = async () => {
     }
 };
 
-
-
 document.getElementById('toggleDiagnosticHudBtn').addEventListener('click', toggleDeveloperHUD);
 
-// --- Offline Viewer Logic ---
-document.getElementById('openOfflineViewerBtn').onclick = () => { 
-    document.getElementById('dev-options-modal').close(); 
-    document.getElementById('offline-viewer-modal').showModal(); 
-};
-document.getElementById('closeOfflineViewerBtn').onclick = () => { document.getElementById('offline-viewer-modal').close(); };
-document.getElementById('loadOfflineFileBtn').onclick = () => { document.getElementById('offlineHistoryInput').click(); };
-
-document.getElementById('offlineHistoryInput').addEventListener('change', (event) => {
-    let file = event.target.files[0]; if (!file) return; let reader = new FileReader();
-    reader.onload = function(e) { try { let data = JSON.parse(e.target.result); renderOfflineMatches(data); document.getElementById('offlineHistoryInput').value = ''; } catch(err) { showToast("Error parsing JSON file."); } }; reader.readAsText(file);
-});
-
-// --- DEV OPTIONS: WIPE CALIBRATION ---
 document.getElementById('devResetCalibrationBtn').onclick = () => {
     if (confirm("Reset calibration matrix to perfect zero (Identity)? This will reset both the app and the connected mallet.")) {
         
-        // 1. Reset local math to Identity (w=1, x=0, y=0, z=0)
         hardwareMountOffset.set(0, 0, 0, 1);
         saveSettings();
         
-        // 2. Push the zeroed matrix to the hardware
         if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
             window.bleManager.sendCalibrationMatrix(1.0, 0.0, 0.0, 0.0).then((success) => {
                 if (success) {
@@ -581,100 +658,9 @@ document.getElementById('devResetCalibrationBtn').onclick = () => {
     }
 };
 
-
-function renderOfflineMatches(data) {
-    let container = document.getElementById('offline-matches-container'); container.innerHTML = '';
-    if (!Array.isArray(data) || data.length === 0) { container.innerHTML = '<div class="text-muted text-center p-5">File is empty or invalid.</div>'; return; }
-
-    let matches = {};
-    data.forEach(strike => { if (!matches[strike.matchID]) matches[strike.matchID] = []; matches[strike.matchID].push(strike); });
-    let matchIDs = Object.keys(matches).sort((a, b) => b - a);
-
-    let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
-    let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
-    let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
-
-    matchIDs.forEach(mID => {
-        let strikes = matches[mID]; strikes.sort((a, b) => a.secondsIntoMatch - b.secondsIntoMatch);
-        let mDate = new Date(mID * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        
-        let detailsHTML = `<details class="advanced-metrics active-match">
-            <summary class="match-summary">
-                ← ${strikes.length} Strokes &nbsp; | &nbsp; ${mDate}
-            </summary>
-            <div class="match-details">`;
-
-        strikes.forEach((s, idx) => {
-            let speedStr = (s.zVel || 0).toFixed(1) + " m/s"; 
-            let forceN = massKg * (s.peakG || 0) * 9.81;
-            let forceStr = forceN.toFixed(0) + " N";
-            
-            let ballSpeedMPS = (s.zVel || 0) * (massKg * 1.8) / (massKg + 0.454); let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
-            let deflectionVal = Math.abs(s.peakTwist || 0) * ((s.dwell || 0) / 1000.0);
-            let estAccRange = 35.0; if (deflectionVal > 0.0001) estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(deflectionVal * Math.PI / 180.0)));
-            
-            let ratingData = getStarRating(0, deflectionVal);
-            let starHtml = ratingData.string !== "" ? `<span style="color: ${ratingData.color};" class="font-bold">${ratingData.string}</span>` : `<span class="text-muted">-</span>`;
-            let extColor = (s.appliedForce || 0) > 2 ? 'var(--success)' : ((s.appliedForce || 0) < -2 ? 'var(--danger)' : 'var(--text-main)');
-            let extStr = ((s.appliedForce || 0) > 0 ? '+' : '') + (s.appliedForce || 0).toFixed(0) + " N";
-            
-            let decelVal = s.decelFactor !== undefined ? s.decelFactor : 0;
-            let downVal = s.downwardSwingTime || 0;
-            let decelColor = decelVal > 0 ? 'var(--success)' : (decelVal < 0 ? 'var(--danger)' : 'var(--text-main)');
-            let decelHtml = `<span style="color:${decelColor};">${decelVal > 0 ? '+' : ''}${decelVal}%</span>`;
-            let downHtml = `${downVal} ms`;
-
-            let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
-            let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
-            let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
-
-            let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); 
-            // No local hardware matrix multiplication needed!
-            let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
-            impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
-            let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
-            let strokeAoA = THREE.MathUtils.radToDeg(impactEuler.z);
-            let locTwist = getShaftTwist(impactRawQuat);
-            let faceAngleHtml = `${(locTwist > 0 ? '+' : '')}${locTwist.toFixed(1)}°`;
-
-            detailsHTML += `
-                <div class="history-card flat-card">
-                    <div class="card-header">
-                        <div><span class="swing-title">STROKE ${idx + 1}</span> &nbsp;${starHtml}</div>
-                        <div class="text-right">
-                            <span class="swing-time">${s.exactTime || "Unknown Time"}</span><br>
-                        </div>
-                    </div>
-                    <div class="card-basic-stats">
-                        <div class="stat-block"><span class="stat-lbl">Speed</span><span class="stat-val">${speedStr}</span></div>
-                        <div class="stat-block"><span class="stat-lbl">Deflection</span><span class="stat-val text-warning">${deflectionVal.toFixed(1)}&deg;</span></div>
-                        <div class="stat-block"><span class="stat-lbl">Est Dist</span><span class="stat-val text-accent">${estDist.toFixed(0)} m</span></div>
-                        <div class="stat-block"><span class="stat-lbl">Target Acc</span><span class="stat-val">${estAccRange >= 35.0 ? "Center" : estAccRange.toFixed(0) + " m"}</span></div>
-                    </div>
-                    <details class="advanced-metrics" style="margin-bottom: 0;">
-                        <summary>Advanced Kinematics</summary>
-                        <div class="mt-4">
-                            <div class="adv-row"><span>Impact Force</span><span class="adv-val">${forceStr}</span></div>
-                            <div class="adv-row"><span>Face Angle</span><span class="adv-val">${faceAngleHtml}</span></div>
-                            <div class="adv-row"><span>Angle of Attack</span><span class="adv-val">${strokeAoA.toFixed(1)}°</span></div>
-                            <div class="adv-row"><span>Downswing Time</span><span class="adv-val">${downHtml}</span></div>
-                            <div class="adv-row"><span>Strike PΔ</span><span class="adv-val">${dsPDeltaHtml}</span></div>
-                            <div class="adv-row"><span>Boost</span><span class="adv-val">${decelHtml}</span></div>
-                            <div class="adv-row"><span>Impact Dwell</span><span class="adv-val">${s.dwell || 0} ms</span></div>
-                            <div class="adv-row"><span>Extension</span><span class="adv-val" style="color:${extColor};">${extStr}</span></div>
-                            <div class="adv-row"><span>Push Force</span><span class="adv-val">${((s.pushForce || 0) > 0 ? '+' : '') + (s.pushForce || 0).toFixed(0)} N</span></div>
-                        </div>
-                    </details>
-                </div>`;
-        });
-        detailsHTML += `</div></details>`; container.innerHTML += detailsHTML;
-    });
-}
-
 document.getElementById('openAboutBtn').onclick = () => { document.getElementById('about-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
 document.getElementById('closeAboutBtn').onclick = () => { document.getElementById('about-modal').close(); };
 
-// --- MODAL TRIGGERS ---
 document.getElementById('openMalletBtn').onclick = () => { document.getElementById('mallet-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
 document.getElementById('closeMalletBtn').onclick = () => { document.getElementById('mallet-modal').close(); };
 
@@ -686,7 +672,6 @@ document.getElementById('closeSystemBtn').onclick = () => { document.getElementB
 
 document.getElementById('closeDevOptionsBtn').onclick = () => { document.getElementById('dev-options-modal').close(); };
 
-/// --- HISTORY-BASED DYNAMIC TUNING LOGIC ---
 document.getElementById('enterTuningBtn').onclick = () => {
     if (!window.currentlyViewedCast) return;
     document.getElementById('tune-action-panel').classList.add('hidden');
@@ -698,7 +683,6 @@ document.getElementById('enterTuningBtn').onclick = () => {
     
     let c = window.currentlyViewedCast;
     
-    // Lock BOTH solid and ghost mallets perfectly to the raw swing data
     masterPivot.quaternion.copy(c.pivotQuat);
     masterPivot.position.copy(c.pivotPos);
     masterBlock.position.set(0, -(loadedRadius + c.extension), 0);
@@ -708,10 +692,9 @@ document.getElementById('enterTuningBtn').onclick = () => {
     ghostBlock.position.set(0, -(loadedRadius + c.extension), 0);
     
     if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
-    virtualBall.visible = false; // Hide the ball, we are focusing on the trace line
+    virtualBall.visible = false;
     clearImpactLasers();
 
-    // Show the grid/arrow, reset rotation, and force arc to be visible
     if (typeof targetEnvironmentGroup !== 'undefined') {
         targetEnvironmentGroup.rotation.y = 0; 
         if (typeof floorGrid !== 'undefined') floorGrid.visible = true;
@@ -720,25 +703,18 @@ document.getElementById('enterTuningBtn').onclick = () => {
     }
 };
 
-// Manual Slider interaction
 document.getElementById('spinY').addEventListener('input', (e) => { 
     let val = parseFloat(e.target.value) || 0;
     document.getElementById('spinYValue').innerText = val.toFixed(1) + "°";
-    // Rotate the environment!
     if (typeof targetEnvironmentGroup !== 'undefined') {
         targetEnvironmentGroup.rotation.y = THREE.MathUtils.degToRad(val); 
     }
 });
 
-// The Auto-Snap Button
 document.getElementById('snapYawBtn').onclick = () => {
     if (!window.currentlyViewedCast) return;
-    
-    // The kinematics engine already calculated the path angle! 
     let pathRads = window.currentlyViewedCast.pathAngleRads;
     let pathDeg = THREE.MathUtils.radToDeg(pathRads);
-    
-    // Snap the slider and environment grid instantly to the path
     document.getElementById('spinY').value = pathDeg.toFixed(1);
     document.getElementById('spinYValue').innerText = pathDeg.toFixed(1) + "°";
     if (typeof targetEnvironmentGroup !== 'undefined') {
@@ -810,8 +786,33 @@ function updateLawnSpeedLabel() {
         lbl.innerText = txt;
     }
 }
+
 let lawnInput = document.getElementById('lawnSpeedInput');
 if (lawnInput) lawnInput.addEventListener('input', updateLawnSpeedLabel);
+
+function updateMatchLawnSpeedLabel() {
+    let el = document.getElementById('matchLawnSetup'); 
+    let lbl = document.getElementById('matchLawnLabel');
+    if (el && lbl) {
+        let plummers = parseFloat(el.value); let txt = plummers.toFixed(1);
+        if (plummers < 8) txt += " (Very Slow)"; else if (plummers < 9.5) txt += " (Slow)"; else if (plummers <= 11.5) txt += " (Medium)"; else if (plummers <= 13) txt += " (Fast)"; else txt += " (Very Fast)";
+        lbl.innerText = txt;
+    }
+}
+let matchLawnInput = document.getElementById('matchLawnSetup');
+if (matchLawnInput) matchLawnInput.addEventListener('input', updateMatchLawnSpeedLabel);
+
+let matchDistInput = document.getElementById('matchDistSetup');
+if (matchDistInput) matchDistInput.addEventListener('input', (e) => {
+    let lbl = document.getElementById('matchDistLabel');
+    if (lbl) lbl.innerText = parseFloat(e.target.value).toFixed(1);
+});
+
+let trainerDistInput = document.getElementById('trainerDistSetup');
+if (trainerDistInput) trainerDistInput.addEventListener('input', (e) => {
+    let lbl = document.getElementById('trainerDistLabel');
+    if (lbl) lbl.innerText = parseFloat(e.target.value).toFixed(1);
+});
 
 window.addEventListener('beforeunload', () => { window.bleManager.disconnect(); });
 
@@ -840,15 +841,11 @@ function updateSystemGeometry() {
     if(typeof masterBlock !== 'undefined' && masterBlock) masterBlock.position.set(0, -loadedRadius, 0); 
     if(typeof ghostBlock !== 'undefined' && ghostBlock) ghostBlock.position.set(0, -loadedRadius, 0);
     
-    // --- NEW: Update Environment Grid Geometry ---
     if(typeof targetEnvironmentGroup !== 'undefined' && targetEnvironmentGroup) {
         targetEnvironmentGroup.position.set(0, pivotBaseY, 0);
-        
-        // FIX 1: Lock the Arc and Environment to the exact setup angle of the ghost ball
         if (typeof ghostPivot !== 'undefined' && ghostPivot) {
             targetEnvironmentGroup.quaternion.copy(ghostPivot.quaternion);
         }
-        
         if(typeof floorGrid !== 'undefined') floorGrid.position.y = -loadedRadius;
         if(typeof targetArrow !== 'undefined') targetArrow.position.y = -loadedRadius + 0.1;
     }
@@ -856,7 +853,7 @@ function updateSystemGeometry() {
 
 function updateMalletScale() {
     if (!mainMalletMesh || !ghostMalletMesh) return;
-    let len = parseFloat(document.getElementById('malletLengthInput').value) || 27.6; let wid = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
+    let len = AppConfig.malletLengthCm; let wid = AppConfig.malletWidthCm;
     let scaleX = len / baseStlSize.x; let scaleY = wid / baseStlSize.y; let scaleZ = wid / baseStlSize.z; 
     mainMalletMesh.scale.set(scaleX, scaleY, scaleZ); ghostMalletMesh.scale.set(scaleX, scaleY, scaleZ);
     mainMalletMesh.position.z = 0; ghostMalletMesh.position.z = 0; faceTrackerNode.position.set(0, 0, len / 2.0);
@@ -874,7 +871,11 @@ function loadSettings() {
                     if (el) { 
                         if (el.type === 'checkbox') el.checked = settings[id]; 
                         else {
-                            if (id === 'lawnSpeedInput') { let val = parseFloat(settings[id]); if (val < 4.0) val = 10 + (val - 0.50) / 0.075; el.value = val.toFixed(1); } 
+                            if (id === 'lawnSpeedInput' || id === 'matchLawnSetup') { 
+                                let val = parseFloat(settings[id]); 
+                                if (val < 4.0) val = 10 + (val - 0.50) / 0.075; 
+                                el.value = val.toFixed(1); 
+                            } 
                             else el.value = settings[id]; 
                         }
                     } 
@@ -886,10 +887,33 @@ function loadSettings() {
             if(audioEl) audioThreshold = parseFloat(audioEl.value); if(impactEl) impactThreshold = parseFloat(impactEl.value);
         }
     } catch (e) {} 
-    updateLawnSpeedLabel(); updateMalletScale();
+    
+    updateLawnSpeedLabel(); 
+    updateMalletScale();
+    
+    if (typeof updateMatchLawnSpeedLabel === 'function') updateMatchLawnSpeedLabel();
+    
+    let matchDistEl = document.getElementById('matchDistSetup');
+    let matchDistLbl = document.getElementById('matchDistLabel');
+    if (matchDistEl && matchDistLbl) {
+        matchDistLbl.innerText = parseFloat(matchDistEl.value).toFixed(1);
+    }
+
+    let trainerDistEl = document.getElementById('trainerDistSetup');
+    let trainerDistLbl = document.getElementById('trainerDistLabel');
+    if (trainerDistEl && trainerDistLbl) {
+        trainerDistLbl.innerText = parseFloat(trainerDistEl.value).toFixed(1);
+    }    
+    
+    syncAppConfig();
+    updateExperimentalFeatures(); 
 }
 
 settingsElements.forEach(id => { let el = document.getElementById(id); if(el) el.addEventListener('change', () => { saveSettings(); updateMalletScale(); if (id === 'lawnSpeedInput') updateLawnSpeedLabel(); }); });
+let expCheck = document.getElementById('experimentalCheck');
+if (expCheck) {
+    expCheck.addEventListener('change', updateExperimentalFeatures);
+}
 
 document.getElementById('exportProfileBtn').onclick = () => {
     let profile = { hwMatrixX: hardwareMountOffset.x, hwMatrixY: hardwareMountOffset.y, hwMatrixZ: hardwareMountOffset.z, hwMatrixW: hardwareMountOffset.w };
@@ -920,13 +944,13 @@ document.getElementById('importFileInput').addEventListener('change', (event) =>
                     } 
                 } 
             });
-            saveSettings(); updateMalletScale(); updateLawnSpeedLabel(); showToast("Hardware Profile Loaded Successfully."); document.getElementById('importFileInput').value = ''; 
+            saveSettings(); updateMalletScale(); updateLawnSpeedLabel(); syncAppConfig(); showToast("Hardware Profile Loaded Successfully."); document.getElementById('importFileInput').value = ''; 
         } catch(err) { showToast("Error parsing .LVE file."); }
     }; reader.readAsText(file);
 });
 
 document.getElementById('flipViewBtn').onclick = () => {
-    isViewFlipped = !isViewFlipped; let radiusOffset = parseFloat(document.getElementById('radiusInput').value) || 127;
+    isViewFlipped = !isViewFlipped; let radiusOffset = AppConfig.radiusInput;
     let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - radiusOffset, 0); controls.target.set(0, pivotBaseY - radiusOffset, 0); controls.update();
     document.getElementById('menu-drawer').classList.remove('open');
 };
@@ -993,9 +1017,14 @@ function calculateRotationMatrix() {
     });
 }
 
+window.addEventListener('modelLoaded', () => {
+    updateMalletScale();
+});
+
 loadSettings(); let rInput = document.getElementById('radiusInput'); if(rInput && rInput.value) { setLoadedRadius(parseFloat(rInput.value)); if (loadedRadius < 50) setLoadedRadius(50); }
 
 updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
+
 if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5;
 if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1;
 
@@ -1033,7 +1062,6 @@ document.getElementById('btnWipeData').addEventListener('click', async () => {
     }
 });
 
-// --- GAME MODE CONTROLS ---
 document.getElementById('endGameModeBtn').onclick = async () => {
     let success = await sendBleCommand([76]);
     if (success) {
@@ -1081,20 +1109,40 @@ document.getElementById('exitPassViewBtn').onclick = () => {
 
 function animate() {
     requestAnimationFrame(animate); controls.update();
+    
     let metronomeCheck = document.getElementById('metronomeCheck');
     if (isAudioInitialized && metronomeCheck && metronomeCheck.checked && (appState === 3 || appState === 4)) {
-        let nowAudio = audioCtx.currentTime; if (nextMetronomeTime === 0) nextMetronomeTime = nowAudio + 0.1; 
-        if (nowAudio >= nextMetronomeTime) { playTick(900, 0.04); let bpm = parseFloat(document.getElementById('metronomeBpm').value) || 60; nextMetronomeTime += (60.0 / bpm); }
-    } else { nextMetronomeTime = 0; }
+        let nowAudio = audioCtx.currentTime; 
+        if (nextMetronomeTime === 0) nextMetronomeTime = nowAudio + 0.1; 
+        if (nowAudio >= nextMetronomeTime) { 
+            playTick(900, 0.04); 
+            let bpm = parseFloat(document.getElementById('metronomeBpm').value) || 60; 
+            nextMetronomeTime += (60.0 / bpm); 
+        }
+    } else { 
+        nextMetronomeTime = 0; 
+    }
 
-    let countdownEl = document.getElementById('live-countdown');
+    let countdownEl = DisplayElements.countdown;
     if (appState === 3) {
-        let remain = Math.max(0, 30.0 - (Date.now() - armedUiStartTime) / 1000.0); countdownEl.classList.remove('hidden'); countdownEl.innerText = Math.ceil(remain) + "s"; countdownEl.className = remain <= 5.0 ? "gm-score text-danger" : "gm-score text-accent";
+        let remain = Math.max(0, 30.0 - (Date.now() - armedUiStartTime) / 1000.0);
+        let newText = Math.ceil(remain) + "s";
+        let newClass = remain <= 5.0 ? "gm-score text-danger" : "gm-score text-accent";
+        if (LastRendered.countdownText !== newText) { countdownEl.innerText = newText; LastRendered.countdownText = newText; }
+        if (LastRendered.countdownClass !== newClass) { countdownEl.className = newClass; LastRendered.countdownClass = newClass; }
+        countdownEl.classList.remove('hidden');
     } else if (appState === 4) {
-        let limit = parseFloat(document.getElementById('practiceInput').value); let remain = Math.max(0, limit - (Date.now() - state4UiStartTime) / 1000.0); countdownEl.classList.remove('hidden'); countdownEl.innerText = Math.ceil(remain) + "s"; countdownEl.className = "gm-score text-danger";
-    } else { countdownEl.classList.add('hidden'); }
+        let limit = AppConfig.practiceLimitSec; let remain = Math.max(0, limit - (Date.now() - state4UiStartTime) / 1000.0);
+        let newText = Math.ceil(remain) + "s";
+        let newClass = "gm-score text-danger";
+        if (LastRendered.countdownText !== newText) { countdownEl.innerText = newText; LastRendered.countdownText = newText; }
+        if (LastRendered.countdownClass !== newClass) { countdownEl.className = newClass; LastRendered.countdownClass = newClass; }
+        countdownEl.classList.remove('hidden');
+    } else { 
+        countdownEl.classList.add('hidden'); 
+    }
 
-    if (isLive && !playbackMode && !isReviewingLog && (appState >= 3 || (appState === 2 && calibrationPhase === 'ORANGE')) && appState < 4.5 && !inGameMode) {
+    if (isLive && !playbackMode && !isReviewingLog && (appState >= 3 || (appState === 2 && calibrationPhase === 'ORANGE')) && appState < 4.5 && (!inGameMode || window.matchAligned)) {
         let angleDiff = currentQuaternion.angleTo(targetQuaternion); let slerpSpeed = 1.0; 
         if (angleDiff < 0.02) slerpSpeed = 0.02; else if (angleDiff < 0.1) slerpSpeed = 0.15; else slerpSpeed = 0.8; 
         currentQuaternion.slerp(targetQuaternion, slerpSpeed); masterPivot.quaternion.copy(currentQuaternion); headJoint.quaternion.identity(); 
@@ -1123,8 +1171,8 @@ function animate() {
             let qTarget = new THREE.Quaternion().setFromEuler(new THREE.Euler(tx, ty, tz, 'YXZ'));
             masterPivot.quaternion.slerp(qTarget, 0.1);
 
-            let len = parseFloat(document.getElementById('malletLengthInput').value) || 27.6;
-            let wid = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
+            let len = AppConfig.malletLengthCm;
+            let wid = AppConfig.malletWidthCm;
             
             let yOffset = (wizardStep === 3 || wizardStep === 4) ? (len / 2.0) : (wid / 2.0);
             let tableY = pivotBaseY - loadedRadius - 1.5; 
@@ -1132,7 +1180,10 @@ function animate() {
             masterPivot.position.set(0, tableY + yOffset, 0); 
             masterBlock.position.set(0, 0, 0); 
         } 
-        else if (inGameMode) { mainMalletMesh.visible = false; ghostMalletMesh.visible = false; }
+        else if (inGameMode) { 
+            mainMalletMesh.visible = window.matchAligned; 
+            ghostMalletMesh.visible = window.matchAligned && isGhostEnabled; 
+        }
         else if (appState === 6) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
         else if (isReviewingLog) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; } 
         else if (appState === 4.5) {
@@ -1183,8 +1234,10 @@ function renderLiveCasts() {
         let traceAccStr = c.isWhiff ? `-` : `Acc: ${(c.estAccRange >= 35 ? 'Center' : Math.round(c.estAccRange) + 'm')}`;
         let weightClass = c.isStrike ? "font-bold" : ""; let colClass = c.isStrike ? "" : "text-muted";
 
+        let hitStyle = c.isHit ? `background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-left: 3px solid var(--success); border-radius: 4px; padding: 8px; margin-bottom: 4px;` : ``;
+
         liveList.innerHTML += `
-        <div class="cast-row flex-col gap-2 ${colClass} ${weightClass}" onclick="highlightPass(${swingCount-1}, ${i})">
+        <div class="cast-row flex-col gap-2 highlight-pass-btn ${colClass} ${weightClass}" data-swing-index="${swingCount - 1}" data-cast-index="${i}" style="${hitStyle}">
             <div class="flex justify-between">
                 <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(0)}cm ${c.dir || 'C'}</span>
                 <span class="w-25 text-center">${twistStr}</span>
@@ -1201,7 +1254,7 @@ function renderLiveCasts() {
     });
 }
 
-window.triggerReplay = function(index) {
+function triggerReplay(index) {
     if (!swingDatabase[index]) return;
     let data = swingDatabase[index]; recordedFrames = data.frames; finalReviewPivotQuat.copy(data.finalReviewPivotQuat); finalReviewPivotPos.copy(data.finalReviewPivotPos); finalReviewExtension = data.finalReviewExtension;
     rawTracePoints.length = 0; rawTracePoints.push(...data.rawTracePoints); updateSmoothTrail();
@@ -1222,7 +1275,7 @@ window.triggerReplay = function(index) {
     document.getElementById('history-panel').classList.add('mobile-open');
 };
 
-window.highlightPass = function(swingIdx, castIdx) {
+function highlightPass(swingIdx, castIdx) {
     if (!swingDatabase[swingIdx]) return; let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
     window.currentlyViewedCast = cast;
     playbackMode = false; isPaused = false; isReviewingLog = true; 
@@ -1259,7 +1312,6 @@ window.highlightPass = function(swingIdx, castIdx) {
     let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `VIEWING PASS #${castIdx + 1}. DRAG CAMERA.`; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
 };
 
-
 document.getElementById('cancelArmBtn').onclick = () => resetSystemState(false, false);
 document.getElementById('resetMaxBtn').onclick = async () => await resetSystemState(false, true);
 
@@ -1283,9 +1335,10 @@ function handleLiveStrike(s) {
     
     if (inGameMode) {
         gmStrokeCount++; document.getElementById('gm-stroke-count').innerText = gmStrokeCount;
-        let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; let lawnMult = 0.50 + ((parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0) - 10) * 0.075;
+        let massKg = AppConfig.massKg; let lawnMult = 0.50 + (AppConfig.lawnSpeed - 10) * 0.075;
         let ballSpeedMPS = pristineVel * (massKg * 1.8) / (massKg + 0.454); let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
-        document.getElementById('gm-latest-stats').innerHTML = `<div class="text-muted mb-2 uppercase" style="font-size:0.85rem;">LATEST STRIKE</div><div>Speed: <span class="text-main font-800">${pristineVel.toFixed(1)}</span> m/s</div><div>Est Dist: <span class="text-accent font-800">${estDist.toFixed(0)}</span> m</div>`;
+        let twistStr = (s.faceAngle > 0 ? '+' : '') + (s.faceAngle || 0).toFixed(1) + '°';
+        document.getElementById('gm-latest-stats').innerHTML = `<div class="text-muted mb-2 uppercase" style="font-size:0.85rem;">LATEST STRIKE</div><div>Speed: <span class="text-main font-800">${pristineVel.toFixed(1)}</span> m/s</div><div>Face: <span class="text-warning font-800">${twistStr}</span></div><div>Est Dist: <span class="text-accent font-800">${estDist.toFixed(0)}</span> m</div>`;
         return; 
     }
 
@@ -1301,19 +1354,19 @@ function handleLiveStrike(s) {
     if (existingIndex !== -1) {
         let ec = castData[existingIndex]; ec.isStrike = true; ec.faceAngle = locTwist; ec.passSpeed = pristineVel; ec.passForce = pF; ec.appliedForce = appliedF;
         
-        let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
+        let sRad = AppConfig.radiusInput;
         if (downTime > 0) {
             ec.dsPDelta = (9.81 * Math.pow((2 * (downTime / 1000.0)) / Math.PI, 2) * 100.0) - sRad;
         }
 
-        let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; let lawnMult = 0.50 + ((parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0) - 10) * 0.075;
+        let massKg = AppConfig.massKg; let lawnMult = 0.50 + (AppConfig.lawnSpeed - 10) * 0.075;
         let ballSpeedMPS = pristineVel * (massKg * 1.8) / (massKg + 0.454); ec.estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
         let accData = calcAccuracyData(ec.rawDev, locTwist, ec.pathAngleRads, maxTwist, currentSwingDwell);
         ec.isWhiff = accData.isWhiff; ec.estAccRange = accData.estAccRange; ec.trueAccRange = accData.trueAccRange; ec.trueLaunchDeg = accData.trueLaunchDeg;
         ec.estLaunchRads = accData.estLaunchRads; ec.trueLaunchRads = accData.trueLaunchRads; ec.maxAccRange = accData.trueAccRange; 
         let freshRating = getStarRating(ec.rawDev, accData.trueLaunchDeg); ec.stars = freshRating.string; ec.starColor = freshRating.color;
     }
-    if (appState === 4 || appState === 3) { impactDetected = true; clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 100); }
+    if (appState === 4 || appState === 3 || (inGameMode && window.matchSwinging)) { impactDetected = true; clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 100); }
 }
 
 function handleParsedTelemetry(t) {
@@ -1322,7 +1375,6 @@ function handleParsedTelemetry(t) {
     prevRawBLEQuat.copy(currentRawBLEQuat);
     currentRawBLEQuat.set(t.q1, t.q2, t.q3, t.q0);
 
-    // Directly project onto tracking nodes without sub-multiplying local offsets
     lastRawQuat = new THREE.Quaternion(currentRawBLEQuat.y, -currentRawBLEQuat.z, -currentRawBLEQuat.x, currentRawBLEQuat.w).normalize();
     lastRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
     prevTargetQuaternion.copy(targetQuaternion);
@@ -1343,9 +1395,42 @@ function handleParsedTelemetry(t) {
         }
     }
 
-    let flatMag = parseFloat(document.getElementById('flatMagInput').value) || 4.0; let extension = 0;
+    let flatMag = AppConfig.flatMag; let extension = 0;
     if (appState >= 3 && t.appliedForce > 2.0) { let clampedForce = Math.min(t.appliedForce, 15.0); extension = clampedForce * (flatMag / 10.0); }
     let currentDynamicRadius = loadedRadius + extension; let currentPivotLift = extension;
+
+    // --- NEW: MATCH MODE AUTO-TARE & ALIGNMENT ---
+    if (inGameMode) {
+        if (t.gameSubState >= 3 && !window.matchAligned) {
+            window.matchAligned = true;
+            let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
+            let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YXZ'));
+            baseQuatInverse.copy(finalHeading).invert();
+            targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat);
+            currentQuaternion.copy(targetQuaternion);
+            masterPivot.quaternion.copy(currentQuaternion);
+            
+            if (typeof ghostPivot !== 'undefined' && ghostPivot) ghostPivot.quaternion.copy(currentQuaternion);
+            updateSystemGeometry();
+            
+            let plumbNormal = new THREE.Vector3(1, 0, 0);
+            let plumbCentroid = new THREE.Vector3(0, pivotBaseY - loadedRadius, 0);
+            idealPlane = { centroid: plumbCentroid, normal: plumbNormal };
+            
+            ignoreSpeedUntilTime = Date.now() + 500; currentAbsoluteSpeed = 0; prevZ = 0; prevFaceZ = 0; isForwardSwing = true; lastForwardPassTime = 0; impactDetected = false;
+            posHistory = []; currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
+            window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; preRollBuffer = []; recordedFrames = []; rawTracePoints.length = 0; castData = [];
+            
+            showToast("Match Target Locked!");
+        } else if (t.gameSubState < 3 && window.matchAligned) {
+            window.matchAligned = false;
+            window.matchSwinging = false;
+            clearImpactLasers();
+            rawTracePoints.length = 0;
+            updateSmoothTrail(0);
+        }
+    }
+    // ---------------------------------------------
 
     if (appState === 2) {
         let dtMs = jsNow - lastJsTime; lastJsTime = jsNow; let calibBar = document.getElementById('calibration-bar'); let swingStateTxt = document.getElementById('swing-state');
@@ -1381,12 +1466,12 @@ function handleParsedTelemetry(t) {
                 currentQuaternion.copy(targetQuaternion); 
                 masterPivot.quaternion.copy(currentQuaternion);
 
-                ghostPivot.quaternion.copy(currentQuaternion);
+                ghostPivot.quaternion.copy(currentQuaternion); 
                 updateSystemGeometry(); 
 
-                let tiltedNormal = new THREE.Vector3(1, 0, 0).applyQuaternion(currentQuaternion);
-                let tiltedCentroid = new THREE.Vector3(0, -loadedRadius, 0).applyQuaternion(currentQuaternion).add(new THREE.Vector3(0, pivotBaseY, 0));
-                idealPlane = { centroid: tiltedCentroid, normal: tiltedNormal };
+                let plumbNormal = new THREE.Vector3(1, 0, 0);
+                let plumbCentroid = new THREE.Vector3(0, pivotBaseY - loadedRadius, 0);
+                idealPlane = { centroid: plumbCentroid, normal: plumbNormal };
 
                 ignoreSpeedUntilTime = Date.now() + 500; currentAbsoluteSpeed = 0; prevZ = 0; prevFaceZ = 0; isForwardSwing = true; lastForwardPassTime = 0; impactDetected = false; isLive = true; 
                 playbackMode = false; posHistory = []; currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
@@ -1395,7 +1480,11 @@ function handleParsedTelemetry(t) {
                 sendBleCommand([71]); // 'G'
                 appState = 3; armedUiStartTime = Date.now(); document.getElementById('playback-panel').classList.add('hidden'); 
                 document.getElementById('live-tracking-card').classList.remove('hidden');
-                document.getElementById('live-tempo').innerText = '-- BPM'; document.getElementById('live-speed').innerText = '0.0 m/s'; document.getElementById('live-force').innerText = '0 N'; document.getElementById('live-dev').innerText = '-- cm'; document.getElementById('live-applied').innerText = '-- N';
+                if (DisplayElements.liveTempo) DisplayElements.liveTempo.innerText = '-- BPM'; 
+                if (DisplayElements.liveSpeed) DisplayElements.liveSpeed.innerText = '0.0 m/s'; 
+                if (DisplayElements.liveForce) DisplayElements.liveForce.innerText = '0 N'; 
+                if (DisplayElements.liveDev) DisplayElements.liveDev.innerText = '-- cm'; 
+                if (DisplayElements.liveApplied) DisplayElements.liveApplied.innerText = '-- N';
                 
                 masterPivot.position.set(0, pivotBaseY, 0); masterBlock.position.set(0, -loadedRadius, 0); headJoint.quaternion.identity(); finalReviewExtension = 0; playBeep(1000, 0.3); 
 
@@ -1424,22 +1513,30 @@ function handleParsedTelemetry(t) {
         if (posHistory.length === 5) { let dt = (posHistory[4].time - posHistory[0].time) / 1000.0; if (dt > 0.01) currentAbsoluteSpeed = (posHistory[4].pos.distanceTo(posHistory[0].pos) / 100.0) / dt; }
     }
     
-    if (appState === 3 || appState === 4) {
-        let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
+    let isArmedForTracking = (appState === 3) || (inGameMode && window.matchAligned && !window.matchSwinging);
+    let isTrackingSwing = (appState === 4) || (inGameMode && window.matchSwinging);
+
+    if (isArmedForTracking || isTrackingSwing) {
+        let massKg = AppConfig.massKg;
         let liveForceN = magnitude * massKg * 9.81;
-        document.getElementById('live-speed').innerText = `${currentAbsoluteSpeed.toFixed(1)} m/s`; document.getElementById('live-force').innerText = `${liveForceN.toFixed(0)} N`; document.getElementById('live-applied').innerText = `${t.appliedForce.toFixed(0)} N`; 
+        if (DisplayElements.liveSpeed) DisplayElements.liveSpeed.innerText = `${currentAbsoluteSpeed.toFixed(1)} m/s`; 
+        if (DisplayElements.liveForce) DisplayElements.liveForce.innerText = `${liveForceN.toFixed(0)} N`; 
+        if (DisplayElements.liveApplied) DisplayElements.liveApplied.innerText = `${t.appliedForce.toFixed(0)} N`; 
     }
 
-    if (appState === 3 && jsNow >= ignoreSpeedUntilTime) {
+    if (isArmedForTracking && jsNow >= ignoreSpeedUntilTime) {
         preRollBuffer.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, pos: centerPosition.clone(), time: nowTime, isForward: isForwardSwing, pivotPos: masterPivot.position.clone(), extension: extension, rawBLE: currentRawBLEQuat.clone() });
         while (preRollBuffer.length > 0 && nowTime - preRollBuffer[0].time > 2000) preRollBuffer.shift();
 
         let triggeredNormal = (currentAbsoluteSpeed > 0.8); let triggeredImpact = (deltaG > impactThreshold);
 
         if (triggeredNormal || triggeredImpact) {
-            appState = 4; state4UiStartTime = Date.now(); clearTimeout(goTimeout);
+            if (inGameMode) window.matchSwinging = true;
+            else appState = 4;
+            
+            state4UiStartTime = Date.now(); clearTimeout(goTimeout);
             state4StartTime = nowTime; recordTicks = 0; impactDetected = false; postImpactTicks = 0; recordedFrames = []; 
-currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0; window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; rawTracePoints.length = 0;            
+            currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0; window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; rawTracePoints.length = 0;            
             let cutoffTime = nowTime - 2000;
             preRollBuffer.forEach(f => {
                 if (f.time >= cutoffTime && rawTracePoints.length < MAX_TRAIL_POINTS) {
@@ -1460,13 +1557,13 @@ currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTw
             updateSmoothTrail();
             let listDiv = document.getElementById('history-list'); if (listDiv && listDiv.innerHTML.includes("No swings recorded yet")) listDiv.innerHTML = '';
             let liveList = document.getElementById('live-tracking-list'); if (liveList) liveList.innerHTML = '';
-            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive) { swingStateTxt.innerText = "RECORDING SWING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
+            let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive && !inGameMode) { swingStateTxt.innerText = "RECORDING SWING..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; }
         }
     }
 
     let currentFaceZ = facePosition.z; 
 
-    if (appState === 4 && jsNow >= ignoreSpeedUntilTime) {
+    if (isTrackingSwing && jsNow >= ignoreSpeedUntilTime) {
         let dynamicFaceZ = getDynamicFaceZ();
         if (idealPlane && prevFaceZ <= dynamicFaceZ && currentFaceZ > dynamicFaceZ && isForwardSwing) {
             let tm = (dynamicFaceZ - prevFaceZ) / (currentFaceZ - prevFaceZ); if (isNaN(tm) || tm < 0 || tm > 1) tm = 1.0; 
@@ -1500,12 +1597,30 @@ currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTw
                 pathAngleRads = Math.atan2(dx, Math.abs(dz)); 
             }
             
-            let massKg = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0; 
-            let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0;
+            let massKg = AppConfig.massKg; 
+            let lawnVal = AppConfig.lawnSpeed;
             let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
             let ballSpeedMPS = currentAbsoluteSpeed * (massKg * 1.8) / (massKg + 0.454);
             let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
             let accData = calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwist, currentSwingDwell); let passRating = getStarRating(strikeX, accData.trueLaunchDeg);
+
+            let isHit = false;
+            let currentTwistTol = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
+            let targetDist = inGameMode ? 
+                             (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : 
+                             (parseFloat(document.getElementById('trainerDistSetup').value) || 10.0);
+            
+            isHit = !accData.isWhiff && 
+                    (Math.abs(strikeX) <= AppConfig.sweetSpot) && 
+                    (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && 
+                    (estDist >= targetDist);
+                    
+            if (isHit) {
+                let playAudio = inGameMode ? (document.getElementById('matchAudioToggle')?.checked ?? true) : true;
+                if (playAudio) {
+                    playSuccessSound();
+                }
+            }
 
             if (lastForwardPassTime > 0) { let fullCycleSeconds = (nowTime - lastForwardPassTime) / 1000.0; if (fullCycleSeconds > 0.4 && fullCycleSeconds < 5.0) lastComputedTempo = 60.0 / fullCycleSeconds; }
             lastForwardPassTime = nowTime;
@@ -1517,32 +1632,29 @@ currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTw
                 stars: passRating.string, starColor: passRating.color, trailIndex: rawTracePoints.length, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime,
                 isWhiff: accData.isWhiff, estAccRange: accData.estAccRange, trueAccRange: accData.trueAccRange, trueLaunchDeg: accData.trueLaunchDeg, 
                 estLaunchRads: accData.estLaunchRads, trueLaunchRads: accData.trueLaunchRads, maxAccRange: accData.trueAccRange, estDist: estDist, pDelta: p_delta,
-                rawBLE: iRawBLE 
+                rawBLE: iRawBLE,
+                isHit: isHit 
             };
 
             if (impactDetected) { strikeCast.isStrike = true; if (castData.length > 0 && castData[castData.length - 1].isStrike) castData[castData.length - 1] = strikeCast; else castData.push(strikeCast); } 
             else { castData.push(strikeCast); }
             
-            if(!isDynamicCalibrationActive) {
-                document.getElementById('live-dev').innerText = `${devCM.toFixed(0)} cm ${dir}`;
-                document.getElementById('live-tempo').innerText = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
+            if(!isDynamicCalibrationActive && !inGameMode) {
+                if (DisplayElements.liveDev) DisplayElements.liveDev.innerText = `${devCM.toFixed(0)} cm ${dir}`;
+                if (DisplayElements.liveTempo) DisplayElements.liveTempo.innerText = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
                 renderLiveCasts();
             }
 
-            let ss = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; 
+            let ss = AppConfig.sweetSpot; 
             
-            // HYBRID LED LOGIC:
-            // 72 ('H') = Path is good, let Firmware evaluate twist.
-            // 74 ('J') = Path is bad, force LED to Blink Red!
             let ledCmd = 72; 
             if (devCM > ss) ledCmd = 74; 
             
-            if (document.getElementById('ledGuidanceCheck').checked) { 
+            if (AppConfig.ledGuidance && !inGameMode) { 
                 sendBleCommand([ledCmd]); 
             }
 
-            let singleSwingInput = document.getElementById('singleSwingCheck');
-            if (singleSwingInput && singleSwingInput.checked && !impactDetected) { clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 800); }
+            if (AppConfig.singleSwing && !impactDetected) { clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 800); }
         }
 
         if (rawTracePoints.length < MAX_TRAIL_POINTS) {
@@ -1561,22 +1673,32 @@ currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTw
             recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, rawPtIndex: rawTracePoints.length, pivotPos: masterPivot.position.clone(), extension: extension, rawBLE: currentRawBLEQuat.clone() });
         }
 
-        let singleSwingInput = document.getElementById('singleSwingCheck');
-        if (!impactDetected && deltaG > impactThreshold) { impactDetected = true; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive) { swingStateTxt.innerText = "IMPACT DETECTED! WAITING FOR EDGE PACKET..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; } }
-        if (!impactDetected && (!singleSwingInput || !singleSwingInput.checked)) { let practiceTimeLimitMs = parseFloat(document.getElementById('practiceInput').value) * 1000; if ((nowTime - state4StartTime) >= practiceTimeLimitMs) { finalizeSwingData(nowTime); } }
+        if (!impactDetected && deltaG > impactThreshold) { impactDetected = true; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive && !inGameMode) { swingStateTxt.innerText = "IMPACT DETECTED! WAITING FOR EDGE PACKET..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; } }
+        if (!impactDetected && (!AppConfig.singleSwing)) { let practiceTimeLimitMs = AppConfig.practiceLimitSec * 1000; if ((nowTime - state4StartTime) >= practiceTimeLimitMs) { finalizeSwingData(nowTime); } }
     }
 
     prevFaceZ = currentFaceZ; prevZ = currentZ; prevMagnitude = magnitude;
 }
 
 async function finalizeSwingData(nowTime) {
-    if (appState !== 4) return;
+    if (appState !== 4 && !window.matchSwinging) return;
     
+    if (inGameMode) {
+        window.matchSwinging = false;
+        if (!impactDetected && castData.length > 0) {
+            let displayPass = castData[castData.length - 1];
+            let twistStr = (displayPass.faceAngle > 0 ? '+' : '') + (displayPass.faceAngle || 0).toFixed(1) + '°';
+            let hitColor = displayPass.isHit ? 'var(--success)' : 'var(--danger)';
+            document.getElementById('gm-latest-stats').innerHTML = `<div class="text-muted mb-2 uppercase" style="font-size:0.85rem;">PRACTICE CAST</div><div>Face Angle: <span style="color:${hitColor}; font-weight:800;">${twistStr}</span></div><div>Est. Dist: <span class="text-main font-800">${Math.round(displayPass.estDist)}</span> m</div>`;
+        }
+        return; // Skip adding to the formal history log for empty casts in game mode
+    }
+
     appState = 4.5; isLive = false; rewindStartTime = Date.now(); playDoubleBeep();
     await sendBleCommand([79]); // 'O'
     
     document.getElementById('live-tracking-card').classList.add('hidden'); 
-    document.getElementById('live-countdown').classList.add('hidden');
+    DisplayElements.countdown.classList.add('hidden');
     document.getElementById('cancelArmBtn').classList.add('hidden'); 
     document.getElementById('ready-group').classList.remove('hidden');
 
@@ -1588,9 +1710,9 @@ async function finalizeSwingData(nowTime) {
     if (displayPass) { finalReviewPivotQuat.copy(displayPass.pivotQuat); finalReviewPivotPos.copy(displayPass.pivotPos); finalReviewExtension = displayPass.extension; currentSwingDeviation = displayPass.dev; } 
     else if (lastFrame) { finalReviewPivotQuat.copy(lastFrame.rotation); finalReviewPivotPos.copy(lastFrame.pivotPos); finalReviewExtension = lastFrame.extension; }
 
-    let effectiveMalletMass = (parseFloat(document.getElementById('massInput').value) || 1000) / 1000.0;
+    let effectiveMalletMass = AppConfig.massKg;
     if (impactDetected && displayPass) {
-        let lawnVal = parseFloat(document.getElementById('lawnSpeedInput').value) || 10.0; let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
+        let lawnVal = AppConfig.lawnSpeed; let lawnMult = 0.50 + (lawnVal - 10) * 0.075;
         let ballSpeedMPS = displayPass.passSpeed * (effectiveMalletMass * 1.8) / (effectiveMalletMass + 0.454);
         currentSwingDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
     } else { currentSwingDist = 0; }
@@ -1599,7 +1721,7 @@ async function finalizeSwingData(nowTime) {
     swingDatabase.push({ frames: [...recordedFrames], rawTracePoints: [...rawTracePoints], casts: [...castData], finalReviewPivotQuat: finalReviewPivotQuat.clone(), finalReviewPivotPos: finalReviewPivotPos.clone(), finalReviewExtension: finalReviewExtension, setupQuat: ghostPivot.quaternion.clone() });
     let swingIndex = swingCount; swingCount++;
     
-    let ssRad = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; let devColor = 'var(--danger)';
+    let ssRad = AppConfig.sweetSpot; let devColor = 'var(--danger)';
     if (impactDetected || displayPass) { if (currentSwingDeviation <= 0.75) devColor = 'var(--success)'; else if (currentSwingDeviation <= ssRad) devColor = 'var(--warning)'; } else { devColor = 'var(--text-muted)'; }
     let afColor = 'var(--text-main)'; if (hwAppliedForce > 2) afColor = 'var(--success)'; else if (hwAppliedForce < -2) afColor = 'var(--danger)'; 
     
@@ -1647,8 +1769,10 @@ async function finalizeSwingData(nowTime) {
             let distStr = `d: ${Math.round(c.estDist || 0)}m`; let pDeltaStr = `PΔ: ${formatOffset(c.pDelta)}`;
             let traceAccStr = c.isWhiff ? `-` : `Acc: ${(c.estAccRange >= 35 ? 'Center' : Math.round(c.estAccRange) + 'm')}`;
 
+            let hitStyle = c.isHit ? `background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-left: 3px solid var(--success); border-radius: 4px; padding: 8px; margin-bottom: 4px;` : ``;
+
             return `
-            <div class="cast-row flex-col gap-2 ${colClass} ${weightClass}" onclick="highlightPass(${swingIndex}, ${i})">
+            <div class="cast-row flex-col gap-2 highlight-pass-btn ${colClass} ${weightClass}" data-swing-index="${swingCount-1}" data-cast-index="${i}" style="${hitStyle}">
                 <div class="flex justify-between">
                     <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(0)}cm ${c.dir || 'C'}</span>
                     <span class="w-25 text-center">${twistStr}</span>
@@ -1679,7 +1803,7 @@ async function finalizeSwingData(nowTime) {
                 <div><span class="swing-title">SWING #${swingCount}</span> &nbsp;${starHtml}</div>
                 <div class="flex items-center gap-2">
                     <span class="swing-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                    <button class="icon-btn" onclick="triggerReplay(${swingIndex})" title="Replay Trace" style="color: var(--accent-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px;">
+                    <button class="icon-btn replay-btn" data-swing-index="${swingIndex}" title="Replay Trace" style="color: var(--accent-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px;">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                     </button>
                 </div>
@@ -1721,8 +1845,8 @@ async function finalizeSwingData(nowTime) {
     else { document.getElementById('history-panel').classList.remove('desktop-closed'); }
     
     let swingStateTxt = document.getElementById('swing-state');
-    if(swingStateTxt) { swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Aim square to target line. Do not hold handle.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
-}
+    if(swingStateTxt) { swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
+}    
 
 window.bleManager.onStateChange = (isConnected, name) => {
     if (!isConnected) {
@@ -1732,6 +1856,7 @@ window.bleManager.onStateChange = (isConnected, name) => {
         document.getElementById('centerConnectBtn').classList.remove('hidden');
         document.getElementById('ready-group').classList.add('hidden');
         document.getElementById('cancelArmBtn').classList.add('hidden');
+        document.getElementById('powerOffBtn').classList.add('hidden');
         document.getElementById('battery-display').classList.add('hidden'); 
         document.getElementById('device-name-display').classList.add('hidden');
         document.getElementById('topSyncBtn').classList.add('hidden');
@@ -1745,21 +1870,22 @@ window.bleManager.onStateChange = (isConnected, name) => {
         appState = 1; initAudio(); 
         
         let swingStateTxt = document.getElementById('swing-state'); 
-        if(swingStateTxt) { swingStateTxt.innerHTML = "PLACE MALLET BEHIND BALL<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Aim square to target line. Do not hold handle.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
-        
+        if(swingStateTxt) { swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
+
         document.getElementById('centerConnectBtn').classList.add('hidden'); 
         document.getElementById('ready-group').classList.remove('hidden');
+        document.getElementById('powerOffBtn').classList.remove('hidden');
         document.getElementById('battery-display').classList.remove('hidden'); 
         if(currentUser) document.getElementById('topSyncBtn').classList.remove('hidden');
         let nameDisp = document.getElementById('device-name-display'); nameDisp.classList.remove('hidden'); nameDisp.innerText = savedBleName;
 
-        let ledGuidance = document.getElementById('ledGuidanceCheck').checked ? 1 : 0;
-        let radius = parseInt(document.getElementById('radiusInput').value) || 127;
-        let mass = parseInt(document.getElementById('massInput').value) || 1000;
+        let ledGuidance = AppConfig.ledGuidance ? 1 : 0;
+        let radius = AppConfig.radiusInput;
+        let mass = AppConfig.massKg * 1000;
         let impact = parseFloat(document.getElementById('impactInput').value) || 4.0;
         let offsetY = parseFloat(document.getElementById('offsetYInput').value) || 5.5;
         let timeout = parseInt(document.getElementById('timeoutInput').value) || 5;
-        let sweetSpot = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
+        let sweetSpot = AppConfig.sweetSpot;
         let twist = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
 
         let payload = [ 67, radius, mass / 10, impact * 10, offsetY * 10, timeout, sweetSpot * 10, ledGuidance, Math.round(twist * 10) ];
@@ -1775,12 +1901,15 @@ bleManager.onBatteryUpdate = (alreadyCalculatedPct, isCharging, availStrikes) =>
     const batteryDisplay = document.getElementById('battery-display');
     batteryDisplay.classList.remove('hidden');
     
+    let storeDisp = document.getElementById('about-storage-display'); 
+    if (storeDisp) { 
+        storeDisp.innerText = availStrikes; 
+    }
+
     if (isCharging) {
         batteryDisplay.innerHTML = `<span class="syncing">⚡</span> Charging`;
         batteryDisplay.style.color = "var(--warning)";
     } else {
-        // The Interceptor at the bottom of main.js already did the math!
-        // We just print the number directly.
         batteryDisplay.innerText = `🔋 ${alreadyCalculatedPct}%`;
         
         if (alreadyCalculatedPct <= 20) {
@@ -1791,17 +1920,12 @@ bleManager.onBatteryUpdate = (alreadyCalculatedPct, isCharging, availStrikes) =>
     }
 };
 
-// You can completely delete the calculateBatteryPercentage() function!
-
 window.bleManager.onFirmwareVersion = (ver) => {
     let aboutFw = document.getElementById('about-fw-display'); if (aboutFw) aboutFw.innerText = ver;
 };
 
 window.bleManager.onCalibrationLoaded = (w, x, y, z) => {
-    // FIX: Remove the 'if' trap and unconditionally accept the hardware's truth
     hardwareMountOffset.set(x, y, z, w); 
-    
-    // Force the local cache and Cloud Profile to mirror the hardware state
     saveSettings(); 
     
     if (w === 1.0 && x === 0.0 && y === 0.0 && z === 0.0) {
@@ -1819,20 +1943,16 @@ window.bleManager.onError = showToast;
 document.getElementById('btToggleBtn').addEventListener('click', () => window.bleManager.connect());
 document.getElementById('centerConnectBtn').addEventListener('click', () => window.bleManager.connect());
 
-// --- SAFE BATTERY POLLING ---
 setInterval(() => {
     if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
-        // Only poll if the mallet is completely idle/disarmed
         if (appState === 1) { 
             sendBleCommand([80]); // 'P'
         }
     }
 }, 10000);
 
-// --- DEVELOPER MODE STATE ---
 let devHudEnabled = false;
 
-// --- GLOBAL POWER TRACKERS ---
 window.lveBatteryVolts = "WAIT...";
 window.lveBatteryPct = "WAIT...";
 window.lveIsCharging = "WAIT...";
@@ -1844,32 +1964,71 @@ function toggleDeveloperHUD() {
     
     if (devHudEnabled) {
         if (!existingDiv) {
-            // Create the main wrapper
             const debugDiv = document.createElement('div');
             debugDiv.id = 'lve-diagnostic-hud';
             
-            // Create the persistent close button
+            // Added 'cursor: grab;' to indicate it can be moved
+            debugDiv.style.cssText = 'position: fixed; top: 70px; left: 10px; background: rgba(0,0,0,0.85); padding: 15px; border-radius: 8px; z-index: 9999; pointer-events: auto; min-width: 280px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); cursor: grab;';
+            
             const closeBtn = document.createElement('button');
             closeBtn.innerHTML = '✕';
-            
-            // Forcing pointer-events: auto and adding padding for a better mobile tap target
             closeBtn.style.cssText = 'position:absolute; top:0px; right:5px; padding:10px; background:none; border:none; color:var(--danger); font-size:16px; font-weight:bold; cursor:pointer; pointer-events:auto;';
             
-            // Bulletproof click listener
             closeBtn.addEventListener('click', (e) => {
                 e.preventDefault();
-                e.stopPropagation(); // Prevents the click from passing through to the 3D scene
+                e.stopPropagation(); 
                 toggleDeveloperHUD();
             });
             
-            // Create the inner container for the rapid telemetry text
             const contentDiv = document.createElement('div');
             contentDiv.id = 'lve-diagnostic-hud-content';
+            contentDiv.style.color = '#ffffff';
             
-            // Assemble and attach to screen
             debugDiv.appendChild(closeBtn);
             debugDiv.appendChild(contentDiv);
             document.body.appendChild(debugDiv);
+
+            // --- HUD DRAG LOGIC (Mouse & Touch) ---
+            let isDragging = false, dragOffsetX = 0, dragOffsetY = 0;
+            
+            const startDrag = (clientX, clientY, target) => {
+                if (target === closeBtn) return; // Don't drag if clicking the close button
+                isDragging = true;
+                debugDiv.style.cursor = 'grabbing';
+                const rect = debugDiv.getBoundingClientRect();
+                dragOffsetX = clientX - rect.left;
+                dragOffsetY = clientY - rect.top;
+            };
+
+            const doDrag = (clientX, clientY) => {
+                if (!isDragging) return;
+                debugDiv.style.left = (clientX - dragOffsetX) + 'px';
+                debugDiv.style.top = (clientY - dragOffsetY) + 'px';
+                debugDiv.style.right = 'auto';  // Clear right/bottom bounds
+                debugDiv.style.bottom = 'auto';
+            };
+
+            const stopDrag = () => {
+                isDragging = false;
+                debugDiv.style.cursor = 'grab';
+            };
+
+            // Mouse Events
+            debugDiv.addEventListener('mousedown', (e) => startDrag(e.clientX, e.clientY, e.target));
+            document.addEventListener('mousemove', (e) => doDrag(e.clientX, e.clientY));
+            document.addEventListener('mouseup', stopDrag);
+
+            // Touch Events
+            debugDiv.addEventListener('touchstart', (e) => startDrag(e.touches[0].clientX, e.touches[0].clientY, e.target), {passive: true});
+            document.addEventListener('touchmove', (e) => { 
+                if(isDragging) {
+                    e.preventDefault(); // Prevent page scrolling while dragging
+                    doDrag(e.touches[0].clientX, e.touches[0].clientY); 
+                }
+            }, {passive: false});
+            document.addEventListener('touchend', stopDrag);
+            // --------------------------------------
+
         } else {
             existingDiv.style.display = 'block';
         }
@@ -1879,32 +2038,26 @@ function toggleDeveloperHUD() {
         if(typeof showToast === "function") showToast("DIAGNOSTIC HUD DISABLED");
     }
 }
-
-// --- BATTERY INTERCEPTOR ---
 const originalBatteryUpdate = window.bleManager.onBatteryUpdate;
 
 window.bleManager.onBatteryUpdate = function(voltage_mV, isCharging, availStrikes) {
-    // 1. Compensate for the "surface charge" illusion when plugged in
     let adjusted_mV = voltage_mV;
-    if (isCharging) {
-        adjusted_mV -= 150; // Subtract ~150mV to guess the true resting voltage
+    
+    if (isCharging && voltage_mV < 4150) {
+        adjusted_mV -= 150; 
     }
 
-    // 2. Realistic Non-Linear LiPo Discharge Curve
     let calculatedPct = 0;
-    if (adjusted_mV >= 4100) {
+    
+    if (adjusted_mV >= 4050) {
         calculatedPct = 100;
     } else if (adjusted_mV >= 3950) {
-        // Top 20% drops quickly
-        calculatedPct = 80 + ((adjusted_mV - 3950) / 150) * 20;
+        calculatedPct = 80 + ((adjusted_mV - 3950) / 100) * 20;
     } else if (adjusted_mV >= 3750) {
-        // The long, flat middle plateau (40% to 80%)
         calculatedPct = 40 + ((adjusted_mV - 3750) / 200) * 40;
     } else if (adjusted_mV >= 3500) {
-        // The steep drop-off at the end (10% to 40%)
         calculatedPct = 10 + ((adjusted_mV - 3500) / 250) * 30;
     } else if (adjusted_mV >= 3300) {
-        // Dead zone
         calculatedPct = ((adjusted_mV - 3300) / 200) * 10;
     } else {
         calculatedPct = 0;
@@ -1919,20 +2072,19 @@ window.bleManager.onBatteryUpdate = function(voltage_mV, isCharging, availStrike
     window.lveIsCharging = isCharging ? "YES" : "NO";
 };
 
-// --- TELEMETRY INTERCEPTOR ---
 const originalAppTelemetry = window.bleManager.onTelemetryData;
 
 window.bleManager.onTelemetryData = function(t) {
     if (originalAppTelemetry) originalAppTelemetry(t);
     
     if (devHudEnabled) {
-        // FIX: Target the inner content div so we don't overwrite the close button!
         let debugDiv = document.getElementById('lve-diagnostic-hud-content');
         if (debugDiv) {
             let cleanNumber = (num) => {
-                let val = Number(num.toFixed(3));
-                if (val === 0) return "+0.000"; 
-                return val > 0 ? "+" + val.toFixed(3) : val.toFixed(3);
+                if (num === undefined || num === null || isNaN(num)) return "+0.00";
+                let val = Number(num).toFixed(2);
+                if (val === "0.00" || val === "-0.00") return "+0.00"; 
+                return Number(val) > 0 ? "+" + val : val;
             };
             
             let mag = Math.sqrt(t.ax*t.ax + t.ay*t.ay + t.az*t.az);
@@ -1967,10 +2119,36 @@ window.bleManager.onTelemetryData = function(t) {
 window.fetchCloudMatches = fetchCloudMatches;
 window.fetchCloudStrikes = fetchCloudStrikes;
 window.openMatchEdit = openMatchEdit;
-window.renderOfflineMatches = renderOfflineMatches;
 
 window.syncHardwareOffsetFromCloud = function(x, y, z, w) {
     hardwareMountOffset.set(x, y, z, w);
     updateMalletScale();
     saveSettings();
 };
+
+document.getElementById('training-tab-content').addEventListener('click', (e) => {
+    const replayBtn = e.target.closest('.replay-btn');
+    if (replayBtn) {
+        const swingIndex = parseInt(replayBtn.getAttribute('data-swing-index'), 10);
+        if (!isNaN(swingIndex)) {
+            triggerReplay(swingIndex);
+        }
+        return; 
+    }
+
+    const castRow = e.target.closest('.highlight-pass-btn');
+    if (castRow) {
+        const swingIdx = parseInt(castRow.getAttribute('data-swing-index'), 10);
+        const castIdx = parseInt(castRow.getAttribute('data-cast-index'), 10);
+        if (!isNaN(swingIdx) && !isNaN(castIdx)) {
+            highlightPass(swingIdx, castIdx);
+        }
+    }
+});
+
+document.getElementById('powerOffBtn').addEventListener('click', async () => {
+    if (confirm("Are you sure you want to power off the mallet?")) {
+        showToast("Powering off mallet...");
+        await sendBleCommand([88]); 
+    }
+});

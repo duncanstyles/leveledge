@@ -34,17 +34,35 @@ export let mainMalletMesh = null;
 export let ghostMalletMesh = null; 
 export let baseStlSize = new THREE.Vector3(1, 1, 1);
 export let impactLasers = [];
-export const controls = new THREE.OrbitControls(camera, renderer.domElement); 
+export let controls = null;
 
 // --- TRAIL SETUP ---
 export const MAX_TRAIL_POINTS = 5000; 
 export const trailPositions = new Float32Array(MAX_TRAIL_POINTS * 3); 
 export const trailColors = new Float32Array(MAX_TRAIL_POINTS * 3); 
 export let rawTracePoints = []; 
+
+// Add this near your other exports at the top of scene.js
+export let hemiLight;
+
 export const trailGeometry = new THREE.BufferGeometry(); 
+// --- FIXED: Inject memory buffers BEFORE the 3D engine compiles the geometry ---
+trailPositions.fill(0); 
+trailColors.fill(0);
+trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3)); 
+trailGeometry.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+trailGeometry.setDrawRange(0, 0); 
+
 export const trailLine = new THREE.Line(trailGeometry, new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 3, transparent: true, opacity: 0.9 }));
+trailLine.frustumCulled = false;
 
 export function initScene() {
+
+    hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2); 
+        hemiLight.position.set(0, 50, 0); 
+        scene.add(hemiLight);
+
+
     camera.position.set(100, pivotBaseY - defaultRad, 0); 
     renderer.setSize(window.innerWidth, window.innerHeight); 
     renderer.domElement.style.position = 'absolute'; 
@@ -53,10 +71,15 @@ export function initScene() {
     renderer.domElement.style.zIndex = '1';
     document.body.appendChild(renderer.domElement);
     
-    scene.background = new THREE.Color(0xe2e8f0); 
-    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2); hemiLight.position.set(0, 50, 0); scene.add(hemiLight);
+    // --- FIXED: Initialize OrbitControls AFTER the canvas is physically on the screen ---
+    controls = new THREE.OrbitControls(camera, renderer.domElement); 
+    controls.enableDamping = true; 
+    controls.target.set(0, pivotBaseY - defaultRad, 0); 
+    controls.update();
 
-    controls.enableDamping = true; controls.target.set(0, pivotBaseY - defaultRad, 0); controls.update();
+    // --- RESTORED: Scene Lighting & Background ---
+    scene.background = new THREE.Color(0xe2e8f0); 
+
     window.addEventListener('resize', () => { renderer.setSize(window.innerWidth, window.innerHeight); camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix(); controls.update(); });
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -90,20 +113,35 @@ export function initScene() {
     targetArrow.visible = false; 
     targetEnvironmentGroup.add(targetArrow);
 
-    trailPositions.fill(0); trailColors.fill(0);
-    trailGeometry.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3)); trailGeometry.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
-    trailGeometry.setDrawRange(0, 0); 
-    trailLine.frustumCulled = false; scene.add(trailLine);
+    // --- RESTORED: Add the successfully compiled trace line to the scene ---
+    scene.add(trailLine); 
 
     const loader = new THREE.STLLoader();
     loader.load('./model.stl', function (geometry) {
-        geometry.center(); geometry.computeVertexNormals(); const material = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.6, roughness: 0.3 });
-        const customModel = new THREE.Mesh(geometry, material); geometry.computeBoundingBox(); geometry.boundingBox.getSize(baseStlSize);
-        customModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); mainMalletMesh = customModel; mainMalletMesh.position.set(0, 0, 0); headJoint.add(mainMalletMesh); 
-        const edgesGeo = new THREE.EdgesGeometry(geometry, 15); const ghostMaterial = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35 });
-        const ghostModel = new THREE.LineSegments(edgesGeo, ghostMaterial); ghostModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); ghostMalletMesh = ghostModel; ghostMalletMesh.position.set(0, 0, 0); ghostMalletMesh.visible = true; ghostHeadJoint.add(ghostMalletMesh);
+        geometry.center(); 
+        geometry.computeVertexNormals(); 
         
-        // Expose a globally callable event so main.js knows the STL is loaded
+        const material = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.6, roughness: 0.3 });
+        const customModel = new THREE.Mesh(geometry, material); 
+        
+        geometry.computeBoundingBox(); 
+        geometry.boundingBox.getSize(baseStlSize);
+        customModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); 
+        
+        mainMalletMesh = customModel; 
+        mainMalletMesh.position.set(0, 0, 0); 
+        headJoint.add(mainMalletMesh); 
+        
+        const edgesGeo = new THREE.EdgesGeometry(geometry, 15); 
+        const ghostMaterial = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35 });
+        const ghostModel = new THREE.LineSegments(edgesGeo, ghostMaterial); 
+        ghostModel.rotation.set(-Math.PI/2, 0, -Math.PI/2); 
+        
+        ghostMalletMesh = ghostModel; 
+        ghostMalletMesh.position.set(0, 0, 0); 
+        ghostMalletMesh.visible = true; 
+        ghostHeadJoint.add(ghostMalletMesh);
+        
         window.dispatchEvent(new Event('modelLoaded'));
     });
 }
@@ -119,17 +157,29 @@ export function drawStrikeLaser(cast) {
     scene.add(laserGroup); impactLasers.push(laserGroup);
 }
 
-export function updateSmoothTrail(rawTracePointsParam, limitIndex = rawTracePointsParam.length) {
-    let pts = rawTracePointsParam.slice(0, limitIndex); if (pts.length < 2) { trailGeometry.setDrawRange(0, 0); return; }
+export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
+    let pts = rawTracePoints.slice(0, limitIndex); 
+    if (pts.length < 2) { trailGeometry.setDrawRange(0, 0); return; }
+    
     let curve = new THREE.CatmullRomCurve3(pts.map(p => p.pos), false, 'centripetal', 0.5);
-    let sampleCount = pts.length * 3; if (sampleCount >= MAX_TRAIL_POINTS) sampleCount = MAX_TRAIL_POINTS - 1; let smoothPoints = curve.getPoints(sampleCount);
+    let sampleCount = pts.length * 3; 
+    if (sampleCount >= MAX_TRAIL_POINTS) sampleCount = MAX_TRAIL_POINTS - 1; 
+    let smoothPoints = curve.getPoints(sampleCount);
+    
     for (let i = 0; i <= sampleCount; i++) {
         if (i >= MAX_TRAIL_POINTS) break;
-        trailPositions[i * 3] = smoothPoints[i].x; trailPositions[i * 3 + 1] = smoothPoints[i].y; trailPositions[i * 3 + 2] = smoothPoints[i].z;
-        let t = i / sampleCount; let rawIdx = Math.min(Math.floor(t * pts.length), pts.length - 1);
-        trailColors[i * 3] = pts[rawIdx].color.r; trailColors[i * 3 + 1] = pts[rawIdx].color.g; trailColors[i * 3 + 2] = pts[rawIdx].color.b;
+        trailPositions[i * 3] = smoothPoints[i].x; 
+        trailPositions[i * 3 + 1] = smoothPoints[i].y; 
+        trailPositions[i * 3 + 2] = smoothPoints[i].z;
+        let t = i / sampleCount; 
+        let rawIdx = Math.min(Math.floor(t * pts.length), pts.length - 1);
+        trailColors[i * 3] = pts[rawIdx].color.r; 
+        trailColors[i * 3 + 1] = pts[rawIdx].color.g; 
+        trailColors[i * 3 + 2] = pts[rawIdx].color.b;
     }
-    trailGeometry.attributes.position.needsUpdate = true; trailGeometry.attributes.color.needsUpdate = true; trailGeometry.setDrawRange(0, sampleCount + 1);
+    trailGeometry.attributes.position.needsUpdate = true; 
+    trailGeometry.attributes.color.needsUpdate = true; 
+    trailGeometry.setDrawRange(0, sampleCount + 1);
 }
 
 export function rebuildArcPts(radius) {

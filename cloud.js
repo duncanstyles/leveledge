@@ -130,8 +130,15 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
         impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
         let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
         let strokeAoA = THREE.MathUtils.radToDeg(impactEuler.z);
-        let locTwist = getShaftTwist(impactRawQuat);
+        
+        // --- THE FIX: Variables must be scoped here, BEFORE detailsHTML is appended ---
+        let dbFaceAngle = parseFloat(s.face_angle);
+        let locTwist = !isNaN(dbFaceAngle) ? dbFaceAngle : getShaftTwist(impactRawQuat);
         let faceAngleHtml = `${(locTwist > 0 ? '+' : '')}${locTwist.toFixed(1)}°`;
+
+        let dbBackArc = parseFloat(s.back_arc);
+        let backArcHtml = !isNaN(dbBackArc) ? `${dbBackArc.toFixed(0)} cm` : 'N/A';
+        // ----------------------------------------------------------------------------
 
         detailsHTML += `
             <div class="history-card flat-card">
@@ -150,6 +157,7 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
                 <details class="advanced-metrics" style="margin-bottom: 0;">
                     <summary>Advanced Kinematics</summary>
                     <div class="mt-4">
+                        <div class="adv-row"><span>Backswing Arc</span><span class="adv-val">${backArcHtml}</span></div>
                         <div class="adv-row"><span>Impact Force</span><span class="adv-val">${forceStr}</span></div>
                         <div class="adv-row"><span>Face Angle</span><span class="adv-val">${faceAngleHtml}</span></div>
                         <div class="adv-row"><span>Angle of Attack</span><span class="adv-val">${strokeAoA.toFixed(1)}°</span></div>
