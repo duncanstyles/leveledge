@@ -249,4 +249,5 @@
             #alignment-panel { width: 90%; right: 5%; left: 5%; top: 120px; }
 
             .brand-text { display: none; }
+            #device-name-display { display: none !important; }
         }
