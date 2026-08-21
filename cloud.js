@@ -8,6 +8,8 @@ export const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABAS
 
 export let currentUser = null;
 
+let performanceChartInstance = null; // Track the chart to destroy/redraw it on refresh
+
 export function setCurrentUser(user) {
     currentUser = user;
 }
@@ -172,4 +174,225 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
             </div>`;
     });
     detailsHTML += `</div></details>`; container.innerHTML = detailsHTML;
+}
+
+export async function savePracticeCastsToCloud(castsArray, currentTempo) {
+    if (!currentUser || !castsArray || castsArray.length === 0) return;
+
+    // Generate one unique ID to link this entire sequence of casts and the final strike together
+    const uniqueSwingId = crypto.randomUUID(); 
+
+    let castsToInsert = castsArray.map((c, index) => {
+        return {
+            swing_id: uniqueSwingId,             // <--- Here is the explicit link!
+            user_id: currentUser.id,
+            timestamp: new Date(c.time).toISOString(),
+            cast_index: index,
+            is_strike: c.isStrike,
+            path_dev_cm: parseFloat(c.dev.toFixed(1)),
+            dir: c.dir,
+            face_angle: parseFloat(c.faceAngle.toFixed(1)),
+            speed_mps: parseFloat(c.passSpeed.toFixed(1)),
+            applied_force: c.appliedForce,
+            est_dist_m: c.estDist,
+            tempo_bpm: currentTempo > 0 ? Math.round(currentTempo) : null,
+            
+            // Advanced Kinematics
+            est_acc_range: c.estAccRange,
+            true_acc_range: c.trueAccRange,
+            path_angle_rads: c.pathAngleRads,
+            pass_force: c.passForce,
+            p_delta: c.pDelta
+        };
+    });
+
+    const { error } = await supabaseClient.from('practice_casts').insert(castsToInsert);
+    
+    if (error) {
+        console.error("Error saving practice casts:", error.message);
+    }
+}
+
+export async function fetchCloudTraining() {
+    let container = document.getElementById('cloud-training-container');
+    if (!container) return;
+    
+    container.innerHTML = '<div class="text-muted text-center p-5">Fetching cloud sessions...</div>';
+    
+    if (!currentUser) {
+        container.innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Sessions.</div>';
+        return;
+    }
+
+    // Grab all casts for this user, ordered newest first
+    const { data: casts, error } = await supabaseClient
+        .from('practice_casts')
+        .select('*')
+        .eq('user_id', currentUser.id)
+        .order('timestamp', { ascending: false });
+
+    if (error || !casts || casts.length === 0) { 
+        container.innerHTML = '<div class="text-muted text-center p-5">No cloud training sessions found.</div>'; 
+        return; 
+    }
+
+    // Group the casts by their unique swing_id
+    let sessions = {};
+    let sessionOrder = [];
+    
+    casts.forEach(c => {
+        let sId = c.swing_id || 'unknown';
+        if (!sessions[sId]) {
+            sessions[sId] = [];
+            sessionOrder.push(sId);
+        }
+        sessions[sId].push(c);
+    });
+
+    // --- NEW DASHBOARD LOGIC ---
+    let chartLabels = [];
+    let speedData = [];
+    let devData = [];
+    
+    let sumSpeed = 0, sumDev = 0, sumFace = 0;
+    let countSpeed = 0, countDev = 0, countFace = 0;
+
+    // sessionOrder is currently newest-first. Reverse it so the chart goes left-to-right (oldest to newest)
+    let chronologicalSessions = [...sessionOrder].reverse();
+
+    chronologicalSessions.forEach((sId, index) => {
+        let sessionCasts = sessions[sId];
+        chartLabels.push(`Session ${index + 1}`);
+        
+        let sSpeed = 0, sDev = 0, sCount = 0;
+        sessionCasts.forEach(c => {
+            if (c.speed_mps !== null && c.speed_mps !== undefined) {
+                sSpeed += c.speed_mps; sumSpeed += c.speed_mps; countSpeed++;
+            }
+            if (c.path_dev_cm !== null && c.path_dev_cm !== undefined) {
+                sDev += c.path_dev_cm; sumDev += c.path_dev_cm; countDev++;
+            }
+            if (c.face_angle !== null && c.face_angle !== undefined) {
+                // Use absolute value to calculate average face deflection (so +1 and -1 don't average to perfect 0)
+                sumFace += Math.abs(c.face_angle); countFace++;
+            }
+            sCount++;
+        });
+        
+        speedData.push(sCount > 0 ? (sSpeed / sCount) : 0);
+        devData.push(sCount > 0 ? (sDev / sCount) : 0);
+    });
+
+    // Populate the HTML Average text
+    if (countSpeed > 0) document.getElementById('dash-avg-speed').innerText = (sumSpeed / countSpeed).toFixed(1) + ' m/s';
+    if (countDev > 0) document.getElementById('dash-avg-dev').innerText = (sumDev / countDev).toFixed(1) + ' cm';
+    if (countFace > 0) document.getElementById('dash-avg-face').innerText = '±' + (sumFace / countFace).toFixed(1) + '°';
+
+    // Show the dashboard and render the Chart
+    document.getElementById('performance-dashboard').classList.remove('hidden');
+    
+    if (window.Chart) {
+        const ctx = document.getElementById('performanceChart');
+        if (performanceChartInstance) performanceChartInstance.destroy(); // Clear old chart
+        
+        performanceChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartLabels,
+                datasets: [
+                    { label: 'Avg Speed (m/s)', data: speedData, borderColor: '#38bdf8', backgroundColor: 'transparent', yAxisID: 'y', tension: 0.3 },
+                    { label: 'Avg Deviation (cm)', data: devData, borderColor: '#f59e0b', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: { type: 'linear', display: true, position: 'left', grid: { color: 'rgba(200,200,200,0.1)' } },
+                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+                },
+                plugins: { legend: { labels: { color: '#94a3b8' } } }
+            }
+        });
+    }
+    // --- END DASHBOARD LOGIC ---
+
+    container.innerHTML = '';
+    
+    // Render each session card
+    sessionOrder.forEach(sId => {
+        let sessionCasts = sessions[sId];
+        // Sort ascending by cast_index so they display in chronological order
+        sessionCasts.sort((a, b) => a.cast_index - b.cast_index);
+         
+        let sessionTime = new Date(sessionCasts[0].timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        let finalStrike = sessionCasts.find(c => c.is_strike) || sessionCasts[sessionCasts.length - 1];
+        
+        let finalTempo = finalStrike.tempo_bpm ? `${finalStrike.tempo_bpm} BPM` : '--';
+        let finalDev = finalStrike.path_dev_cm !== null ? `${finalStrike.path_dev_cm.toFixed(1)}cm ${finalStrike.dir || ''}` : '--';
+        let finalSpeed = finalStrike.speed_mps !== null ? `${finalStrike.speed_mps.toFixed(1)} m/s` : '--';
+        
+        let castsHtml = sessionCasts.map(c => {
+            let twistStr = (c.face_angle > 0 ? '+' : '') + (c.face_angle || 0).toFixed(1) + '°';
+            let speedStr = `${(c.speed_mps || 0).toFixed(1)}m/s`; 
+            let forceStr = (c.applied_force || 0) > 0 ? `+${Math.round(c.applied_force)}N` : `${Math.round(c.applied_force)}N`;
+            let prefix = c.is_strike ? "STRIKE" : (c.cast_index + 1);
+            let weightClass = c.is_strike ? "font-bold" : ""; 
+            let colClass = c.is_strike ? "" : "text-muted";
+            let distStr = c.est_dist_m ? `d: ${Math.round(c.est_dist_m)}m` : `d: 0m`;
+            
+            return `
+            <div class="cast-row flex-col gap-2 ${colClass} ${weightClass}">
+                <div class="flex justify-between">
+                    <span class="w-25">${prefix}: ${(c.path_dev_cm || 0).toFixed(1)}cm ${c.dir || 'C'}</span>
+                    <span class="w-25 text-center">${twistStr}</span>
+                    <span class="w-25 text-center">${forceStr}</span>
+                    <span class="w-25 text-right">${speedStr}</span>
+                </div>
+                <div class="flex justify-between text-muted font-normal">
+                    <span class="w-25 text-center">Acc: ${c.est_acc_range ? Math.round(c.est_acc_range)+'m' : '-'}</span>
+                    <span class="w-25 text-center">${distStr}</span>
+                    <span class="w-25 text-right">PΔ: ${c.p_delta !== null ? Math.round(c.p_delta)+'cm' : '--'}</span>
+                </div>
+            </div>`;
+        }).join('');
+
+        container.innerHTML += `
+            <div class="history-card">
+                <div class="card-header">
+                    <div>
+                        <span class="swing-title">SESSION LOG</span>
+                        <button class="icon-btn text-danger" style="display:inline-block; padding: 2px; margin-left: 5px; opacity:0.7;" onclick="deleteCloudSession('${sId}')">🗑️</button>
+                    </div>
+                    <span class="swing-time">${sessionTime}</span>
+                </div>
+                <div class="card-basic-stats">
+                    <div class="stat-block"><span class="stat-lbl">Final Speed</span><span class="stat-val">${finalSpeed}</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Final Dev</span><span class="stat-val text-warning">${finalDev}</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val text-accent">${finalTempo}</span></div>
+                </div>
+                <details class="advanced-metrics mt-4">
+                    <summary>View Casting Sequence (${sessionCasts.length} passes)</summary>
+                    <div class="mt-2">
+                        ${castsHtml}
+                    </div>
+                </details>
+            </div>`;
+    });
+}
+export async function deleteCloudSession(swingId) {
+    if (!confirm("Are you sure you want to delete this training session?")) return;
+    
+    // Delete all casts that share this exact swing_id
+    const { error } = await supabaseClient
+        .from('practice_casts')
+        .delete()
+        .eq('swing_id', swingId);
+        
+    if (error) {
+        showToast("Error deleting session: " + error.message);
+    } else {
+        showToast("Session deleted.");
+        fetchCloudTraining(); // Refresh the list
+    }
 }

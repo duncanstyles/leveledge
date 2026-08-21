@@ -1,7 +1,7 @@
 import { initAudio, audioCtx, playBeep, playDoubleBeep, playTick, isAudioInitialized, isSoundEnabled, toggleSoundState, playSuccessSound } from './audio.js';
 import { difficultyMatrix, getStarRating, getShaftTwist, calcAccuracyData, calculateImpactForce } from './kinematics.js';
 import { showToast, formatOffset } from './utils.js';
-import { supabaseClient, currentUser, setCurrentUser, loadCloudProfile, saveCloudProfile, fetchCloudMatches, fetchCloudStrikes } from './cloud.js';
+import { supabaseClient, currentUser, setCurrentUser, loadCloudProfile, saveCloudProfile, fetchCloudMatches, fetchCloudStrikes, savePracticeCastsToCloud, fetchCloudTraining, deleteCloudSession } from './cloud.js';
 import { 
     scene, camera, renderer, controls, defaultRad, pivotBaseY, loadedRadius, setLoadedRadius,
     masterPivot, masterBlock, faceTrackerNode, physicsTrackingNode, headJoint,
@@ -274,6 +274,7 @@ if (closeHistBtn) {
 }
 
 document.getElementById('tab-training-btn').onclick = () => switchHistoryTab('training');
+document.getElementById('tab-cloud-training-btn').onclick = () => switchHistoryTab('cloud'); // ADD THIS
 document.getElementById('tab-match-btn').onclick = () => switchHistoryTab('match');
 
 // --- EXPERIMENTAL FEATURE GATING ---
@@ -297,16 +298,31 @@ function updateExperimentalFeatures() {
 }
 
 function switchHistoryTab(tab) {
+    // 1. Reset all buttons
+    document.getElementById('tab-training-btn').classList.remove('active');
+    document.getElementById('tab-match-btn').classList.remove('active');
+    document.getElementById('tab-cloud-training-btn').classList.remove('active');
+    
+    // 2. Hide all contents
+    document.getElementById('training-tab-content').classList.add('hidden');
+    document.getElementById('match-tab-content').classList.add('hidden');
+    document.getElementById('cloud-training-tab-content').classList.add('hidden');
+
+    // 3. Activate the correct tab
     if (tab === 'training') {
         document.getElementById('tab-training-btn').classList.add('active');
-        document.getElementById('tab-match-btn').classList.remove('active');
         document.getElementById('training-tab-content').classList.remove('hidden');
-        document.getElementById('match-tab-content').classList.add('hidden');
+    } else if (tab === 'cloud') {
+        document.getElementById('tab-cloud-training-btn').classList.add('active');
+        document.getElementById('cloud-training-tab-content').classList.remove('hidden');
+        if (currentUser) {
+            fetchCloudTraining();
+        } else {
+            document.getElementById('cloud-training-container').innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Sessions.</div>';
+        }
     } else {
         document.getElementById('tab-match-btn').classList.add('active');
-        document.getElementById('tab-training-btn').classList.remove('active');
         document.getElementById('match-tab-content').classList.remove('hidden');
-        document.getElementById('training-tab-content').classList.add('hidden');
         if (currentUser) {
             fetchCloudMatches();
         } else {
@@ -1263,7 +1279,7 @@ function renderLiveCasts() {
         liveList.innerHTML += `
         <div class="cast-row flex-col gap-2 highlight-pass-btn ${colClass} ${weightClass}" data-swing-index="${swingCount - 1}" data-cast-index="${i}" style="${hitStyle}">
             <div class="flex justify-between">
-                <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(0)}cm ${c.dir || 'C'}</span>
+                <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(1)}cm ${c.dir || 'C'}</span>
                 <span class="w-25 text-center">${twistStr}</span>
                 <span class="w-25 text-center">${forceStr}</span>
                 <span class="w-25 text-right">${speedStr}</span>
@@ -1664,7 +1680,7 @@ function handleParsedTelemetry(t) {
             else { castData.push(strikeCast); }
             
             if(!isDynamicCalibrationActive && !inGameMode) {
-                if (DisplayElements.liveDev) DisplayElements.liveDev.innerText = `${devCM.toFixed(0)} cm ${dir}`;
+                if (DisplayElements.liveDev) DisplayElements.liveDev.innerText = `${devCM.toFixed(1)} cm ${dir}`;
                 if (DisplayElements.liveTempo) DisplayElements.liveTempo.innerText = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
                 renderLiveCasts();
             }
@@ -1745,13 +1761,18 @@ async function finalizeSwingData(nowTime) {
     swingDatabase.push({ frames: [...recordedFrames], rawTracePoints: [...rawTracePoints], casts: [...castData], finalReviewPivotQuat: finalReviewPivotQuat.clone(), finalReviewPivotPos: finalReviewPivotPos.clone(), finalReviewExtension: finalReviewExtension, setupQuat: ghostPivot.quaternion.clone() });
     let swingIndex = swingCount; swingCount++;
     
+    // --- NEW: Upload practice casts to the cloud! ---
+    if (castData.length > 0) {
+        savePracticeCastsToCloud(castData, lastComputedTempo);
+    }
+    
     let ssRad = AppConfig.sweetSpot; let devColor = 'var(--danger)';
     if (impactDetected || displayPass) { if (currentSwingDeviation <= 0.75) devColor = 'var(--success)'; else if (currentSwingDeviation <= ssRad) devColor = 'var(--warning)'; } else { devColor = 'var(--text-muted)'; }
     let afColor = 'var(--text-main)'; if (hwAppliedForce > 2) afColor = 'var(--success)'; else if (hwAppliedForce < -2) afColor = 'var(--danger)'; 
     
     let forceN = currentSwingMaxG * 9.81 * effectiveMalletMass;
     let forceHtml = impactDetected ? `${forceN.toFixed(0)} N` : `N/A`;
-    let devHtml   = (impactDetected || castData.length > 0) && displayPass ? `${currentSwingDeviation.toFixed(0)}cm ${displayPass.dir}` : `N/A`;
+    let devHtml   = (impactDetected || castData.length > 0) && displayPass ? `${currentSwingDeviation.toFixed(1)}cm ${displayPass.dir}` : `N/A`;
     let velHtml   = displayPass ? `${displayPass.passSpeed.toFixed(1)} m/s` : `--`;
     let tempoHtml = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
     
@@ -1798,7 +1819,7 @@ async function finalizeSwingData(nowTime) {
             return `
             <div class="cast-row flex-col gap-2 highlight-pass-btn ${colClass} ${weightClass}" data-swing-index="${swingCount-1}" data-cast-index="${i}" style="${hitStyle}">
                 <div class="flex justify-between">
-                    <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(0)}cm ${c.dir || 'C'}</span>
+                    <span class="w-25">${prefix}: ${(c.dev || 0).toFixed(1)}cm ${c.dir || 'C'}</span>
                     <span class="w-25 text-center">${twistStr}</span>
                     <span class="w-25 text-center">${forceStr}</span>
                     <span class="w-25 text-right">${speedStr}</span>
@@ -2148,6 +2169,7 @@ window.bleManager.onTelemetryData = function(t) {
 window.fetchCloudMatches = fetchCloudMatches;
 window.fetchCloudStrikes = fetchCloudStrikes;
 window.openMatchEdit = openMatchEdit;
+window.deleteCloudSession = deleteCloudSession; 
 
 window.syncHardwareOffsetFromCloud = function(x, y, z, w) {
     hardwareMountOffset.set(x, y, z, w);
