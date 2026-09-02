@@ -1,6 +1,6 @@
 import { initAudio, audioCtx, playBeep, playDoubleBeep, playTick, isAudioInitialized, isSoundEnabled, toggleSoundState, playSuccessSound } from './audio.js';
 import { difficultyMatrix, getStarRating, getShaftTwist, calcAccuracyData, calculateImpactForce } from './kinematics.js';
-import { showToast, formatOffset } from './utils.js';
+import { showToast, formatOffset, buildCastRowHTML } from './utils.js';
 import { supabaseClient, currentUser, setCurrentUser, loadCloudProfile, saveCloudProfile, fetchCloudMatches, fetchCloudStrikes, savePracticeCastsToCloud, fetchCloudTraining, deleteCloudSession } from './cloud.js';
 import { 
     scene, camera, renderer, controls, defaultRad, pivotBaseY, loadedRadius, setLoadedRadius,
@@ -391,7 +391,7 @@ const settingsElements = [
     'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'allowRealtimeTuningCheck',
     'trainerDistSetup', 'trainerTwistSetup', 'singleSwingCheck', 
     'matchLedToggle', 'matchAudioToggle', 'matchDistSetup', 'matchTwistSetup', 'matchLawnSetup',
-    'experimentalCheck'
+    'experimentalCheck', 'showCloudDataCheck'
 ];
 
 async function sendBleCommand(cmdArray, withResponse = false) {
@@ -521,7 +521,7 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
             }
         }
     } else {
-        currentUser = null;
+        setCurrentUser(null);
         hasLoadedCloudProfile = false; // Reset the flag if they sign out
         document.getElementById('openAuthBtn').innerHTML = 'Cloud Login <span>👤</span>';
         document.getElementById('openAuthBtn').onclick = () => { 
@@ -963,6 +963,16 @@ if (expCheck) {
     expCheck.addEventListener('change', updateExperimentalFeatures);
 }
 
+// NEW: Refresh the cloud tab immediately when toggled
+let cloudDataCheck = document.getElementById('showCloudDataCheck');
+if (cloudDataCheck) {
+    cloudDataCheck.addEventListener('change', () => {
+        if (currentUser && !document.getElementById('cloud-training-tab-content').classList.contains('hidden')) {
+            fetchCloudTraining();
+        }
+    });
+}
+
 document.getElementById('exportProfileBtn').onclick = () => {
     let profile = { hwMatrixX: hardwareMountOffset.x, hwMatrixY: hardwareMountOffset.y, hwMatrixZ: hardwareMountOffset.z, hwMatrixW: hardwareMountOffset.w };
     settingsElements.forEach(id => { let el = document.getElementById(id); if(el) profile[id] = el.type === 'checkbox' ? el.checked : el.value; });
@@ -1171,8 +1181,13 @@ document.getElementById('btnStopReview').onclick = () => {
     document.getElementById('toggleTwist').classList.remove('active');
     window.updateMeshVisibility();
     
-    // Clear list highlight
+    // Clear list highlight and collapse all details
     document.querySelectorAll('.active-cast-row').forEach(el => el.classList.remove('active-cast-row'));
+    document.querySelectorAll('.cast-details').forEach(el => {
+        el.style.display = 'none';
+        el.classList.remove('flex-col');
+    });
+    document.querySelectorAll('.expand-icon').forEach(el => el.innerText = '▼');
 
     if (window.fullSwingTraceBuffer && window.fullSwingTraceBuffer.length > 0) {
         rawTracePoints.length = 0;
@@ -1334,50 +1349,22 @@ animate();
 
 function renderLiveCasts() {
     let liveList = document.getElementById('live-tracking-list'); if (!liveList) return; liveList.innerHTML = '';
+    
+    // 1. Generate the HTML using the clean utility
     castData.forEach((c, i) => {
-        let f2t = c.planeTwist !== undefined ? c.planeTwist : c.faceAngle; // Face to Target
-        let pathDeg = (c.pathAngleRads || 0) * (180 / Math.PI);
-        let f2p = f2t - pathDeg; // Face to Path
-        
-        let rF2t = Math.round(f2t || 0);
-        let rF2p = Math.round(f2p || 0);
-        let f2tStr = `${rF2t > 0 ? '+' : ''}${rF2t}°`;
-        let f2pStr = `${rF2p > 0 ? '+' : ''}${rF2p}°`;
-        
-        let speedStr = `Vel: ${(c.passSpeed || 0).toFixed(1)}ms`;
-        let forceStr = `Imp: ${((c.passForce || 0) / 1000).toFixed(1)}kN`;
-        
-        let starDisplay = c.stars !== "" ? `<span style="color: ${c.starColor};" class="font-bold">${c.stars}</span>` : `<span class="text-muted">-</span>`;
-        let prefix = c.isStrike ? "STRIKE" : (i+1);
-        
-        let devMm = Math.round((c.dev || 0) * 10);
-        let devDisplay = `${c.dir || 'C'} ${devMm}mm`;
-        
-        let distStr = `Est:   ${Math.round(c.estDist || 0)}m `; 
-        let pDeltaStr = `PΔ:  ${formatOffset(c.pDelta)}`;
+        liveList.innerHTML += buildCastRowHTML(c, i, swingCount - 1, false);
+    });
 
-        let traceAccStr = c.isWhiff ? `-` : `Acc: ${(c.estAccRange >= 35 ? 'Max' : Math.round(c.estAccRange) + 'm')}`;
-        let weightClass = c.isStrike ? "font-bold" : ""; let colClass = c.isStrike ? "" : "text-muted";
-        let hitStyle = c.isHit ? `background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-left: 3px solid var(--success); border-radius: 4px; padding: 8px; margin-bottom: 4px;` : ``;
-
-        liveList.innerHTML += `
-        <div class="cast-row flex-col highlight-pass-btn ${colClass} ${weightClass}" data-swing-index="${swingCount - 1}" data-cast-index="${i}" style="${hitStyle} font-size: 0.85rem; padding-top: 6px; padding-bottom: 6px;">
-            <div class="flex justify-between items-center">
-                <span style="flex: 1; text-align: left;">${prefix}: ${devDisplay}</span>
-                <span style="flex: 1; text-align: center;">${forceStr}</span>
-                <span style="flex: 1; text-align: right;">${speedStr}</span>
-            </div>
-            <div class="flex justify-between items-center mt-1">
-                <span style="flex: 1; text-align: left;">${starDisplay}</span>
-                <span style="flex: 1; text-align: center;">Tgt: ${f2tStr}</span>
-                <span style="flex: 1; text-align: right;">Pth: ${f2pStr}</span>
-            </div>
-            <div class="flex justify-between items-center text-muted font-normal mt-1">
-                <span style="flex: 1; text-align: left;">${traceAccStr}</span>
-                <span style="flex: 1; text-align: center;">${distStr}</span>
-                <span style="flex: 1; text-align: right;">${pDeltaStr}</span>
-            </div>
-        </div>`;
+    // 2. Attach click listeners to the live rows so they expand when tapped!
+    let liveRows = liveList.querySelectorAll('.highlight-pass-btn');
+    liveRows.forEach(row => {
+        row.onclick = () => {
+            let swingIdx = parseInt(row.getAttribute('data-swing-index'), 10);
+            let castIdx = parseInt(row.getAttribute('data-cast-index'), 10);
+            if (!isNaN(swingIdx) && !isNaN(castIdx)) {
+                highlightPass(swingIdx, castIdx);
+            }
+        };
     });
 }
 
@@ -1418,8 +1405,28 @@ function highlightPass(swingIdx, castIdx) {
     
     // Highlight UI logic
     document.querySelectorAll('.active-cast-row').forEach(el => el.classList.remove('active-cast-row'));
+    
+    // NEW: Collapse all details globally
+    document.querySelectorAll('.cast-details').forEach(el => {
+        el.style.display = 'none';
+        el.classList.remove('flex-col'); // Temporarily strip the flex class to force hide
+    });
+    document.querySelectorAll('.expand-icon').forEach(el => el.innerText = '▼');
+    
     let activeRow = document.querySelector(`.cast-row[data-swing-index="${swingIdx}"][data-cast-index="${castIdx}"]`);
-    if (activeRow) activeRow.classList.add('active-cast-row');
+    if (activeRow) {
+        activeRow.classList.add('active-cast-row');
+        
+        // NEW: Expand the target cast details to reveal mechanics
+        let activeDetails = activeRow.querySelector('.cast-details');
+        if (activeDetails) {
+            activeDetails.style.display = 'flex';
+            activeDetails.classList.add('flex-col'); // Re-apply flex-col for proper vertical stacking
+        }
+        
+        let activeIcon = activeRow.querySelector('.expand-icon');
+        if (activeIcon) activeIcon.innerText = '▲';
+    }
     
     // Button states
     let btnPrev = document.getElementById('btnPrevCast');
@@ -1922,48 +1929,7 @@ async function finalizeSwingData(nowTime) {
     
     if (castData.length > 0) {
         let listItems = castData.map((c, i) => {
-            let f2t = c.planeTwist !== undefined ? c.planeTwist : c.faceAngle; 
-            let pathDeg = (c.pathAngleRads || 0) * (180 / Math.PI);
-            let f2p = f2t - pathDeg; 
-            
-            let rF2t = Math.round(f2t || 0);
-            let rF2p = Math.round(f2p || 0);
-            let f2tStr = `${rF2t > 0 ? '+' : ''}${rF2t}°`;
-            let f2pStr = `${rF2p > 0 ? '+' : ''}${rF2p}°`;
-
-            let speedStr = `Vel: ${(c.passSpeed || 0).toFixed(1)}ms`;
-            let forceStr = `Imp: ${((c.passForce || 0) / 1000).toFixed(1)}kN`;
-            
-            let starDisplay = c.stars !== "" ? `<span style="color: ${c.starColor};" class="font-bold">${c.stars}</span>` : `<span class="text-muted">-</span>`;
-            let prefix = c.isStrike ? "STRIKE" : (i+1);
-            let weightClass = c.isStrike ? "font-bold" : ""; let colClass = c.isStrike ? "" : "text-muted";
-            
-            let devMm = Math.round((c.dev || 0) * 10);
-            let devDisplay = `${c.dir || 'C'} ${devMm}mm`;
-            
-            let distStr = c.estDist ? `Est:   ${Math.round(c.estDist)}m ` : `Est: 0m`;
-            let pDeltaStr = `PΔ:   ${formatOffset(c.pDelta)}`;
-            let traceAccStr = c.isWhiff ? `-` : `Acc: ${(c.estAccRange >= 35 ? 'Center' : Math.round(c.estAccRange) + 'm')}`;
-            let hitStyle = c.isHit ? `background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-left: 3px solid var(--success); border-radius: 4px; padding: 8px; margin-bottom: 4px;` : ``;
-
-            return `
-            <div class="cast-row flex-col highlight-pass-btn ${colClass} ${weightClass}" data-swing-index="${swingCount-1}" data-cast-index="${i}" style="${hitStyle} font-size: 0.85rem; padding-top: 6px; padding-bottom: 6px;">
-                <div class="flex justify-between items-center">
-                    <span style="flex: 1; text-align: left;">${prefix}: ${devDisplay}</span>
-                    <span style="flex: 1; text-align: center;">${forceStr}</span>
-                    <span style="flex: 1; text-align: right;">${speedStr}</span>
-                </div>
-                <div class="flex justify-between items-center mt-1">
-                    <span style="flex: 1; text-align: left;">${starDisplay}</span>
-                    <span style="flex: 1; text-align: center;">Tgt: ${f2tStr}</span>
-                    <span style="flex: 1; text-align: right;">Pth: ${f2pStr}</span>
-                </div>
-                <div class="flex justify-between items-center text-muted font-normal mt-1">
-                    <span style="flex: 1; text-align: left;">${traceAccStr}</span>
-                    <span style="flex: 1; text-align: center;">${distStr}</span>
-                    <span style="flex: 1; text-align: right;">${pDeltaStr}</span>
-                </div>
-            </div>`;
+            return buildCastRowHTML(c, i, swingCount - 1, false);
         }).join('');
         
         castsHtml = `

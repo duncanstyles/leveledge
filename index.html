@@ -27,7 +27,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="bleManager.js"></script>
-    <script type="module" src="main.js?v=1"></script>
+    <script type="module" src="main.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -163,7 +163,7 @@
         </div>
         <div class="panel-tab-bar">
             <button id="tab-training-btn" class="panel-tab-btn active">THIS SESSION</button>
-            <button id="tab-cloud-training-btn" class="panel-tab-btn">STORED SESSIONS</button>
+            <button id="tab-cloud-training-btn" class="panel-tab-btn">ANALYTICS</button>
             <button id="tab-match-btn" class="panel-tab-btn">MATCHES</button>
         </div>
 
@@ -190,7 +190,7 @@
                 </div>
                 <div class="flex gap-2">
                     <button id="btnPrevCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">⏪ PREV</button>
-                    <button id="btnStopReview" class="btn-primary btn-danger p-2" style="width: 50px; flex: none;">⏹️</button>
+                    <button id="btnStopReview" class="drawer-btn justify-center p-2" style="width: 60px; flex: none; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main);">⏹️</button>
                     <button id="btnNextCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">NEXT ⏩</button>
                 </div>
             </div>
@@ -587,7 +587,13 @@
                     <label for="experimentalCheck" class="text-danger font-bold">Enable Experimental Features</label>
                     <input type="checkbox" id="experimentalCheck">
                 </div>
-                
+
+                <!-- NEW: Show Cloud Data Checkbox -->
+                <div class="setting-item setting-checkbox" style="background: rgba(0,0,0,0.05); padding: 10px; border-radius: 8px;">
+                    <label for="showCloudDataCheck" class="text-warning font-bold">Show Raw Cloud Data</label>
+                    <input type="checkbox" id="showCloudDataCheck">
+                </div>
+
                 <button id="toggleDiagnosticHudBtn" class="btn-primary">TOGGLE KINEMATIC HUD</button>
                 <button id="devResetCalibrationBtn" class="btn-primary btn-warning" style="margin-top: 15px; color: #111;">WIPE CALIBRATION (ZERO MATRIX)</button>
             </div>

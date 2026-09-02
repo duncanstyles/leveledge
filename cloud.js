@@ -1,6 +1,6 @@
 // cloud.js
-import { showToast, formatOffset } from './utils.js';
 import { difficultyMatrix, getStarRating, getShaftTwist } from './kinematics.js';
+import { showToast, formatOffset, buildCastRowHTML } from './utils.js';
 
 const SUPABASE_URL = 'https://ymqqthvgfsrdmairukfi.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InltcXF0aHZnZnNyZG1haXJ1a2ZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM3NjIxMjQsImV4cCI6MjA5OTMzODEyNH0.IXf5VkCCVgBBRzmfD4BLOq_xNEcyhcySmDySq677E-E';
@@ -229,30 +229,38 @@ export async function fetchCloudTraining() {
     let container = document.getElementById('cloud-training-container');
     if (!container) return;
     
-    container.innerHTML = '<div class="text-muted text-center p-5">Fetching cloud sessions...</div>';
+    container.innerHTML = '<div class="text-muted text-center p-5">Fetching cloud swings...</div>';
     
     if (!currentUser) {
-        container.innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Sessions.</div>';
+        container.innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Swings.</div>';
         return;
     }
 
-    // Grab all casts for this user, ordered newest first
+    // Grab recent casts for this user. Limit to 1000 rows (covers >100 swings) to keep network fast.
     const { data: casts, error } = await supabaseClient
         .from('practice_casts')
         .select('*')
         .eq('user_id', currentUser.id)
-        .order('timestamp', { ascending: false });
+        .order('timestamp', { ascending: false })
+        .limit(1000);
 
     if (error || !casts || casts.length === 0) { 
-        container.innerHTML = '<div class="text-muted text-center p-5">No cloud training sessions found.</div>'; 
+        container.innerHTML = '<div class="text-muted text-center p-5">No cloud swings found.</div>'; 
         return; 
     }
+
+    // --- NEW: Limit exactly to the last 100 unique swings ---
+    // Extract unique swing IDs in order, keep only the first 100
+    let uniqueSwingIds = [...new Set(casts.map(c => c.swing_id).filter(id => id))].slice(0, 100);
+    
+    // Filter the payload to only include casts from those 100 swings
+    let recentCasts = casts.filter(c => uniqueSwingIds.includes(c.swing_id));
 
     // Group the casts by their unique swing_id
     let sessions = {};
     let sessionOrder = [];
     
-    casts.forEach(c => {
+    recentCasts.forEach(c => {
         let sId = c.swing_id || 'unknown';
         if (!sessions[sId]) {
             sessions[sId] = [];
@@ -261,7 +269,7 @@ export async function fetchCloudTraining() {
         sessions[sId].push(c);
     });
 
-// --- NEW DASHBOARD LOGIC ---
+    // --- NEW DASHBOARD LOGIC ---
     let sumPDelta = 0, sumDev = 0, sumFace = 0;
     let countPDelta = 0, countDev = 0, countFace = 0;
 
@@ -272,8 +280,8 @@ export async function fetchCloudTraining() {
     let attemptsPerBucket = {2:0, 4:0, 6:0, 8:0, 10:0, 12:0, 14:0, 16:0, 18:0, 20:0};
     let hitsPerBucket = {2:0, 4:0, 6:0, 8:0, 10:0, 12:0, 14:0, 16:0, 18:0, 20:0};
 
-    // Calculate overall averages and chart data
-    casts.forEach(c => {
+    // Calculate overall averages and chart data using ONLY the last 100 swings
+    recentCasts.forEach(c => {
         // Top dashboard stats
         if (c.p_delta !== null && c.p_delta !== undefined) {
             sumPDelta += c.p_delta; countPDelta++;
@@ -369,78 +377,84 @@ export async function fetchCloudTraining() {
     }
     // --- END DASHBOARD LOGIC ---
 
+    // --- END DASHBOARD LOGIC ---
+
     container.innerHTML = '';
     
-    // Render each session card
-    sessionOrder.forEach(sId => {
-        let sessionCasts = sessions[sId];
-        // Sort ascending by cast_index so they display in chronological order
-        sessionCasts.sort((a, b) => a.cast_index - b.cast_index);
-         
-        let sessionTime = new Date(sessionCasts[0].timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-        let finalStrike = sessionCasts.find(c => c.is_strike) || sessionCasts[sessionCasts.length - 1];
-        
-        let finalTempo = finalStrike.tempo_bpm ? `${finalStrike.tempo_bpm} BPM` : '--';
-        let finalDev = finalStrike.path_dev_cm !== null ? `${finalStrike.path_dev_cm.toFixed(1)}cm ${finalStrike.dir || ''}` : '--';
-        let finalSpeed = finalStrike.speed_mps !== null ? `${finalStrike.speed_mps.toFixed(1)} m/s` : '--';
-        
-        let castsHtml = sessionCasts.map(c => {
-            let twistStr = "";
-            if (c.impact_twist !== null && c.impact_twist !== undefined && c.is_strike) {
-                twistStr = `<div style="font-size: 0.85em; line-height: 1.2;">Pln: ${c.plane_twist > 0 ? '+' : ''}${c.plane_twist.toFixed(1)}°<br>Imp: ${c.impact_twist > 0 ? '+' : ''}${c.impact_twist.toFixed(1)}°</div>`;
-            } else {
-                twistStr = `<div style="font-size: 0.85em; line-height: 1.2;">Pln: ${c.plane_twist > 0 ? '+' : ''}${(c.plane_twist || 0).toFixed(1)}°<br>Imp: --</div>`;
-            }
-            let speedStr = `${(c.speed_mps || 0).toFixed(1)}m/s`;
-            let forceVal = c.push_force !== null && c.push_force !== undefined ? c.push_force : c.applied_force;
-            let forceStr = (forceVal || 0) > 0 ? `+${Math.round(forceVal)}N` : `${Math.round(forceVal || 0)}N`;
-            let prefix = c.is_strike ? "STRIKE" : (c.cast_index + 1);
-
-            let weightClass = c.is_strike ? "font-bold" : ""; 
-            let colClass = c.is_strike ? "" : "text-muted";
-            let distStr = c.est_dist_m ? `d: ${Math.round(c.est_dist_m)}m` : `d: 0m`;
+    // NEW: Check if the dev option is enabled before rendering the list
+    const showRawData = document.getElementById('showCloudDataCheck')?.checked;
+    
+    if (showRawData) {
+        // Render each swing card
+        sessionOrder.forEach(sId => {
+            let sessionCasts = sessions[sId];
+            sessionCasts.sort((a, b) => a.cast_index - b.cast_index);
+             
+            let sessionTime = new Date(sessionCasts[0].timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+            let finalStrike = sessionCasts.find(c => c.is_strike) || sessionCasts[sessionCasts.length - 1];
             
-            return `
-            <div class="cast-row flex-col gap-2 ${colClass} ${weightClass}">
-                <div class="flex justify-between">
-                    <span class="w-25">${prefix}: ${(c.path_dev_cm || 0).toFixed(1)}cm ${c.dir || 'C'}</span>
-                    <span class="w-25 text-center">${twistStr}</span>
-                    <span class="w-25 text-center">${forceStr}</span>
-                    <span class="w-25 text-right">${speedStr}</span>
-                </div>
-                <div class="flex justify-between text-muted font-normal">
-                    <span class="w-25 text-center">Acc: ${c.est_acc_range ? Math.round(c.est_acc_range)+'m' : '-'}</span>
-                    <span class="w-25 text-center">${distStr}</span>
-                    <span class="w-25 text-right">PΔ: ${c.p_delta !== null ? Math.round(c.p_delta)+'cm' : '--'}</span>
-                </div>
-            </div>`;
-        }).join('');
+            let finalTempo = finalStrike.tempo_bpm ? `${finalStrike.tempo_bpm} BPM` : '--';
+            let finalDev = finalStrike.path_dev_cm !== null ? `${finalStrike.path_dev_cm.toFixed(1)}cm ${finalStrike.dir || ''}` : '--';
+            let finalSpeed = finalStrike.speed_mps !== null ? `${finalStrike.speed_mps.toFixed(1)} m/s` : '--';
+            
+            let castsHtml = sessionCasts.map(c => {
+                let mappedCast = {
+                    planeTwist: c.plane_twist, faceAngle: c.plane_twist, pathAngleRads: c.path_angle_rads,
+                    passSpeed: c.speed_mps, isStrike: c.is_strike, dev: c.path_dev_cm / 10.0, 
+                    dir: c.dir, estDist: c.est_dist_m, pDelta: c.p_delta, estAccRange: c.est_acc_range,
+                    isWhiff: c.est_acc_range === null || c.est_acc_range === undefined,
+                    stars: "", isHit: false
+                };
+                return buildCastRowHTML(mappedCast, c.cast_index, 0, true);
+            }).join('');
 
-        container.innerHTML += `
-            <div class="history-card">
-                <div class="card-header">
-                    <div>
-                        <span class="swing-title">SESSION LOG</span>
-                        <button class="icon-btn text-danger" style="display:inline-block; padding: 2px; margin-left: 5px; opacity:0.7;" onclick="deleteCloudSession('${sId}')">🗑️</button>
+            container.innerHTML += `
+                <div class="history-card">
+                    <div class="card-header">
+                        <div>
+                            <span class="swing-title">SWING LOG</span>
+                            <button class="icon-btn text-danger" style="display:inline-block; padding: 2px; margin-left: 5px; opacity:0.7;" onclick="deleteCloudSession('${sId}')" title="Delete Swing">🗑️</button>
+                        </div>
+                        <span class="swing-time">${sessionTime}</span>
                     </div>
-                    <span class="swing-time">${sessionTime}</span>
-                </div>
-                <div class="card-basic-stats">
-                    <div class="stat-block"><span class="stat-lbl">Final Speed</span><span class="stat-val">${finalSpeed}</span></div>
-                    <div class="stat-block"><span class="stat-lbl">Final Dev</span><span class="stat-val text-warning">${finalDev}</span></div>
-                    <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val text-accent">${finalTempo}</span></div>
-                </div>
-                <details class="advanced-metrics mt-4">
-                    <summary>View Casting Sequence (${sessionCasts.length} passes)</summary>
-                    <div class="mt-2">
-                        ${castsHtml}
+                    <div class="card-basic-stats">
+                        <div class="stat-block"><span class="stat-lbl">Final Speed</span><span class="stat-val">${finalSpeed}</span></div>
+                        <div class="stat-block"><span class="stat-lbl">Final Dev</span><span class="stat-val text-warning">${finalDev}</span></div>
+                        <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val text-accent">${finalTempo}</span></div>
                     </div>
-                </details>
-            </div>`;
-    });
+                    <details class="advanced-metrics mt-4">
+                        <summary>View Casting Sequence (${sessionCasts.length} passes)</summary>
+                        <div class="mt-2">${castsHtml}</div>
+                    </details>
+                </div>`;
+        });
+        
+        // Attach click listeners to expand Stored Session rows
+        let cloudRows = container.querySelectorAll('.highlight-cloud-pass-btn');
+        cloudRows.forEach(row => {
+            row.onclick = () => {
+                let details = row.querySelector('.cast-details');
+                let icon = row.querySelector('.expand-icon');
+                if (!details) return;
+                
+                if (details.style.display === 'none' || details.style.display === '') {
+                    container.querySelectorAll('.highlight-cloud-pass-btn .cast-details').forEach(el => {
+                        el.style.display = 'none'; el.classList.remove('flex-col');
+                    });
+                    container.querySelectorAll('.highlight-cloud-pass-btn .expand-icon').forEach(el => el.innerText = '▼');
+                    details.style.display = 'flex'; details.classList.add('flex-col');
+                    if (icon) icon.innerText = '▲';
+                } else {
+                    details.style.display = 'none'; details.classList.remove('flex-col');
+                    if (icon) icon.innerText = '▼';
+                }
+            };
+        });
+    }
 }
+
 export async function deleteCloudSession(swingId) {
-    if (!confirm("Are you sure you want to delete this training session?")) return;
+    if (!confirm("Are you sure you want to delete this swing?")) return;
     
     // Delete all casts that share this exact swing_id
     const { error } = await supabaseClient
@@ -449,9 +463,9 @@ export async function deleteCloudSession(swingId) {
         .eq('swing_id', swingId);
         
     if (error) {
-        showToast("Error deleting session: " + error.message);
+        showToast("Error deleting swing: " + error.message);
     } else {
-        showToast("Session deleted.");
+        showToast("Swing deleted.");
         fetchCloudTraining(); // Refresh the list
     }
 }
