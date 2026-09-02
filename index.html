@@ -7,7 +7,7 @@
     
     <!-- --- GLOBAL APP CONFIGURATION --- -->
     <script>
-        const APP_VERSION = "9.2.01"; // Change this single variable to update the version everywhere
+        const APP_VERSION = "9.4.05"; // Change this single variable to update the version everywhere
         
         document.addEventListener("DOMContentLoaded", () => {
             document.title = `LevelEdge v${APP_VERSION}`;
@@ -27,7 +27,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="bleManager.js"></script>
-    <script type="module" src="main.js?v=2"></script>
+    <script type="module" src="main.js?v=1"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -136,8 +136,8 @@
         <div class="gm-title text-muted font-bold uppercase mb-2">Total Strokes</div>
         <div id="gm-stroke-count" class="gm-score font-mono text-main font-800" style="font-size: 6rem; line-height: 1;">0</div>
         
-        <!-- --- THE FIX: ADDED DOUBLE-TAP INSTRUCTIONS HERE --- -->
-        <div id="gm-latest-stats" class="gm-stats text-warning font-mono text-center mt-5 mb-5" style="font-size: 1.1rem; min-height: 80px;">Awaiting Next Strike...<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Double-Tap sensor to align and practice cast.</span></div>
+        <!-- --- Game Mode spin to arm INSTRUCTIONS HERE --- -->
+        <div id="gm-latest-stats" class="gm-stats text-warning font-mono text-center mt-5 mb-5" style="font-size: 1.1rem; min-height: 80px;">Awaiting Next Strike...<br><span style='font-size:0.75rem; color:var(--text-muted); font-weight:normal;'>Quickly spin mallet clockwise to arm mallet.</span></div>
         
         <button id="endGameModeBtn" class="btn-primary btn-danger mt-5" style="max-width: 300px;">END ON-COURSE MATCH</button>
     </div>
@@ -173,10 +173,25 @@
                 <button id="resetMaxBtn" class="btn-primary btn-danger" style="font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Clear Log 🗑️</button>
             </div>
 
-            <div id="tune-action-panel" class="hidden">
+            <div id="tune-action-panel" class="hidden flex-col gap-2">
+                <div class="flex justify-around items-center p-2 mb-1" style="background: var(--bg-base); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <button id="toggleBase" class="vis-toggle active" title="Base Path">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 20c4-10 10-15 18-15"></path></svg>
+                    </button>
+                    <button id="toggleWobble" class="vis-toggle" title="Wobble (Roll)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12h4l3-5 5 10 3-5h5"></path></svg>
+                    </button>
+                    <button id="toggleTwist" class="vis-toggle" title="Twist (Yaw)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transform: rotate(-30deg) scaleY(0.6);"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                    </button>
+                    <button id="enterTuningBtn" class="vis-toggle hidden" title="Tune Matrix" style="color: var(--warning); border-color: var(--warning);">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                    </button>
+                </div>
                 <div class="flex gap-2">
-                    <button id="enterTuningBtn" class="btn-primary btn-warning flex-1 p-2 hidden" style="color:#111; font-size:0.85rem;">🛠️ TUNE ALIGNMENT</button>
-                    <button id="exitPassViewBtn" class="btn-primary btn-danger flex-1 p-2" style="font-size:0.85rem;">🛑 STOP</button>
+                    <button id="btnPrevCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">⏪ PREV</button>
+                    <button id="btnStopReview" class="btn-primary btn-danger p-2" style="width: 50px; flex: none;">⏹️</button>
+                    <button id="btnNextCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">NEXT ⏩</button>
                 </div>
             </div>
 
@@ -219,9 +234,9 @@
                     <span class="swing-title text-accent">PERFORMANCE TRENDS</span>
                 </div>
                 <div class="live-stat-row" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 15px;">
-                    <div class="stat-block"><span class="stat-lbl">Avg Speed</span><span id="dash-avg-speed" class="stat-val text-main">--</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Avg Tempo PΔ</span><span id="dash-avg-pdelta" class="stat-val text-main">--</span></div>
                     <div class="stat-block"><span class="stat-lbl">Avg Dev</span><span id="dash-avg-dev" class="stat-val text-warning">--</span></div>
-                    <div class="stat-block"><span class="stat-lbl">Avg Face</span><span id="dash-avg-face" class="stat-val text-main">--</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Avg Twist</span><span id="dash-avg-face" class="stat-val text-main">--</span></div>
                 </div>
                 <div style="position: relative; height: 200px; width: 100%;">
                     <canvas id="performanceChart"></canvas>
@@ -269,6 +284,11 @@
                 <div class="setting-item setting-checkbox" style="padding: 8px;">
                     <label for="singleSwingCheck" style="font-size: 0.85rem;">Single Swing Pass</label>
                     <input type="checkbox" id="singleSwingCheck">
+                </div>
+                
+                <div class="setting-item flex justify-between items-center" style="padding: 8px; display: flex; flex-direction: row;">
+                    <label for="practiceInput" style="font-size: 0.85rem; margin: 0;">Shot Clock (s)</label>
+                    <input type="number" id="practiceInput" value="10.0" step="0.5" style="padding: 4px; width: 70px; text-align: right; margin: 0;">
                 </div>
                 
                 <div class="setting-item setting-checkbox" style="padding: 8px;">
@@ -373,8 +393,8 @@
             </div>
             <form id="updatePasswordForm" onsubmit="event.preventDefault();">
                 <div class="flex-col gap-4 text-left mb-5">
-                    <input type="text" autocomplete="username" class="hidden" style="display:none;" aria-hidden="true">
-                    
+                    <input type="text" name="username" id="username" autocomplete="username" class="hidden" style="display:none;" aria-hidden="true">
+
                     <div class="setting-item">
                         <label for="newPassword">New Password</label>
                         <input type="password" id="newPassword" placeholder="••••••••" autocomplete="new-password">
@@ -419,6 +439,7 @@
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                 <div class="setting-item span-2"><label for="malletNameInput">Profile Name:</label><input type="text" id="malletNameInput" value="Primary Mallet"></div>
+                <div class="setting-item"><label for="handleLengthInput">Handle Length (cm):</label><input type="number" id="handleLengthInput" value="90.0" step="0.5"></div>
                 <div class="setting-item"><label for="malletLengthInput">Head Length (cm):</label><input type="number" id="malletLengthInput" value="27.6" step="0.1"></div>
                 <div class="setting-item"><label for="malletWidthInput">Face Width (cm):</label><input type="number" id="malletWidthInput" value="6.0" step="0.1"></div>
                 <div class="setting-item"><label for="massInput">Mallet Mass (g):</label><input type="number" id="massInput" value="1000" step="50"></div>
@@ -508,8 +529,7 @@
 
                 <div class="setting-item"><label for="timeoutInput">Sleep Timeout (mins):</label><input type="number" id="timeoutInput" value="5" step="1"></div>
                 <div class="setting-item"><label for="durationInput">Follow-Thru Rec (s):</label><input type="number" id="durationInput" value="1.0" step="0.1"></div>
-                <div class="setting-item"><label for="practiceInput">Shot Clock (s):</label><input type="number" id="practiceInput" value="10.0" step="0.5"></div>
-                <div class="setting-item"><label for="flatMagInput">Drop Vis (x):</label><input type="number" id="flatMagInput" value="4.0" step="0.5"></div>
+                <div class="setting-item"><label for="flatMagInput">Visual Delta Mag (x):</label><input type="number" id="flatMagInput" value="4.0" step="0.5"></div>
                 <div class="setting-item setting-checkbox span-2"><label for="showTraceCheck">Render 3D Trace:</label><input type="checkbox" id="showTraceCheck" checked></div>
                 
                 <div class="setting-item mt-2"><button id="btnUpdateFW" class="btn-primary">Sync FW</button></div>
@@ -545,7 +565,7 @@
             <div class="font-mono mb-5" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
                 Offline Strokes: <span id="about-storage-display" class="text-accent">--</span><br>
-                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 9.1.01</span>
+                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 9.4.05</span>
             </div>
             <div class="text-muted line-height-15" style="font-size: 0.8rem;">
                 &copy; Duncan Styles<br>

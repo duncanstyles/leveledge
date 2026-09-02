@@ -123,7 +123,7 @@ class LevelEdgeBLEManager {
             // Guarantee 35ms delay to prevent choking the BLE buffer
             await new Promise(resolve => setTimeout(resolve, 35));
             if (withResponse) {
-                await this.commandChar.writeValue(new Uint8Array(cmdArray));
+                await this.commandChar.writeValueWithResponse(new Uint8Array(cmdArray));
             } else {
                 await this.commandChar.writeValueWithoutResponse(new Uint8Array(cmdArray));
             }
@@ -145,7 +145,7 @@ class LevelEdgeBLEManager {
             view.setFloat32(4, x, true); 
             view.setFloat32(8, y, true); 
             view.setFloat32(12, z, true);
-            await this.calibrationChar.writeValue(new Uint8Array(buffer));
+            await this.calibrationChar.writeValueWithResponse(new Uint8Array(buffer));
             return true;
         } catch(e) {
             return false;
@@ -228,7 +228,8 @@ class LevelEdgeBLEManager {
             faceAngle: data.getInt16(8, true) / 10.0,
             zVel: data.getInt16(10, true) / 100.0,
             appliedForce: data.getInt8(12),
-            pushForce: data.getInt16(13, true) / 10.0,
+            // pushForce: data.getInt16(13, true) / 10.0, // This is no longer used, but I left it there so as not to break stuff.
+            undefined_0: data.getInt16(13, true) / 10.0,
             q0: data.getInt16(15, true) / 10000.0,
             q1: data.getInt16(17, true) / 10000.0,
             q2: data.getInt16(19, true) / 10000.0,

@@ -28,6 +28,7 @@ export async function loadCloudProfile() {
         document.getElementById('difficultySelect').value = p.skill_tier;
         document.getElementById('sweetSpotInput').value = p.sweet_spot;
         document.getElementById('twistToleranceInput').value = p.twist_tolerance;
+        document.getElementById('handleLengthInput').value = p.handle_length;
         window.syncHardwareOffsetFromCloud(p.matrix_x, p.matrix_y, p.matrix_z, p.matrix_w);
         showToast("Cloud Settings Loaded.");
     } else { 
@@ -46,7 +47,8 @@ export async function saveCloudProfile(hardwareMountOffset) {
         matrix_w: hardwareMountOffset.w, matrix_x: hardwareMountOffset.x, matrix_y: hardwareMountOffset.y, matrix_z: hardwareMountOffset.z,
         radius: parseFloat(document.getElementById('radiusInput').value) || 127,
         skill_tier: document.getElementById('difficultySelect').value, sweet_spot: parseFloat(document.getElementById('sweetSpotInput').value) || 1.5,
-        twist_tolerance: parseFloat(document.getElementById('twistToleranceInput').value) || 1.0, updated_at: new Date().toISOString()
+        twist_tolerance: parseFloat(document.getElementById('twistToleranceInput').value) || 1.0, updated_at: new Date().toISOString(),
+        handle_length: parseFloat(document.getElementById('handleLengthInput').value) || 91.4
     };
     
     const { data, error: updateErr } = await supabaseClient.from('mallet_profiles').update(payload).eq('user_id', currentUser.id).select();
@@ -181,20 +183,30 @@ export async function savePracticeCastsToCloud(castsArray, currentTempo) {
 
     // Generate one unique ID to link this entire sequence of casts and the final strike together
     const uniqueSwingId = crypto.randomUUID(); 
+    
+    // Capture the real-world time right now, and the hardware time of the final cast
+    const nowRealTime = Date.now();
+    const lastCastHwTime = castsArray[castsArray.length - 1].time;
 
     let castsToInsert = castsArray.map((c, index) => {
+        // Calculate the exact real-world time this specific cast happened
+        let exactCastTime = nowRealTime - (lastCastHwTime - c.time);
+        
         return {
-            swing_id: uniqueSwingId,             // <--- Here is the explicit link!
+            swing_id: uniqueSwingId,             
             user_id: currentUser.id,
-            timestamp: new Date(c.time).toISOString(),
+            timestamp: new Date(exactCastTime).toISOString(),
             cast_index: index,
             is_strike: c.isStrike,
             path_dev_cm: parseFloat(c.dev.toFixed(1)),
             dir: c.dir,
-            face_angle: parseFloat(c.faceAngle.toFixed(1)),
+            plane_twist: c.planeTwist !== null && c.planeTwist !== undefined ? parseFloat(c.planeTwist.toFixed(1)) : null,
+            
+            impact_twist: c.impactTwist !== null && c.impactTwist !== undefined ? parseFloat(c.impactTwist.toFixed(1)) : null,
             speed_mps: parseFloat(c.passSpeed.toFixed(1)),
-            applied_force: c.appliedForce,
+            push_force: c.pushForce !== undefined ? c.pushForce : null,
             est_dist_m: c.estDist,
+            
             tempo_bpm: currentTempo > 0 ? Math.round(currentTempo) : null,
             
             // Advanced Kinematics
@@ -249,42 +261,54 @@ export async function fetchCloudTraining() {
         sessions[sId].push(c);
     });
 
-    // --- NEW DASHBOARD LOGIC ---
-    let chartLabels = [];
-    let speedData = [];
-    let devData = [];
+// --- NEW DASHBOARD LOGIC ---
+    let sumPDelta = 0, sumDev = 0, sumFace = 0;
+    let countPDelta = 0, countDev = 0, countFace = 0;
+
+    // Distances for X-axis (in meters)
+    const distanceBuckets = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20];
     
-    let sumSpeed = 0, sumDev = 0, sumFace = 0;
-    let countSpeed = 0, countDev = 0, countFace = 0;
+    // Track both total attempts and successful hits PER BUCKET
+    let attemptsPerBucket = {2:0, 4:0, 6:0, 8:0, 10:0, 12:0, 14:0, 16:0, 18:0, 20:0};
+    let hitsPerBucket = {2:0, 4:0, 6:0, 8:0, 10:0, 12:0, 14:0, 16:0, 18:0, 20:0};
 
-    // sessionOrder is currently newest-first. Reverse it so the chart goes left-to-right (oldest to newest)
-    let chronologicalSessions = [...sessionOrder].reverse();
+    // Calculate overall averages and chart data
+    casts.forEach(c => {
+        // Top dashboard stats
+        if (c.p_delta !== null && c.p_delta !== undefined) {
+            sumPDelta += c.p_delta; countPDelta++;
+        }
+        if (c.path_dev_cm !== null && c.path_dev_cm !== undefined) {
+            sumDev += c.path_dev_cm; countDev++;
+        }
+        if (c.plane_twist !== null && c.plane_twist !== undefined) {
+            sumFace += Math.abs(c.plane_twist); countFace++;
+        }
 
-    chronologicalSessions.forEach((sId, index) => {
-        let sessionCasts = sessions[sId];
-        chartLabels.push(`Session ${index + 1}`);
-        
-        let sSpeed = 0, sDev = 0, sCount = 0;
-        sessionCasts.forEach(c => {
-            if (c.speed_mps !== null && c.speed_mps !== undefined) {
-                sSpeed += c.speed_mps; sumSpeed += c.speed_mps; countSpeed++;
-            }
-            if (c.path_dev_cm !== null && c.path_dev_cm !== undefined) {
-                sDev += c.path_dev_cm; sumDev += c.path_dev_cm; countDev++;
-            }
-            if (c.face_angle !== null && c.face_angle !== undefined) {
-                // Use absolute value to calculate average face deflection (so +1 and -1 don't average to perfect 0)
-                sumFace += Math.abs(c.face_angle); countFace++;
-            }
-            sCount++;
-        });
-        
-        speedData.push(sCount > 0 ? (sSpeed / sCount) : 0);
-        devData.push(sCount > 0 ? (sDev / sCount) : 0);
+        // Chart Data: Evaluate hit % per distance bucket
+        if (c.true_acc_range !== null && c.est_dist_m !== null) {
+            distanceBuckets.forEach(d => {
+                // Only include the cast in this bucket's data if the ball was hit hard enough 
+                // to actually reach the target distance (Estimated Distance >= Target Distance)
+                if (c.est_dist_m >= d) {
+                    attemptsPerBucket[d]++;
+                    
+                    // It counts as a hit if it stays on the line for at least that distance
+                    if (c.true_acc_range >= d) {
+                        hitsPerBucket[d]++;
+                    }
+                }
+            });
+        }
+    });
+
+    // Convert raw hits to percentages per bucket
+    let accuracyData = distanceBuckets.map(d => {
+        return attemptsPerBucket[d] > 0 ? (hitsPerBucket[d] / attemptsPerBucket[d] * 100) : 0;
     });
 
     // Populate the HTML Average text
-    if (countSpeed > 0) document.getElementById('dash-avg-speed').innerText = (sumSpeed / countSpeed).toFixed(1) + ' m/s';
+    if (countPDelta > 0) document.getElementById('dash-avg-pdelta').innerText = (sumPDelta / countPDelta).toFixed(1) + ' cm';
     if (countDev > 0) document.getElementById('dash-avg-dev').innerText = (sumDev / countDev).toFixed(1) + ' cm';
     if (countFace > 0) document.getElementById('dash-avg-face').innerText = '±' + (sumFace / countFace).toFixed(1) + '°';
 
@@ -296,22 +320,50 @@ export async function fetchCloudTraining() {
         if (performanceChartInstance) performanceChartInstance.destroy(); // Clear old chart
         
         performanceChartInstance = new Chart(ctx, {
-            type: 'line',
+            type: 'bar',
             data: {
-                labels: chartLabels,
+                labels: distanceBuckets.map(d => d + 'm'),
                 datasets: [
-                    { label: 'Avg Speed (m/s)', data: speedData, borderColor: '#38bdf8', backgroundColor: 'transparent', yAxisID: 'y', tension: 0.3 },
-                    { label: 'Avg Deviation (cm)', data: devData, borderColor: '#f59e0b', backgroundColor: 'transparent', yAxisID: 'y1', tension: 0.3 }
+                    {
+                        label: 'Hit Percentage (%)',
+                        data: accuracyData,
+                        backgroundColor: 'rgba(56, 189, 248, 0.4)',
+                        borderColor: '#38bdf8',
+                        borderWidth: 1,
+                        borderRadius: 4
+                    }
                 ]
             },
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
                 scales: {
-                    y: { type: 'linear', display: true, position: 'left', grid: { color: 'rgba(200,200,200,0.1)' } },
-                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false } }
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        min: 0,
+                        max: 100,
+                        title: { display: true, text: 'Accuracy (%)', color: '#94a3b8' },
+                        grid: { color: 'rgba(200,200,200,0.1)' }
+                    },
+                    x: {
+                        title: { display: true, text: 'Target Distance', color: '#94a3b8' },
+                        grid: { display: false }
+                    }
                 },
-                plugins: { legend: { labels: { color: '#94a3b8' } } }
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            // Add a tooltip to show the raw attempts vs hits when hovering
+                            label: function(context) {
+                                let d = distanceBuckets[context.dataIndex];
+                                return `${hitsPerBucket[d]} hits / ${attemptsPerBucket[d]} attempts (${context.parsed.y.toFixed(0)}%)`;
+                            }
+                        }
+                    }
+                }
             }
         });
     }
@@ -333,10 +385,17 @@ export async function fetchCloudTraining() {
         let finalSpeed = finalStrike.speed_mps !== null ? `${finalStrike.speed_mps.toFixed(1)} m/s` : '--';
         
         let castsHtml = sessionCasts.map(c => {
-            let twistStr = (c.face_angle > 0 ? '+' : '') + (c.face_angle || 0).toFixed(1) + '°';
-            let speedStr = `${(c.speed_mps || 0).toFixed(1)}m/s`; 
-            let forceStr = (c.applied_force || 0) > 0 ? `+${Math.round(c.applied_force)}N` : `${Math.round(c.applied_force)}N`;
+            let twistStr = "";
+            if (c.impact_twist !== null && c.impact_twist !== undefined && c.is_strike) {
+                twistStr = `<div style="font-size: 0.85em; line-height: 1.2;">Pln: ${c.plane_twist > 0 ? '+' : ''}${c.plane_twist.toFixed(1)}°<br>Imp: ${c.impact_twist > 0 ? '+' : ''}${c.impact_twist.toFixed(1)}°</div>`;
+            } else {
+                twistStr = `<div style="font-size: 0.85em; line-height: 1.2;">Pln: ${c.plane_twist > 0 ? '+' : ''}${(c.plane_twist || 0).toFixed(1)}°<br>Imp: --</div>`;
+            }
+            let speedStr = `${(c.speed_mps || 0).toFixed(1)}m/s`;
+            let forceVal = c.push_force !== null && c.push_force !== undefined ? c.push_force : c.applied_force;
+            let forceStr = (forceVal || 0) > 0 ? `+${Math.round(forceVal)}N` : `${Math.round(forceVal || 0)}N`;
             let prefix = c.is_strike ? "STRIKE" : (c.cast_index + 1);
+
             let weightClass = c.is_strike ? "font-bold" : ""; 
             let colClass = c.is_strike ? "" : "text-muted";
             let distStr = c.est_dist_m ? `d: ${Math.round(c.est_dist_m)}m` : `d: 0m`;
