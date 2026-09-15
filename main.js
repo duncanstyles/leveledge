@@ -1787,11 +1787,15 @@ function handleParsedTelemetry(t) {
             if (calibrationHoldTimeMs >= 1000 && visualDiff < 0.02) { 
 
                 calibrationPhase = 'NONE'; 
-                let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
                 
-                // We extract ONLY the Yaw (heading) for the environment correction
-                let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YXZ'));
-                baseQuatInverse.copy(finalHeading).invert(); 
+                // Use the safe Gimbal-Proof YZX order
+                let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YZX');
+                
+                // --- THE FIX: Tare BOTH the Yaw (Heading) AND the Roll (Lateral Tilt) ---
+                // By extracting finalEuler.z, we permanently mathematically delete the 
+                // physical mounting error every time you lock the target!
+                let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, finalEuler.z, 'YZX'));
+                baseQuatInverse.copy(finalHeading).invert();
                 document.getElementById('calibration-container').classList.add('hidden');
 
                 // The live mallet gets the fully twisted/tilted posture
