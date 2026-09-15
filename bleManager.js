@@ -182,7 +182,8 @@ class LevelEdgeBLEManager {
             rawAppState: rawAppState,
             appState: isGameMode ? 7 : rawAppState, // 7 corresponds to STATE_GAME_MODE
             isGameMode: isGameMode,
-            gameSubState: isGameMode ? (rawAppState - 80) : 0
+            gameSubState: isGameMode ? (rawAppState - 80) : 0,
+            dynRadius: data.getUint16(18, true) / 1000.0 // not using this as the values are wild
         };
 
         this.onTelemetryData(telemetryObject);
@@ -228,8 +229,7 @@ class LevelEdgeBLEManager {
             faceAngle: data.getInt16(8, true) / 10.0,
             zVel: data.getInt16(10, true) / 100.0,
             appliedForce: data.getInt8(12),
-            // pushForce: data.getInt16(13, true) / 10.0, // This is no longer used, but I left it there so as not to break stuff.
-            undefined_0: data.getInt16(13, true) / 10.0,
+            backswingTime: data.getUint16(13, true),
             q0: data.getInt16(15, true) / 10000.0,
             q1: data.getInt16(17, true) / 10000.0,
             q2: data.getInt16(19, true) / 10000.0,

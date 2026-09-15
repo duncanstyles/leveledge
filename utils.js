@@ -23,6 +23,9 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
     let pathDeg = (c.pathAngleRads || 0) * (180 / Math.PI);
     let f2p = f2t - pathDeg; 
     
+    let arcStr = c.backArc ? `Arc: ${c.backArc.toFixed(1)}cm` : `Arc: --`;
+    let upTimeStr = c.backswingTime ? `Up: ${c.backswingTime}ms` : `Up: --`;
+
     let rF2t = Math.round(f2t || 0);
     let rF2p = Math.round(f2p || 0);
     let f2tStr = `${rF2t > 0 ? '+' : ''}${rF2t}°`;
@@ -37,6 +40,9 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
     
     let devMm = Math.round((c.dev || 0) * 10);
     let devDisplay = `${c.dir || 'C'} ${devMm}mm`;
+    
+    // --- NEW: Format Lean ---
+    let leanDisplay = c.lean !== undefined ? `${c.lean.toFixed(1)}° ${c.leanDir}`.trim() : `--`;
     
     let distStr = c.estDist ? `Est: ${Math.round(c.estDist)}m` : `Est: 0m`;
     
@@ -64,10 +70,20 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
         <!-- DETAILS ROW (Hidden Accordion) -->
         <div class="cast-details flex-col mt-2 pt-2" style="display: none; border-top: 1px dashed var(--border-color);">
             <div class="flex justify-between items-center text-muted font-normal mt-1">
-                <span style="flex: 1; text-align: left;">Dev: ${devDisplay}</span>
+                <!-- <span style="flex: 1; text-align: left;">Dev: ${devDisplay}</span> -->
+                <span style="flex: 1; text-align: center;">Lean: ${leanDisplay}</span>
                 <span style="flex: 1; text-align: center;">Tgt: ${f2tStr}</span>
                 <span style="flex: 1; text-align: right;">Pth: ${f2pStr}</span>
             </div>
+        
+            <!--
+            <div class="flex justify-between items-center text-muted font-normal mt-1">
+                <span style="flex: 1; text-align: left;">${arcStr}</span>
+                <span style="flex: 1; text-align: center;">${upTimeStr}</span>
+                <span style="flex: 1; text-align: right;">${speedStr}</span>
+            </div>
+            -->
+
             <div class="flex justify-between items-center text-muted font-normal mt-1">
                 <span style="flex: 1; text-align: left;">${speedStr}</span>
                 <span style="flex: 1; text-align: center;"></span>

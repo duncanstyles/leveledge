@@ -58,5 +58,60 @@ export function calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwistDegPe
 export function calculateImpactForce(speedMps) { 
     let massEl = document.getElementById('massInput'); 
     let massKg = massEl ? (parseFloat(massEl.value) / 1000.0) : 1.0; 
-    return (massKg * speedMps) / 0.002; 
+    return (massKg * speedMps) / 0.0015; 
 }
+
+export function calculateMomentum(speedMps) { 
+    let massEl = document.getElementById('massInput'); 
+    let massKg = massEl ? (parseFloat(massEl.value) / 1000.0) : 1.0; 
+    
+    // Pure Momentum (Mass x Velocity). No division by time!
+    return (massKg * speedMps); 
+}
+
+export function calculateEstimatedDistance(velocityMps, massKg, lawnSpeedPlummers) {
+    let lawnMult = 0.50 + (lawnSpeedPlummers - 10) * 0.075;
+    let ballSpeedMPS = velocityMps * (massKg * 1.8) / (massKg + 0.454);
+    return (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+}
+
+export function calculatePendulumDelta(fullPeriodSeconds, handleLengthCm) {
+    if (!fullPeriodSeconds || fullPeriodSeconds <= 0) return null;
+    let r_m = (9.81 * fullPeriodSeconds * fullPeriodSeconds) / (4.0 * Math.PI * Math.PI);
+    return (r_m * 100.0) - handleLengthCm;
+}
+
+export function calculateCollisionDeflection(maxTwistDegPerSec, dwellMs, strikeX) {
+    if (!dwellMs || dwellMs <= 0) return 0;
+    let twistDeflectionVal = Math.abs(maxTwistDegPerSec) * (dwellMs / 1000.0);
+    if (strikeX < 0) twistDeflectionVal = -twistDeflectionVal;
+    return twistDeflectionVal;
+}
+
+export function calculateTrueDwell(zVel, peakG, massKg) {
+    if (zVel <= 0) return 1.5; // Failsafe
+    
+    // 1. HERTZIAN CONTACT MODEL
+    // Bypasses the 16G sensor limit entirely.
+    // True dwell time for rigid elastic bodies scales inversely to the 1/5th power of velocity.
+    
+    // A gentle 1.0 m/s tap yields ~2.5ms of dwell. 
+    // A violent 10.0 m/s strike compresses the ball faster, dropping dwell to ~1.5ms.
+    let dwellMs = 2.5 / Math.pow(zVel, 0.2);
+    
+    // 2. Clamp to the physical realities of a croquet strike (0.5ms to 5.0ms)
+    return Math.max(0.5, Math.min(5.0, dwellMs));
+}
+
+export function calculateOffCenterImpact(peakTwistDegPerSec, speedMps) {
+    // Prevent division by zero and filter out noise from tiny taps
+    if (speedMps <= 0.5 || !peakTwistDegPerSec) return 0; 
+    
+    // The constant 0.1125 is an empirical baseline for a standard 1kg mallet.
+    // It scales the ratio of angular velocity to linear velocity into millimeters.
+    let distanceMm = (Math.abs(peakTwistDegPerSec) / speedMps) * 0.1125;
+    
+    // Cap at 30mm (the physical edge of a standard 6cm wide mallet face)
+    return Math.min(distanceMm, 30.0); 
+}
+

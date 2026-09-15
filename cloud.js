@@ -1,5 +1,5 @@
 // cloud.js
-import { difficultyMatrix, getStarRating, getShaftTwist } from './kinematics.js';
+import { difficultyMatrix, getStarRating, getShaftTwist, calculateTrueDwell } from './kinematics.js';
 import { showToast, formatOffset, buildCastRowHTML } from './utils.js';
 
 const SUPABASE_URL = 'https://ymqqthvgfsrdmairukfi.supabase.co';
@@ -17,8 +17,17 @@ export function setCurrentUser(user) {
 export async function loadCloudProfile() {
     if(!currentUser) return;
     const { data, error } = await supabaseClient.from('mallet_profiles').select('*').eq('user_id', currentUser.id).limit(1);
+    
+    // Grab the auth metadata in case the database table doesn't have the info yet
+    let authMeta = currentUser.user_metadata || {};
+
     if(data && data.length > 0) {
         let p = data[0];
+        
+        // Load the new fields (fallback to auth metadata if table is null)
+        document.getElementById('playerNameInput').value = p.display_name || authMeta.display_name || '';
+        document.getElementById('playerCountryInput').value = p.country || authMeta.country || '';
+
         document.getElementById('malletNameInput').value = p.name;
         document.getElementById('malletLengthInput').value = p.head_length;
         document.getElementById('malletWidthInput').value = p.face_width;
@@ -38,9 +47,16 @@ export async function loadCloudProfile() {
 
 export async function saveCloudProfile(hardwareMountOffset) {
     if(!currentUser) return;
+    
+    let currentName = document.getElementById('playerNameInput').value;
+    let currentCountry = document.getElementById('playerCountryInput').value;
+
     const payload = {
-        user_id: currentUser.id, name: document.getElementById('malletNameInput').value,
-        head_length: parseFloat(document.getElementById('malletLengthInput').value) || 27.6,
+        user_id: currentUser.id, 
+        display_name: currentName,    // Added
+        country: currentCountry,      // Added
+        name: document.getElementById('malletNameInput').value,
+        head_length: parseFloat(document.getElementById('malletLengthInput').value),
         face_width: parseFloat(document.getElementById('malletWidthInput').value) || 6.0,
         mass: parseFloat(document.getElementById('massInput').value) || 1000,
         offset_y: parseFloat(document.getElementById('offsetYInput').value) || 5.5,
@@ -51,10 +67,19 @@ export async function saveCloudProfile(hardwareMountOffset) {
         handle_length: parseFloat(document.getElementById('handleLengthInput').value) || 91.4
     };
     
+    // 1. Update the mallet_profiles table
     const { data, error: updateErr } = await supabaseClient.from('mallet_profiles').update(payload).eq('user_id', currentUser.id).select();
     if (!data || data.length === 0) {
         await supabaseClient.from('mallet_profiles').insert([payload]);
     }
+
+    // 2. Keep the Auth User Metadata in sync
+    await supabaseClient.auth.updateUser({
+        data: {
+            display_name: currentName,
+            country: currentCountry
+        }
+    });
 }
 
 export async function fetchCloudMatches() {
@@ -111,7 +136,10 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
         let forceStr = forceN.toFixed(0) + " N";
         
         let ballSpeedMPS = (s.z_vel || 0) * (massKg * 1.8) / (massKg + 0.454); let estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
-        let deflectionVal = Math.abs(s.peak_twist || 0) * ((s.dwell || 0) / 1000.0);
+
+
+        let cleanDwell = calculateTrueDwell(s.z_vel || 0, s.peak_g || 0, massKg);
+        let deflectionVal = Math.abs(s.peak_twist || 0) * (cleanDwell / 1000.0);
         let estAccRange = 35.0; if (deflectionVal > 0.0001) estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(deflectionVal * Math.PI / 180.0)));
         
         let ratingData = getStarRating(0, deflectionVal);
@@ -135,6 +163,9 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
         let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
         let strokeAoA = THREE.MathUtils.radToDeg(impactEuler.z);
         
+        let dbBackswingTime = s.backswing_time || 0;
+        let backswingTimeHtml = dbBackswingTime > 0 ? `${dbBackswingTime} ms` : `N/A`;
+
         // --- THE FIX: Variables must be scoped here, BEFORE detailsHTML is appended ---
         let dbFaceAngle = parseFloat(s.face_angle);
         let locTwist = !isNaN(dbFaceAngle) ? dbFaceAngle : getShaftTwist(impactRawQuat);
@@ -161,16 +192,18 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
                 <details class="advanced-metrics" style="margin-bottom: 0;">
                     <summary>Advanced Kinematics</summary>
                     <div class="mt-4">
+                        <!--
                         <div class="adv-row"><span>Backswing Arc</span><span class="adv-val">${backArcHtml}</span></div>
+                        <div class="adv-row"><span>Backswing Time</span><span class="adv-val">${backswingTimeHtml}</span></div>
+                        -->
                         <div class="adv-row"><span>Impact Force</span><span class="adv-val">${forceStr}</span></div>
                         <div class="adv-row"><span>Face Angle</span><span class="adv-val">${faceAngleHtml}</span></div>
                         <div class="adv-row"><span>Angle of Attack</span><span class="adv-val">${strokeAoA.toFixed(1)}°</span></div>
                         <div class="adv-row"><span>Downswing Time</span><span class="adv-val">${downHtml}</span></div>
                         <div class="adv-row"><span>Strike PΔ</span><span class="adv-val">${dsPDeltaHtml}</span></div>
                         <div class="adv-row"><span>Boost</span><span class="adv-val">${decelHtml}</span></div>
-                        <div class="adv-row"><span>Impact Dwell</span><span class="adv-val">${s.dwell || 0} ms</span></div>
+                        <div class="adv-row"><span>Impact Dwell</span><span class="adv-val">${cleanDwell.toFixed(2)} ms</span></div>
                         <div class="adv-row"><span>Extension</span><span class="adv-val" style="color:${extColor};">${extStr}</span></div>
-                        <div class="adv-row"><span>Push Force</span><span class="adv-val">${((s.push_force || 0) > 0 ? '+' : '') + (s.push_force || 0).toFixed(0)} N</span></div>
                     </div>
                 </details>
             </div>`;
@@ -200,11 +233,14 @@ export async function savePracticeCastsToCloud(castsArray, currentTempo) {
             is_strike: c.isStrike,
             path_dev_cm: parseFloat(c.dev.toFixed(1)),
             dir: c.dir,
+
+            shaft_lean_deg: c.lean !== undefined && c.lean !== null ? parseFloat(c.lean.toFixed(1)) : null,
+            lean_dir: c.leanDir || null,
+
             plane_twist: c.planeTwist !== null && c.planeTwist !== undefined ? parseFloat(c.planeTwist.toFixed(1)) : null,
             
             impact_twist: c.impactTwist !== null && c.impactTwist !== undefined ? parseFloat(c.impactTwist.toFixed(1)) : null,
             speed_mps: parseFloat(c.passSpeed.toFixed(1)),
-            push_force: c.pushForce !== undefined ? c.pushForce : null,
             est_dist_m: c.estDist,
             
             tempo_bpm: currentTempo > 0 ? Math.round(currentTempo) : null,
@@ -401,7 +437,10 @@ export async function fetchCloudTraining() {
                 let mappedCast = {
                     planeTwist: c.plane_twist, faceAngle: c.plane_twist, pathAngleRads: c.path_angle_rads,
                     passSpeed: c.speed_mps, isStrike: c.is_strike, dev: c.path_dev_cm / 10.0, 
-                    dir: c.dir, estDist: c.est_dist_m, pDelta: c.p_delta, estAccRange: c.est_acc_range,
+                    dir: c.dir, 
+                    lean: c.shaft_lean_deg,
+                    leanDir: c.lean_dir,
+                    estDist: c.est_dist_m, pDelta: c.p_delta, estAccRange: c.est_acc_range,
                     isWhiff: c.est_acc_range === null || c.est_acc_range === undefined,
                     stars: "", isHit: false
                 };
@@ -468,4 +507,20 @@ export async function deleteCloudSession(swingId) {
         showToast("Swing deleted.");
         fetchCloudTraining(); // Refresh the list
     }
+}
+
+export async function getAiCoachFeedback(recentCasts, targetDist) {
+    if (!currentUser) return "Please log in to consult the AI Coach.";
+    
+    // Using 'swift-function' to match the name you set in the Supabase dashboard
+    const { data, error } = await supabaseClient.functions.invoke('swift-function', {
+        body: { swings: recentCasts, targetDistance: targetDist }
+    });
+
+    if (error) {
+        console.error("AI Coach error:", error);
+        return "Unable to reach AI Coach right now.";
+    }
+    
+    return data.advice;
 }

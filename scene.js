@@ -23,6 +23,14 @@ export const ghostHeadJoint = new THREE.Group();
 export const targetEnvironmentGroup = new THREE.Group();
 export let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 })); 
 export let floorGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
+
+// Create the vertical grid
+export let verticalGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
+// Rotate 90 degrees on the Z-axis to stand it up perfectly along the swing path
+verticalGrid.rotation.z = Math.PI / 2;
+// Hide it by default
+verticalGrid.visible = false;
+
 export let targetArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -20), 40, 0xef4444, 4, 3);
 export let virtualBall = new THREE.Mesh(new THREE.SphereGeometry(4.6, 8, 6), new THREE.MeshBasicMaterial({ color: 0x0284c7, wireframe: true, transparent: true, opacity: 0.6 }));
 
@@ -32,6 +40,8 @@ export const headingArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), n
 
 export let mainMalletMesh = null; 
 export let ghostMalletMesh = null; 
+export let handleMesh = null;      // NEW
+export let ghostHandleMesh = null; // NEW
 export let baseStlSize = new THREE.Vector3(1, 1, 1);
 export let impactLasers = [];
 export let controls = null;
@@ -168,6 +178,11 @@ export function initScene() {
     floorGrid.visible = false; 
     targetEnvironmentGroup.add(floorGrid);
 
+    // Add the new vertical grid
+    verticalGrid.material.transparent = true;
+    verticalGrid.material.opacity = 0.25; // Slightly more transparent so it doesn't block the mallet
+    targetEnvironmentGroup.add(verticalGrid);
+
     targetArrow.visible = false; 
     targetEnvironmentGroup.add(targetArrow);
 
@@ -192,6 +207,15 @@ export function initScene() {
         mainMalletMesh.position.set(0, 0, 0); 
         headJoint.add(mainMalletMesh); 
         
+        // --- NEW: Add the Solid Handle Stub ---
+        // 25cm tall, shifted up so its base sits in the center of the mallet head
+        const handleGeo = new THREE.CylinderGeometry(1.2, 1.2, 25, 16);
+        handleGeo.translate(0, 12.5, 0); 
+        const handleMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.8 });
+        handleMesh = new THREE.Mesh(handleGeo, material);
+        headJoint.add(handleMesh);
+        // --------------------------------------
+        
         const edgesGeo = new THREE.EdgesGeometry(geometry, 15); 
         const ghostMaterial = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35 });
         const ghostModel = new THREE.LineSegments(edgesGeo, ghostMaterial); 
@@ -201,6 +225,13 @@ export function initScene() {
         ghostMalletMesh.position.set(0, 0, 0); 
         ghostMalletMesh.visible = true; 
         ghostHeadJoint.add(ghostMalletMesh);
+        
+        // --- NEW: Add the Ghost Handle Stub ---
+        const ghostHandleMat = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.35 });
+        const ghostHandleEdges = new THREE.EdgesGeometry(handleGeo);
+        ghostHandleMesh = new THREE.LineSegments(ghostHandleEdges, ghostHandleMat);
+        ghostHeadJoint.add(ghostHandleMesh);
+        // --------------------------------------
         
         window.dispatchEvent(new Event('modelLoaded'));
     });
