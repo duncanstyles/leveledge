@@ -1,6 +1,7 @@
 /* =====================================================================================
  * PROJECT: LevelEdge Croquet
- * VERSION: 9.5.08. Fix the DeepSleep by rebooting and then sleeping immediately 
+ * VERSION: 9.5.08. Fix the DeepSleep by rebooting and then sleeping immediately
+ * Added watchdog switch (on / off) and defaulted to 10 sec 
  * ===================================================================================== */
 
 #include <ArduinoBLE.h>
