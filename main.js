@@ -170,7 +170,7 @@ async function syncConfigurationToMallet() {
     let ledGuidance = AppConfig.ledGuidance ? 1 : 0;
     let radius = AppConfig.radiusInput;
     let mass = AppConfig.massKg * 1000;
-    let impact = parseFloat(document.getElementById('impactInput').value) || 4.0;
+    let impact = parseFloat(document.getElementById('impactInput').value) || 1.5;
     let offsetY = parseFloat(document.getElementById('offsetYInput').value) || 5.5;
     let timeout = parseInt(document.getElementById('timeoutInput').value) || 5;
     let sweetSpot = AppConfig.sweetSpot;
@@ -1663,10 +1663,29 @@ function handleLiveStrike(s) {
 
     let iQuat = baseQuatInverse.clone().multiply(impactRawQuat);
 
+    // --- FIX: Restore the missing twist calculation! ---
+    let locTwist = getShaftTwist(iQuat);
+
     // NEW: Save the twist to the global cache
     window.lastEdgeData = { zVel: pristineVel, appliedForce: appliedF, downwardSwingTime: downTime, decelFactor: decelFact, impactTwist: locTwist, backArc: s.backArc, backswingTime: s.backswingTime };
 
-    let existingIndex = -1; if (castData.length > 0 && (globalHwTime - castData[castData.length - 1].time) < 1500) existingIndex = castData.length - 1;
+    let existingIndex = -1; 
+    if (castData.length > 0 && (globalHwTime - castData[castData.length - 1].time) < 1500) {
+        existingIndex = castData.length - 1;
+    }
+
+    // --- NEW: UI FEEDBACK FOR STRIKE PACKET RECEPTION ---
+    let swingStateTxt = document.getElementById('swing-state');
+    if (swingStateTxt) {
+        if (existingIndex !== -1 && (appState === 4 || appState === 3 || (inGameMode && window.matchSwinging))) {
+            swingStateTxt.innerHTML = "STRIKE PACKET RECEIVED <span style='color: var(--success); font-weight: 900;'>(ACCEPTED)</span>";
+            swingStateTxt.className = "text-center font-bold mb-4";
+        } else {
+            swingStateTxt.innerHTML = "STRIKE PACKET RECEIVED <span style='color: var(--danger); font-weight: 900;'>(REJECTED/ORPHANED)</span>";
+            swingStateTxt.className = "text-center font-bold mb-4";
+        }
+    }
+    // ----------------------------------------------------
 
     if (existingIndex !== -1) {
         let ec = castData[existingIndex];
@@ -2257,7 +2276,7 @@ async function finalizeSwingData(nowTime) {
             
             <div class="card-basic-stats">
                 <div class="stat-block"><span class="stat-lbl">Est. Velocity</span><span class="stat-val">${velHtml}</span></div>
-                <!-- <div class="stat-block"><span class="stat-lbl">Path Dev</span><span class="stat-val">${devHtml}</span></div> -->
+                <div class="stat-block"><span class="stat-lbl">Path Dev</span><span class="stat-val">${devHtml}</span></div>
                 <div class="stat-block"><span class="stat-lbl">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
                 <div class="stat-block"><span class="stat-lbl">Plane Twist</span><span class="stat-val">${planeTwistHtml}</span></div>
                 <div class="stat-block"><span class="stat-lbl">Approach Angle</span><span class="stat-val text-accent">${impactTwistHtml}</span></div>
@@ -2324,7 +2343,12 @@ window.bleManager.onStateChange = (isConnected, name) => {
         const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-connected";
         appState = 1; initAudio(); 
         
-        let swingStateTxt = document.getElementById('swing-state'); 
+        // --- FIX: Reset the sleep timer on fresh connect/reboot! ---
+        window.lveLastActiveTime = Date.now();
+        window.lveLastMag = 1.0;
+        // ------------------------------------------------------------
+        
+        let swingStateTxt = document.getElementById('swing-state');
         if(swingStateTxt) { swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
 
       
@@ -2337,7 +2361,7 @@ window.bleManager.onStateChange = (isConnected, name) => {
         let ledGuidance = AppConfig.ledGuidance ? 1 : 0;
         let radius = AppConfig.radiusInput;
         let mass = AppConfig.massKg * 1000;
-        let impact = parseFloat(document.getElementById('impactInput').value) || 4.0;
+        let impact = parseFloat(document.getElementById('impactInput').value) || 1.5;
         let offsetY = parseFloat(document.getElementById('offsetYInput').value) || 5.5;
         let timeout = parseInt(document.getElementById('timeoutInput').value) || 5;
         let sweetSpot = AppConfig.sweetSpot;
@@ -2531,6 +2555,11 @@ window.bleManager.onBatteryUpdate = function(voltage_mV, isCharging, availStrike
 
 const originalAppTelemetry = window.bleManager.onTelemetryData;
 
+// --- NEW: Global trackers for the HUD sleep timer ---
+window.lveLastActiveTime = Date.now();
+window.lveLastMag = 1.0;
+// ----------------------------------------------------
+
 window.bleManager.onTelemetryData = function(t) {
     if (originalAppTelemetry) originalAppTelemetry(t);
     
@@ -2545,6 +2574,31 @@ window.bleManager.onTelemetryData = function(t) {
             };
             
             let mag = Math.sqrt(t.ax*t.ax + t.ay*t.ay + t.az*t.az);
+            
+            // --- NEW: Calculate Time Remaining until Sleep ---
+            // If the mallet experiences a 0.05G shock, reset the sleep timer
+            if (Math.abs(mag - window.lveLastMag) > 0.05) {
+                window.lveLastActiveTime = Date.now();
+            }
+            window.lveLastMag = mag;
+
+           // Pull the user's saved timeout setting (defaulting to 5 minutes)
+            let timeoutMins = parseInt(document.getElementById('timeoutInput').value) || 5;
+            let secondsIdle = (Date.now() - window.lveLastActiveTime) / 1000;
+            let sleepRemaining = Math.max(0, (timeoutMins * 60) - secondsIdle);
+            
+            // --- FIX: Force the mallet to sleep when the app's timer hits zero ---
+            if (sleepRemaining <= 0 && window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
+                sendBleCommand([88], true); // Command 'X' forces the hardware to power off
+                window.lveLastActiveTime = Date.now(); // Reset the timer so we don't spam the command
+            }
+            // ----------------------------------------------------------------------
+
+            let sleepMin = Math.floor(sleepRemaining / 60);
+            let sleepSec = Math.floor(sleepRemaining % 60).toString().padStart(2, '0');
+            let sleepStr = `${sleepMin}m ${sleepSec}s`;
+            // -------------------------------------------------
+
             let calMat = typeof hardwareMountOffset !== 'undefined' ? hardwareMountOffset : {w:1, x:0, y:0, z:0};
             let calQ = typeof lastRawQuat !== 'undefined' ? lastRawQuat : {w:1, x:0, y:0, z:0};
 
@@ -2559,7 +2613,8 @@ window.bleManager.onTelemetryData = function(t) {
                 <strong style="color:#fff;">--- LVE DIAGNOSTICS ---</strong><br><br>
                 
                 <strong style="color:#ef4444;">POWER MANAGEMENT:</strong><br>
-                Voltage: ${window.lveBatteryVolts} (${window.lveBatteryPct}) | Charging: ${window.lveIsCharging}<br><br>
+                Voltage: ${window.lveBatteryVolts} (${window.lveBatteryPct}) | Charging: ${window.lveIsCharging}<br>
+                Time to Sleep: ${sleepStr}<br><br>
 
                 <strong style="color:#32cd32;">RAW ACCELEROMETER:</strong><br>
                 X: ${cleanNumber(t.ax)} | Y: ${cleanNumber(t.ay)} | Z: ${cleanNumber(t.az)}<br>
