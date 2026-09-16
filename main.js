@@ -1700,6 +1700,7 @@ function handleLiveStrike(s) {
 
         let massKg = AppConfig.massKg; let lawnMult = 0.50 + (AppConfig.lawnSpeed - 10) * 0.075;
         let ballSpeedMPS = pristineVel * (massKg * 1.8) / (massKg + 0.454); ec.estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+        currentSwingDist = ec.estDist;
         let accData = calcAccuracyData(ec.rawDev, locTwist, ec.pathAngleRads, maxTwist, currentSwingDwell);
         ec.isWhiff = accData.isWhiff; ec.estAccRange = accData.estAccRange; ec.trueAccRange = accData.trueAccRange; ec.trueLaunchDeg = accData.trueLaunchDeg;
         ec.estLaunchRads = accData.estLaunchRads; ec.trueLaunchRads = accData.trueLaunchRads; ec.maxAccRange = accData.trueAccRange; 
