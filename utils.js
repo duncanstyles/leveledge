@@ -71,9 +71,8 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
         <div class="cast-details flex-col mt-2 pt-2" style="display: none; border-top: 1px dashed var(--border-color);">
             <div class="flex justify-between items-center text-muted font-normal mt-1">
                 <!-- <span style="flex: 1; text-align: left;">Dev: ${devDisplay}</span> -->
-                <span style="flex: 1; text-align: center;">Lean: ${leanDisplay}</span>
-                <span style="flex: 1; text-align: center;">Tgt: ${f2tStr}</span>
-                <span style="flex: 1; text-align: right;">Pth: ${f2pStr}</span>
+                <span style="flex: 1; text-align: left;">Lean: ${leanDisplay}</span>
+                <span style="flex: 1; text-align: right;">Tgt: ${f2tStr}</span>
             </div>
         
             <!--
@@ -86,7 +85,6 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
 
             <div class="flex justify-between items-center text-muted font-normal mt-1">
                 <span style="flex: 1; text-align: left;">${speedStr}</span>
-                <span style="flex: 1; text-align: center;"></span>
                 <span style="flex: 1; text-align: right;">${starDisplay}</span>
             </div>
         </div>

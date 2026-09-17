@@ -1,7 +1,8 @@
 /* =====================================================================================
  * PROJECT: LevelEdge Croquet
- * VERSION: 9.5.08. Fix the DeepSleep by rebooting and then sleeping immediately
- * Added watchdog switch (on / off) and defaulted to 10 sec 
+ * VERSION: 9.6.01 
+ * Simplified - Game Mode & Strike Storage Removed
+ * Power handling completely re-worked
  * ===================================================================================== */
 
 #include <ArduinoBLE.h>
@@ -14,7 +15,7 @@
 #include <kvstore_global_api.h>
 
 // --- FEATURE TOGGLES ---
-const bool ENABLE_WATCHDOG = true; // Set to true to enable, false to disable for debugging
+const bool ENABLE_WATCHDOG = false; 
 
 struct Quat { float x, y, z, w; };
 struct Vec3 { float x, y, z; };
@@ -52,38 +53,23 @@ struct __attribute__((packed)) StrikePacket {
 const unsigned long ARMED_TIMEOUT_MS = 30000;
 const unsigned long BLE_DISCONNECT_TIMEOUT_MS = 180000;
 
-// --- HARDWARE WATCHDOG ---
 inline void feedWatchdog() {
     if (ENABLE_WATCHDOG) {
         NRF_WDT->RR[0] = 0x6E524635;
     }
 }
 
-const uint16_t MAX_STRIKES = 5000;
-const uint8_t STRIKES_PER_CHUNK = 16;
-
 bool pendingReboot = false;
 unsigned long rebootTriggerTime = 0;
 
-uint16_t storedStrikeCount = 0; 
 uint32_t currentMatchTime = 0; 
-unsigned long matchStartMillis = 0;
-unsigned long lastGameActivityTime = 0;
 unsigned long armedStateStartTime = 0;
-const uint16_t MAX_PENDING_STRIKES = 250;
-StrikePacket pendingStrikesBuffer[MAX_PENDING_STRIKES];
-uint16_t pendingStrikeCount = 0; 
-bool chunkDirty = false;
-unsigned long lastStrikeTime = 0;
-const unsigned long IDLE_SAVE_DELAY_MS = 30000; 
 
-const char* FW_VERSION = "9.5.08";
+const char* FW_VERSION = "9.5.10";
 int currentBatteryPct = 100; 
-// FIX: Removed dangerous Pin 5 charging pin declaration
 
 unsigned long inactivityTimeout_ms = 300000;
 unsigned long lastActivityTime = 0;
-// FIX: Use the actual internal IMU interrupt pin to avoid hardware clashes
 const int IMU_INT_PIN = PIN_LSM6DS3TR_C_INT1; 
 
 LSM6DS3 myIMU(I2C_MODE, 0x6A);
@@ -98,9 +84,6 @@ const float HIGH_MOTION_GYRO_THRESHOLD = 800.0;
 const float HIGH_MOTION_ACCEL_THRESHOLD = 2.5;
 const float IDLE_GYRO_THRESHOLD = 5.0;
 const float IDLE_ACCEL_TOLERANCE = 0.1;
-
-const float GAME_MODE_AUTO_STOP_MS = 300000; 
-const unsigned long ABANDONED_MATCH_TIMEOUT_MS = 3600000; 
 
 BLEService telemetryService("19B30000-E8F2-537E-4F6C-D104768A1214");
 BLECharacteristic telemetryChar("19B30001-E8F2-537E-4F6C-D104768A1214", BLERead | BLENotify, 20); 
@@ -135,22 +118,8 @@ float maxPitch = 0.0;
 float currentTwist_deg = 0.0;
 bool tareTwistNextFrame = false;
 
-// --- MATCH MODE STATE MACHINE & GESTURES ---
-enum GameSubState {
-    GAME_DORMANT = 0,
-    GAME_WAKE_CONFIRM,
-    GAME_READY_PULSE,
-    GAME_ALIGNED_SOLID,
-    GAME_CASTING_COACH
-};
+char bleDeviceName[25]; // Global memory to hold the BT name permanently
 
-GameSubState currentGameSubState = GAME_DORMANT;
-unsigned long gameSubStateStartTime = 0;
-unsigned long shotClockEndTime = 0;
-bool castArmedForZeroCross = false;
-uint8_t castLedLatchState = 0; // 0=Off, 1=Green, 2=Red, 3=Dark
-
-// --- NEW: C++ PORT OF THREE.JS MATH ENGINE ---
 Quat baseQuatInverse = {0.0f, 0.0f, 0.0f, 1.0f};
 float twistOffset_deg = 0.0f;
 
@@ -181,7 +150,6 @@ void normVec(Vec3 &v) {
     float l = sqrt(v.x*v.x + v.y*v.y + v.z*v.z);
     if(l > 0.0001f) { v.x/=l; v.y/=l; v.z/=l; }
 }
-// ---------------------------------------------
 
 float zVelocity = 0.0;
 int8_t appliedForceIndex = 0;
@@ -208,8 +176,7 @@ enum AppState {
     STATE_ARMED        = 3,
     STATE_SWINGING     = 4,
     STATE_REVIEW       = 5,
-    STATE_STEADYING    = 6,
-    STATE_GAME_MODE    = 7
+    STATE_STEADYING    = 6
 };
 
 AppState currentAppState = STATE_DISCONNECTED;
@@ -217,9 +184,8 @@ uint8_t liveFeedbackState = 1;
 bool isArmed = false;
 bool needsConnectionCalibration = false;
 bool isSwinging = false;
-bool isGameMode = false;
 unsigned long strikeHoldEndTime = 0;
-uint8_t lastStrikeLedColor = 0; // 1 = Green, 2 = Red
+uint8_t lastStrikeLedColor = 0; 
 bool inImpactWindow = false;
 unsigned long topOfBackswingTime = 0;
 unsigned long startOfBackswingTime = 0;
@@ -230,7 +196,6 @@ float impactPeakG = 0;
 float impactPeakTwist = 0;
 int impactDwellSamples = 0;
 
-// NEW: Track specific axes for the Direction Gate
 float impactPeakFaceG = 0; 
 float impactPeakShaftG = 0; 
 
@@ -254,11 +219,9 @@ struct __attribute__((packed)) TelemetryPacket {
     uint8_t appState;     
     uint16_t dynRadius;   
 };
-// ---------------------------------
 
-void enterGameModeSleep();
 void injectGravitySnapshot();
-void goToDeepSleep();
+void powerDown();
 
 void setLEDColor(uint8_t r, uint8_t g, uint8_t b) {
     analogWrite(LEDR, 255 - r);
@@ -266,28 +229,18 @@ void setLEDColor(uint8_t r, uint8_t g, uint8_t b) {
     analogWrite(LEDB, 255 - b);
 }
 
-void resetMatchModeToDormant() {
-    currentGameSubState = GAME_DORMANT;
-    castLedLatchState = 0;
-    castArmedForZeroCross = false;
-    shotClockEndTime = 0;
-    setLEDColor(0, 0, 0);
-}
-
 void sendBatteryUpdate() {
     analogReadResolution(12);
     pinMode(PIN_VBAT_ENABLE, OUTPUT); 
     digitalWrite(PIN_VBAT_ENABLE, LOW); 
     
-    // Increased settling time for a stable reading
     delay(2); 
     
-    // Multi-sampling loop to smooth out instant hardware noise
     long adcSum = 0;
     const int sampleCount = 8;
     for (int i = 0; i < sampleCount; i++) {
         adcSum += analogRead(PIN_VBAT);
-        delayMicroseconds(50); // Let the ADC capacitor charge between reads
+        delayMicroseconds(50);
     }
     
     digitalWrite(PIN_VBAT_ENABLE, HIGH); 
@@ -295,19 +248,14 @@ void sendBatteryUpdate() {
 
     int currentRawADC = adcSum / sampleCount;
     
-    // --- NEW: Exponential Moving Average (EMA) Filter ---
     static float filteredADC = 0;
     
     if (filteredADC == 0) {
-        // On the very first run, instantly set it to the current reading
-        // so the battery doesn't slowly "ramp up" from 0% in the app.
         filteredADC = currentRawADC;
     } else {
-        // Blend: 10% new reading + 90% historical reading
         filteredADC = (filteredADC * 0.90) + (currentRawADC * 0.10);
     }
     
-    // Apply the smoothed value to the math
     float batteryVolts = (filteredADC / 4095.0) * 3.3 * 2.96078;
     uint16_t voltage_mV = (uint16_t)(batteryVolts * 1000);
 
@@ -316,13 +264,13 @@ void sendBatteryUpdate() {
         compressed_V = (voltage_mV - 3000) / 5;
     }
 
-    uint16_t availableStrikes = MAX_STRIKES - (storedStrikeCount + pendingStrikeCount);
+    // Storage is disabled, so we hardcode the available strikes to a full value for the App UI
+    uint16_t availableStrikes = 5000; 
 
     uint8_t battPacket[5];
     battPacket[0] = 'B'; 
     battPacket[1] = compressed_V;                   
     
-    // Check the nRF52840's internal USB voltage register.
     bool usbPluggedIn = (NRF_POWER->USBREGSTATUS & 1) ? true : false;
     battPacket[2] = usbPluggedIn ? 1 : 0; 
     
@@ -332,96 +280,10 @@ void sendBatteryUpdate() {
     strikeChar.writeValue(battPacket, 5);
 }
 
-void savePendingToFlash() {
-    if (pendingStrikeCount == 0 || !chunkDirty) return;
-
-    // 1. Instantly check the battery voltage before proceeding
-    pinMode(PIN_VBAT_ENABLE, OUTPUT); 
-    digitalWrite(PIN_VBAT_ENABLE, LOW); 
-    delay(2); // Let voltage settle
-    
-    // --- NEW: Multi-sample to ignore electrical noise ---
-    long adcSum = 0;
-    for (int i = 0; i < 8; i++) {
-        adcSum += analogRead(PIN_VBAT);
-    }
-    int rawADC = adcSum / 8;
-    
-    digitalWrite(PIN_VBAT_ENABLE, HIGH); 
-    pinMode(PIN_VBAT_ENABLE, INPUT_PULLUP);
-
-    // 2. Convert ADC to Voltage
-    float batteryVolts = (rawADC / 4095.0) * 3.3 * 2.96078;
-    
-    // 3. The Brownout Gate: Abort if under 3.40V
-    if (batteryVolts < 3.40) {
-        // Flash red to indicate write failure, drop the data, and exit
-        setLEDColor(255, 0, 0);
-        delay(100);
-        setLEDColor(0, 0, 0);
-        
-        pendingStrikeCount = 0; 
-        chunkDirty = false;
-        return; 
-    }
-
-    setLEDColor(255, 0, 0);
-
-    StrikePacket tempChunk[STRIKES_PER_CHUNK];
-    size_t actual_size = 0;
-    uint16_t activeChunkIdx = 0xFFFF;
-
-    for (uint16_t i = 0; i < pendingStrikeCount; i++) {
-        feedWatchdog();
-        uint16_t targetChunkIdx = storedStrikeCount / STRIKES_PER_CHUNK;
-        uint16_t targetOffset = storedStrikeCount % STRIKES_PER_CHUNK;
-
-        if (targetChunkIdx != activeChunkIdx) {
-            activeChunkIdx = targetChunkIdx;
-            if (targetOffset > 0) {
-                char key[16];
-                sprintf(key, "chk_%d", activeChunkIdx);
-                kv_get(key, tempChunk, sizeof(tempChunk), &actual_size);
-            } else {
-                memset(tempChunk, 0, sizeof(tempChunk));
-            }
-        }
-
-        tempChunk[targetOffset] = pendingStrikesBuffer[i];
-        storedStrikeCount++;
-
-        if ((storedStrikeCount % STRIKES_PER_CHUNK == 0) || (i == pendingStrikeCount - 1)) {
-            char key[16];
-            sprintf(key, "chk_%d", activeChunkIdx);
-            // Write the full 512-byte chunk every time to prevent Mbed file fragmentation
-            kv_set(key, tempChunk, sizeof(tempChunk), 0);
-            kv_set("str_cnt", &storedStrikeCount, sizeof(storedStrikeCount), 0);
-        }
-    }
-    pendingStrikeCount = 0;
-    chunkDirty = false;
-    setLEDColor(0, 0, 0);
-}
-
 void updateLEDStateMachine() {
-    if (chunkDirty && pendingStrikeCount > 0 && (millis() - lastStrikeTime >= IDLE_SAVE_DELAY_MS)) return;
     unsigned long currentMillis = millis();
     
-    // --- 3-SECOND STRIKE HOLD OVERRIDE ---
-    /* if (strikeHoldEndTime > 0 && currentMillis < strikeHoldEndTime) { 
-        if (lastStrikeLedColor == 1) {
-            setLEDColor(0, 255, 0); // SOLID GREEN: Good Strike
-        } else if (lastStrikeLedColor == 2) {
-            setLEDColor(255, 0, 0); // SOLID RED: Bad Strike (Twist Fault)
-        } else {
-            setLEDColor(0, 0, 255); // Fallback (Blue)
-        }
-        return; 
-    } */
-
-    // --- 3-SECOND STRIKE PACKET SENT OVERRIDE --- Just show clearly it's been sent 
     if (strikeHoldEndTime > 0 && currentMillis < strikeHoldEndTime) { 
-        // FAST FLASHING GREEN (50ms ON, 50ms OFF) to confirm packet sent via BLE
         if (currentMillis % 100 < 50) setLEDColor(0, 255, 0); 
         else setLEDColor(0, 0, 0);
         return; 
@@ -437,44 +299,11 @@ void updateLEDStateMachine() {
             } 
             break;
         case STATE_IDLE: 
-            // 50ms ON, 1950ms OFF
             if (currentMillis % 2000 < 50) setLEDColor(0, 255, 0); 
             else setLEDColor(0, 0, 0);
             break;
         case STATE_CALIBRATING: setLEDColor(255, 0, 0); break;
         case STATE_STEADYING: setLEDColor(255, 0, 0); break;
-        
-        case STATE_GAME_MODE:
-            if (!led_guidance_enabled) {
-                setLEDColor(0, 0, 0);
-            } else {
-              switch(currentGameSubState) {
-                    case GAME_DORMANT:
-                        setLEDColor(0, 0, 0);
-                        break;
-
-                    case GAME_READY_PULSE:
-                        // Pulsing Red to indicate it is ARMED and evaluating stillness
-                        if (currentMillis % 1000 < 500) {
-                            setLEDColor(255, 0, 0); 
-                        } else {
-                            setLEDColor(0, 0, 0);
-                        }
-                        break;
-
-                    case GAME_ALIGNED_SOLID:
-                    case GAME_CASTING_COACH:
-                        if (castLedLatchState == 2) {
-                            // SOLID RED: Twist Fault (Outside tolerance)
-                            setLEDColor(255, 0, 0);
-                        } else {
-                            // SOLID GREEN: Target Locked / Ready / Good Cast (castLedLatchState == 1)
-                            setLEDColor(0, 255, 0);
-                        }
-                        break;
-                }
-            }
-            break;
 
         case STATE_ARMED:
         case STATE_SWINGING:
@@ -485,7 +314,7 @@ void updateLEDStateMachine() {
                     if (currentMillis % 150 < 75) setLEDColor(255, 0, 0);
                     else setLEDColor(0, 0, 0); 
                 } else {
-                    static int swingGrade = 1; // 1 = Green, 2 = Red
+                    static int swingGrade = 1; 
                     static bool wasOutsideZone = true;
                     
                     float currentPitchDeg = prevPitchRads * RAD_TO_DEG;
@@ -528,135 +357,20 @@ void injectGravitySnapshot() {
     filter.setBeta(0.01f); 
 }
 
-volatile bool imuAwakeFlag = false;
-void imuWakeISR() {
-    imuAwakeFlag = true;
-}
-
-void enterGameModeSleep() {
-    setLEDColor(0, 0, 0);
-
-    // --- NEW: Shut down hardware PWM to kill the high-frequency clock ---
-    NRF_PWM0->ENABLE = 0;
-    NRF_PWM1->ENABLE = 0;
-    NRF_PWM2->ENABLE = 0;
-    NRF_PWM3->ENABLE = 0;
-    
-    // Lock LED pins safely HIGH to prevent ghost lighting
-    pinMode(LEDR, OUTPUT); pinMode(LEDG, OUTPUT); pinMode(LEDB, OUTPUT);
-    digitalWrite(LEDR, HIGH); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
-
-    if (pendingStrikeCount > 0) savePendingToFlash();
-
-    BLE.disconnect();
-    BLE.stopAdvertise();
-    delay(200);
-    BLE.end();
-
-    myIMU.writeRegister(0x58, 0x80); 
-    myIMU.writeRegister(0x5B, 0x02); 
-    myIMU.writeRegister(0x5E, 0x20); 
-
-    imuAwakeFlag = false;
-    attachInterrupt(digitalPinToInterrupt(IMU_INT_PIN), imuWakeISR, RISING);
-
-    // --- NEW: Track how long we sleep ---
-    unsigned long sleepStartTime = millis();
-    bool abandoned = false;
-
-    while (!imuAwakeFlag) {
-        feedWatchdog();
-        
-        // --- NEW: Break the trap if abandoned ---
-        // If left perfectly still for 1 hour, trigger a true shutdown
-        if (millis() - sleepStartTime > ABANDONED_MATCH_TIMEOUT_MS) {
-            abandoned = true;
-            break;
-        }
-        
-        // Shallow CPU pause: Saves battery, but wakes instantly on IMU movement
-        __WFE(); 
-    }
-
-    detachInterrupt(digitalPinToInterrupt(IMU_INT_PIN));
-    myIMU.writeRegister(0x5E, 0x00); 
-
-    // --- NEW: Route to SYSTEMOFF Deep Sleep ---
-    if (abandoned) {
-        isGameMode = false;
-        currentAppState = STATE_IDLE;
-        goToDeepSleep(); 
-        return; // Safety exit to prevent BLE restart
-    }
-
-    BLE.begin();
-    setupBLEIdentity();
-
-    injectGravitySnapshot(); 
-
-    unsigned long nowMs = millis();
-    lastGameActivityTime = nowMs;
-    lastActivityTime = nowMs;
-    previousBleMillis = nowMs;
-    lastStrikeTime = nowMs; // FIX: Prevent instant suicide upon waking
-    previousImuMicros = micros();
-}
-
 void handleBleCommand(const uint8_t* data, int len, unsigned long currentMillis, unsigned long currentMicros) {
     if (len <= 0) return;
 
     if (data[0] == 'R') { 
-        if (pendingStrikeCount > 0) savePendingToFlash();
         setLEDColor(255, 0, 0);
         pendingReboot = true;
         rebootTriggerTime = currentMillis;
     }
-    
-    else if (data[0] == 'K') { 
-        if (len >= 5) {
-            currentMatchTime = (uint32_t)data[1] |
-                            ((uint32_t)data[2] << 8) | ((uint32_t)data[3] << 16) | ((uint32_t)data[4] << 24);
-            kv_set("match_time", &currentMatchTime, sizeof(currentMatchTime), 0);
-        }
-        matchStartMillis = currentMillis;
-        isGameMode = true; 
-        isArmed = false; 
-        inImpactWindow = false;
-
-        pitchOffset = filter.getPitch();
-        yawOffset = filter.getYaw();
-        tareTwistNextFrame = false; // Wait for the tap and stillness tare
-
-        minPitch = 0.0; 
-        maxPitch = 0.0; 
-        zVelocity = 0.0;
-        peakPush = 0.0; 
-        appliedForceIndex = 0; 
-        currentAppliedForce = 0;
-        topOfBackswingTime = 0;
-
-        resetMatchModeToDormant();
-
-        lastGameActivityTime = currentMillis; 
-        lastStrikeTime = currentMillis; 
-        currentAppState = STATE_GAME_MODE;
-    }
-
     else if (data[0] == 'L') { 
-        isGameMode = false;
         currentAppState = STATE_IDLE;
-        resetMatchModeToDormant();
-        if (pendingStrikeCount > 0) savePendingToFlash();
     }
     else if (data[0] == 'W') { 
         hardwareMatrix = {1.0f, 0.0f, 0.0f, 0.0f};
         kv_set("cal_matrix", &hardwareMatrix, sizeof(hardwareMatrix), 0);
-        storedStrikeCount = 0; 
-        pendingStrikeCount = 0;
-        kv_set("str_cnt", &storedStrikeCount, sizeof(storedStrikeCount), 0);
-        currentMatchTime = 0;
-        kv_set("match_time", &currentMatchTime, sizeof(currentMatchTime), 0);
-        chunkDirty = false; 
         
         setLEDColor(255, 0, 0); 
         delay(500); 
@@ -665,36 +379,10 @@ void handleBleCommand(const uint8_t* data, int len, unsigned long currentMillis,
     }
     else if (data[0] == 'D') { 
         if (currentAppState == STATE_IDLE || currentAppState == STATE_REVIEW) {
-            if (pendingStrikeCount > 0) savePendingToFlash();
-
-            StrikePacket readBuffer[STRIKES_PER_CHUNK];
-            uint16_t lastLoadedChunkIdx = 0xFFFF;
-        
-            for (uint16_t i=0; i<storedStrikeCount; i++) {
-                
-                // --- WATCHDOG ADDITION: Feed dog during long sync! ---
-                feedWatchdog(); 
-                
-                if ((i / 8) % 2 == 0) setLEDColor(128, 0, 128); 
-                else setLEDColor(0, 0, 255);                    
-
-                uint16_t chunkIdx = i / STRIKES_PER_CHUNK;
-                uint16_t offset = i % STRIKES_PER_CHUNK;
-            
-                if (chunkIdx != lastLoadedChunkIdx) {
-                    char key[16];
-                    sprintf(key, "chk_%d", chunkIdx); 
-                    size_t actual = 0;
-                    kv_get(key, readBuffer, sizeof(readBuffer), &actual);
-                    lastLoadedChunkIdx = chunkIdx;
-                }
-            
-                StrikePacket hsp = readBuffer[offset];
-                hsp.header = 'H'; 
-                strikeChar.writeValue((uint8_t*)&hsp, sizeof(hsp));
-                delay(35);
-            }
+            // Flash blue to acknowledge, but skip memory iteration as storage is removed
             setLEDColor(0, 0, 255);
+            delay(200);
+            setLEDColor(0, 0, 0);
         }
     }
     else if (data[0] == 'Z') { 
@@ -747,7 +435,7 @@ void handleBleCommand(const uint8_t* data, int len, unsigned long currentMillis,
             tmAppForce[i] = 0;
             tmPushForce[i] = 0.0;
         }
-        armedStateStartTime = currentMillis; // Track when it was armed
+        armedStateStartTime = currentMillis; 
     }
     else if (data[0] == 'H') { liveFeedbackState = 1; } 
     else if (data[0] == 'I') { liveFeedbackState = 2; } 
@@ -779,9 +467,8 @@ void handleBleCommand(const uint8_t* data, int len, unsigned long currentMillis,
         sendBatteryUpdate(); 
     }
     else if (data[0] == 'U') { 
-        if (pendingStrikeCount > 0) savePendingToFlash();
         setLEDColor(255, 0, 255); 
-        NRF_POWER->GPREGRET2 = 0xA5; // Still set the flag for the bootloader
+        NRF_POWER->GPREGRET2 = 0xA5; 
         pendingReboot = true;
         rebootTriggerTime = currentMillis;
     }
@@ -789,32 +476,29 @@ void handleBleCommand(const uint8_t* data, int len, unsigned long currentMillis,
         sendBatteryUpdate(); 
     }
     else if (data[0] == 'X') { 
-        // 1. Give the Bluetooth radio time to send the ACK back to the webpage
-        feedWatchdog(); // Give this 5 Seconds to do its thing. 
+        feedWatchdog(); 
 
         setLEDColor(0, 0, 255);
         delay(1000);
         
-        // 2. Debounce the USB pin to filter out electrical noise
         bool isActuallyPluggedIn = true;
         for (int i = 0; i < 5; i++) {
             if (!(NRF_POWER->USBREGSTATUS & 1)) {
-                isActuallyPluggedIn = false; // The voltage dropped, so it's a phantom reading!
+                isActuallyPluggedIn = false; 
                 break;
             }
             delay(10);
         }
 
-        // 3. Safely route to the correct mode
         if (isActuallyPluggedIn) {
             enterSafeChargingMode();
         } else {
-            goToDeepSleep(); 
+            NRF_POWER->GPREGRET = 0x88;
+            NVIC_SystemReset();
         }
     }
 }
 
-// --- ON-DEVICE QUATERNION MATH SYSTEM ---
 void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, bool connected) {
     if (currentMicros - previousImuMicros >= IMU_INTERVAL_MICROS) {
         float actualDt = (currentMicros - previousImuMicros) / 1000000.0f;
@@ -861,85 +545,31 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
         float gyroMag = sqrt(gx*gx + gy*gy + gz*gz); 
         float deltaG = fabs(accelMag - prevAccelMag);
 
-        // --- NEW: TWIST GESTURE TO ARM/DISARM ---
-        static float twistAccumulator = 0.0f;
-        static unsigned long twistStartTime = 0;
-        
-        // SWING POSITION GATE: Gravity acting specifically in the "Head Down" direction.
-        // (Note: Change to az < -0.7f if your specific sensor mounting requires a negative Z value for 'head down')
-        if (isGameMode && az > 0.7f) {
-            
-            // Allow accumulation if moving faster than 30 deg/sec
-            if (fabs(gz) > 30.0f) {
-                if (twistAccumulator == 0.0f) {
-                    twistStartTime = currentMillis; // Start the 1.5s timer
-                }
-                twistAccumulator += (gz * actualDt);
-            }
-            
-            // TIMEOUT: If it takes longer than 1.5 seconds, discard the twist
-            if (twistAccumulator != 0.0f && (currentMillis - twistStartTime > 1500)) {
-                twistAccumulator = 0.0f;
-            }
-            
-            // 300 Degrees Clockwise to ARM
-            if (twistAccumulator > 300.0f) {
-                if (currentGameSubState == GAME_DORMANT) {
-                    currentGameSubState = GAME_READY_PULSE;
-                }
-                twistAccumulator = 0.0f;
-            } 
-            // 300 Degrees Anti-Clockwise to DISARM
-            else if (twistAccumulator < -300.0f) {
-                if (currentGameSubState != GAME_DORMANT) {
-                    resetMatchModeToDormant();
-                }
-                twistAccumulator = 0.0f;
-            }
-        } else {
-            twistAccumulator = 0.0f; // Reset instantly if the mallet is horizontal or upside down
-        }
-
-        // --- NEW: ONCE-PER-SESSION CONNECTION CALIBRATION ---
         static int connectionStillnessCounter = 0;
         
-        // Only run if the flag is active and the mallet is idle
         if (needsConnectionCalibration && currentAppState == STATE_IDLE) {
-            
-            // Check if the accelerometer is perfectly resting
             if (deltaG < 0.015 && fabs(accelMag - 1.0) < 0.1) {
                 connectionStillnessCounter++;
             } else {
                 connectionStillnessCounter = 0;
             }
 
-            // If physically resting still for 1 full second (500 frames at 2ms interval)
             if (connectionStillnessCounter > 500) {
-                // Trigger the formal 1000-sample hardware calibration natively!
                 isCalibratingBias = true;
                 biasSamples = 0;
                 gyroBiasX = 0;
                 gyroBiasY = 0;
                 gyroBiasZ = 0;
                 
-                // Clear the flag so it never runs again until the next connection
                 needsConnectionCalibration = false; 
                 connectionStillnessCounter = 0;
             }
         }
-        // ----------------------------------------------------
-
-        // Shot Clock Expired Failsafe
-        if (isGameMode && currentGameSubState != GAME_DORMANT && currentMillis > shotClockEndTime && shotClockEndTime > 0) {
-            resetMatchModeToDormant();
-        }
 
         if (gyroMag > 30.0 || deltaG > 0.2) { 
-            // Only let physical motion reset the sleep timer IF the app is actively connected!
             if (connected) {
                 lastActivityTime = currentMillis;
             }
-            if (isGameMode) lastGameActivityTime = currentMillis; 
         }
 
         if (isArmed && gyroMag > WAKE_GYRO_THRESHOLD && currentAppState != STATE_SWINGING) { 
@@ -947,29 +577,19 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
             currentAppState = STATE_SWINGING; 
         } 
 
-        if (isGameMode) {
-            if (currentMillis - lastStrikeTime > ABANDONED_MATCH_TIMEOUT_MS) {
-                isGameMode = false;
-                currentAppState = STATE_IDLE;
-                goToDeepSleep(); 
-            } else if (currentMillis - lastGameActivityTime > GAME_MODE_AUTO_STOP_MS) {
-                enterGameModeSleep();
-            }
-        }
-
-        static int stillnessCount = 0; // Moved outside so it can be reset globally
+        static int stillnessCount = 0; 
         
         if (accelMag > HIGH_MOTION_ACCEL_THRESHOLD || gyroMag > HIGH_MOTION_GYRO_THRESHOLD) { 
             filter.setBeta(0.0f);
-            stillnessCount = 0; // RESET
+            stillnessCount = 0; 
         } 
         else if (fabs(accelMag - 1.0) < IDLE_ACCEL_TOLERANCE && gyroMag < IDLE_GYRO_THRESHOLD) { 
             filter.setBeta(0.1f);
-            stillnessCount++; // Simply count frames where the mallet is physically still
+            stillnessCount++; 
         } 
         else { 
             filter.setBeta(0.01f);
-            stillnessCount = 0; // CRITICAL FIX: Reset whenever mallet is moving!
+            stillnessCount = 0; 
         }
 
         if (!inImpactWindow) { 
@@ -994,34 +614,7 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
 
         float calPitch = atan2(2.0f * (f_q0*f_q1 + f_q2*f_q3), 1.0f - 2.0f * (f_q1*f_q1 + f_q2*f_q2)) * RAD_TO_DEG - pitchOffset;
         
-        // --- NEW: Calculate True Side-to-Side Roll (Isolated from Pitch) ---
-        float sinRoll = 2.0f * (f_q0*f_q2 - f_q1*f_q3);
-        if (sinRoll > 1.0f) sinRoll = 1.0f;         // Clamp to prevent NaN errors
-        else if (sinRoll < -1.0f) sinRoll = -1.0f;
-        float calRoll = asin(sinRoll) * RAD_TO_DEG;
-
-       // --- THE FIX: MATCH MODE AUTO-ADDRESS TARE ---
-        // ONLY allow tare if we are in the ARMED state (GAME_READY_PULSE)
-        if (isGameMode && currentGameSubState == GAME_READY_PULSE) {
-            
-            // Must be still for 3.0s (1500 frames) AND side-to-side tilt must be less than 12 degrees
-            if (stillnessCount > 1500 && fabs(calRoll) < 12.0f) {
-                tareTwistNextFrame = true;
-                
-                // Zero out the pitch perfectly based on the calibrated absolute pitch
-                pitchOffset = atan2(2.0f * (f_q0*f_q1 + f_q2*f_q3), 1.0f - 2.0f * (f_q1*f_q1 + f_q2*f_q2)) * RAD_TO_DEG;
-                
-                currentGameSubState = GAME_ALIGNED_SOLID;
-                castLedLatchState = 1; // Solid Green
-                
-                gameSubStateStartTime = currentMillis;
-                shotClockEndTime = currentMillis + 10000; // 10-second shot clock starts NOW
-                stillnessCount = 0;
-            }
-        }
-
         float pitchRads = calPitch * DEG_TO_RAD;
-        
         float omegaMag = gyroMag * DEG_TO_RAD;
 
         currentAccelMag = accelMag;
@@ -1078,35 +671,7 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
         if (doTare) twistOffset_deg = deg;
         currentTwist_deg = deg - twistOffset_deg;
 
-        // =========================================================================
-        // MATCH MODE CASTING ZERO-CROSS COACH
-        // =========================================================================
-        if (isGameMode && (currentGameSubState == GAME_ALIGNED_SOLID || currentGameSubState == GAME_CASTING_COACH)) {
-            // 1. Detect Backswing (Pitch goes negative & velocity is backward)
-            if (calPitch < -2.0f && omegaSigned < -0.2f) {
-                castArmedForZeroCross = true;
-            }
-
-            // 2. Reset Latch at Top of Backswing
-            if (castArmedForZeroCross && (prevPitchRads < pitchRads) && (omegaSigned > 0.0f)) {
-                castLedLatchState = 1; // Reset to Solid Green (Ready for forward swing)
-                currentGameSubState = GAME_CASTING_COACH;
-            }
-
-            // 3. Zero-Cross Evaluation (Forward pass through 0.0° Pitch)
-            if (castArmedForZeroCross && prevPitchRads < 0.0f && pitchRads >= 0.0f && omegaSigned > 0.2f) {
-                if (fabs(currentTwist_deg) > twistTolerance_deg) {
-                    castLedLatchState = 2; // LATCH 2: Solid Red (Twist Fault)
-                } else {
-                    castLedLatchState = 3; // LATCH 1: Solid Green (Good Cast)
-                }
-                castArmedForZeroCross = false; // Disarm until next backswing
-            }
-        }
-        // =========================================================================
-
         if (!inImpactWindow) {
-            // Reset swing trackers when mallet begins moving backward from vertical
             if (omegaSigned < 0.0f && prevOmegaSigned >= 0.0f && pitchRads > -0.087f) {
                 startOfBackswingTime = currentMillis;
                 minPitch = pitchRads;
@@ -1114,15 +679,9 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                 zVelocity = 0.0;
             }
 
-            // ==========================================================
-            // FIX 1 & 2: DOWNSWING TIMER & ACCELERATION TRACKERS
-            // ==========================================================
             static float maxAngularAccel = 0.0f;
             static float smoothedAccel = 0.0f;
 
-            // 2. The absolute deepest part of the backswing IS the change of direction!
-            // By ONLY logging time when a new minPitch is hit, it is completely immune
-            // to mid-swing stutters, slow accelerations, and impact shock.
             if (pitchRads < minPitch) {
                 minPitch = pitchRads;
                 topOfBackswingTime = currentMillis;
@@ -1131,7 +690,6 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                 smoothedAccel = 0.0f; 
             }
 
-            // 3. Track the highest acceleration spike during the forward downswing
             if (omegaSigned > 0.0f && pitchRads < 0.0f) {
                 float raw_accel = (currentOmegaMag - fabs(prevOmegaSigned)) / actualDt;
                 smoothedAccel = (smoothedAccel * 0.90f) + (raw_accel * 0.10f);
@@ -1140,17 +698,12 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                 }
             }
 
-            // 4. Evaluate and log continuously during the downswing
             if (topOfBackswingTime > 0 && omegaSigned > 0 && pitchRads < 0.0) {
                 float exact_gravity_accel = (9.81f / radius_m) * sin(fabs(minPitch));
                 float extra_effort = maxAngularAccel - exact_gravity_accel; 
                 currentAppliedForce = (int8_t)constrain((int)extra_effort, -128, 127);
             }
             
-            // ==========================================================
-            // LOG INTO THE 10ms HISTORY TIME-MACHINE
-            // ==========================================================
-            // Because this is at the END of the block, it captures the fresh calculations!
             tmPitch[tmIdx] = calPitch; 
             tmQ0[tmIdx] = f_q0;
             tmQ1[tmIdx] = f_q1;
@@ -1164,7 +717,7 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
 
         if (pitchRads > maxPitch) maxPitch = pitchRads;
     
-        if (isArmed || isGameMode) {
+        if (isArmed) {
             if (pitchRads < 0.0 && pitchRads > -(PI/2.0) && omegaSigned > 0) { 
                 if (currentSpeed > zVelocity) { 
                     zVelocity = currentSpeed;
@@ -1172,25 +725,13 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                 } 
             }
         
-            // ==========================================
-            // GATES 1 & 2: Wind-Up and Intent (For Game Mode auto-strike detection)
-            // ==========================================
-            bool passedBackswing = (minPitch < -0.087f); // ~ -5.0 deg
-            bool passedVelocity = (zVelocity > 0.8f);
-
-            // ==========================================
-            // ISOLATED LOGIC
-            // ==========================================
-            // If Armed via Web App, allow any shock.
-            // If in Game Mode, enforce the strict kinematic entry gates!
-            bool validImpact = isArmed || (isGameMode && passedBackswing && passedVelocity);
+            bool validImpact = isArmed;
 
             if (!inImpactWindow && validImpact && deltaG >= impactThreshold && (currentMillis - lastImpactTime > 500)) {
                 inImpactWindow = true;
                 strikePacketSent = false;
                 impactStartTime = currentMillis; 
                 impactPeakG = accelMag; 
-                // +++ impactPeakTwist = gyroMag; 
                 impactPeakTwist = gz;
                 impactDwellSamples = 1;
 
@@ -1217,21 +758,11 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                     impactPeakFaceG = max(fabs(ax), fabs(ay)); 
                     impactPeakShaftG = fabs(az);
                 }
-                // +++if (gyroMag > impactPeakTwist) impactPeakTwist = gyroMag;
                 if (fabs(gz) > fabs(impactPeakTwist)) impactPeakTwist = gz;
                 
                 if (accelMag > 2.0) impactDwellSamples++;
             } else if (elapsed > 25 && !strikePacketSent) {
                 
-                // ==========================================
-                // GATES 4 & 5: Direction and Dwell
-                // ==========================================
-                bool passedDirection = (impactPeakFaceG > impactPeakShaftG);
-                bool passedDwell = (impactDwellSamples >= 2 && impactDwellSamples <= 8);
-
-                // FINAL CHECK: Pass if manually armed, OR if it passes the strict Game Mode gates
-                // XXX if (isArmed || (passedDirection && passedDwell)) {
-                // XXX if (isArmed || passedDirection) {
                 if (isArmed) {
                 
                     float backArc = fabs(minPitch) * radius_m * 100.0;
@@ -1250,7 +781,6 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                         computedDecel = (int8_t)constrain(ratio, -128, 127);
                     }
 
-                    // --- 1. RECONSTRUCT PRISTINE PRE-IMPACT ORIENTATION ---
                     Quat pristineRaw = {pristineQ2, -pristineQ3, -pristineQ1, pristineQ0};
                     Quat x180_q = {1.0f, 0.0f, 0.0f, 0.0f};
                     Quat pImpact = multQuat(pristineRaw, x180_q);
@@ -1258,10 +788,8 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                     float p_len = sqrt(pImpact.x*pImpact.x + pImpact.y*pImpact.y + pImpact.z*pImpact.z + pImpact.w*pImpact.w);
                     if(p_len > 0.0f) { pImpact.x/=p_len; pImpact.y/=p_len; pImpact.z/=p_len; pImpact.w/=p_len; }
 
-                    // Apply the Tare baseline so it evaluates to 0.0° down the target line
                     Quat pQuat = multQuat(baseQuatInverse, pImpact);
 
-                    // --- 2. CALCULATE PRISTINE FACE ANGLE (TWIST) ---
                     Vec3 pv = applyQuat({0.0f, 0.0f, 1.0f}, pQuat);
                     Vec3 pup = applyQuat({0.0f, 1.0f, 0.0f}, pQuat);
                     
@@ -1286,17 +814,14 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                     }
                     pristineTwist_deg -= twistOffset_deg;
 
-                    // --- 3. ASSEMBLE STRIKE PACKET ---
                     StrikePacket sp; 
                     sp.header = 'S';
                     sp.peakG = (int16_t)(impactPeakG * 100.0);
                     sp.peakTwist = (int16_t)(impactPeakTwist * 10.0);
                     sp.dwell = (uint8_t)constrain(dwellMs, 0, 255); 
                     sp.backArc = (int16_t)(backArc * 10.0); 
-                    sp.faceAngle = (int16_t)(pristineTwist_deg * 10.0); // Clean Face Angle!
+                    sp.faceAngle = (int16_t)(pristineTwist_deg * 10.0);
                     sp.zVel = (int16_t)(pristineVel * 100.0); 
-                    
-                    // Send instantaneous tangential effort exactly 10ms before the strike
                     sp.appliedForce = pristineAppForce;
                     
                     uint16_t upTime = 0;
@@ -1310,66 +835,33 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                     sp.q2 = (int16_t)(pristineQ2 * 10000.0f); 
                     sp.q3 = (int16_t)(pristineQ3 * 10000.0f);
                     sp.matchTime = currentMatchTime;
-                    
-                    if (isGameMode) {
-                        sp.strikeTimeOffset = (uint16_t)((currentMillis - matchStartMillis) / 1000);
-                    } else {
-                        sp.strikeTimeOffset = 0;
-                    }
-                
+                    sp.strikeTimeOffset = 0;
                     sp.downwardSwingTime = swingTime;
                     sp.decelFactor = computedDecel;
                 
                     if (connected) strikeChar.writeValue((uint8_t*)&sp, sizeof(sp));
-
-                    if ((storedStrikeCount + pendingStrikeCount) < MAX_STRIKES) {
-                        if (pendingStrikeCount < MAX_PENDING_STRIKES) {
-                            pendingStrikesBuffer[pendingStrikeCount] = sp;
-                            pendingStrikeCount++;
-                            chunkDirty = true;
-                            lastStrikeTime = currentMillis; 
-                        } else {
-                            savePendingToFlash();
-                            pendingStrikesBuffer[pendingStrikeCount] = sp;
-                            pendingStrikeCount++;
-                            chunkDirty = true;
-                            lastStrikeTime = currentMillis; 
-                        }
-                    }
                 
                     strikePacketSent = true;
                     
-                    // --- EVALUATE STRIKE QUALITY FOR LED ---
                     if (fabs(pristineTwist_deg) > twistTolerance_deg) {
                         lastStrikeLedColor = 2; // RED (Twist Fault)
                     } else {
                         lastStrikeLedColor = 1; // GREEN (Good Strike)
                     }
                     
-                    // Trigger the 3-second LED hold
                     strikeHoldEndTime = currentMillis + 3000; 
+                    currentAppState = STATE_REVIEW;
                     
-                    // Fallback / Reset logic
-                    if (isGameMode) {
-                        resetMatchModeToDormant();
-                    } else { 
-                        currentAppState = STATE_REVIEW;
-                    }
                 } else {
-                    // --- REJECTED AS NOISE ---
                     inImpactWindow = false;
                     lastImpactTime = currentMillis; 
                     previousBleMillis = currentMillis; 
                     minPitch = 0.0; maxPitch = 0.0; peakPush = 0.0; zVelocity = 0.0;
                     appliedForceIndex = 0; topOfBackswingTime = 0;
                     
-                    if (isGameMode) {
-                        resetMatchModeToDormant();
-                    } else { 
-                        isArmed = false;
-                        isSwinging = false;
-                        currentAppState = STATE_IDLE; 
-                    }
+                    isArmed = false;
+                    isSwinging = false;
+                    currentAppState = STATE_IDLE; 
                 }
             } else if (elapsed > 150) {
                 inImpactWindow = false;
@@ -1378,10 +870,8 @@ void updateKinematics(unsigned long currentMillis, unsigned long currentMicros, 
                 minPitch = 0.0; maxPitch = 0.0; peakPush = 0.0; zVelocity = 0.0;
                 appliedForceIndex = 0; topOfBackswingTime = 0;
                 
-                if (!isGameMode) { 
-                    isArmed = false;
-                    isSwinging = false;
-                }
+                isArmed = false;
+                isSwinging = false;
             }
         }
         prevAccelMag = accelMag;
@@ -1397,11 +887,13 @@ void setupBLEIdentity() {
         shortMac = mac.substring(12, 14) + mac.substring(15, 17);
         shortMac.toUpperCase();
     }
-    String bleDeviceName = "LVE Mallet " + shortMac;
-    BLE.setLocalName(bleDeviceName.c_str()); 
-    BLE.setDeviceName(bleDeviceName.c_str());
     
-    // Only write to the characteristic if it's the initial boot setup
+    // Safely format the name into permanent global memory
+    snprintf(bleDeviceName, sizeof(bleDeviceName), "LVE Mallet %s", shortMac.c_str());
+    
+    BLE.setLocalName(bleDeviceName); 
+    BLE.setDeviceName(bleDeviceName);
+    
     if (currentAppState == STATE_DISCONNECTED) {
         identityChar.writeValue(mac);
     }
@@ -1409,16 +901,19 @@ void setupBLEIdentity() {
 
 void setup() {
 
+    if (NRF_POWER->GPREGRET == 0x88) {
+        NRF_POWER->GPREGRET = 0; 
+        powerDown();
+    }
+
     setLEDColor(255, 0, 0);
     delay(250);
     Serial.begin(115200);
-    NRF_POWER->RESETREAS = 0xFFFFFFFF; // Clear hardware crash logs to prevent Mbed OS boot-loops
+    NRF_POWER->RESETREAS = 0xFFFFFFFF; 
 
     setLEDColor(0, 255, 0);
     delay(250);
 
-    // --- I2C BUS RECOVERY (The Missing Fix) ---
-    // Forces a frozen IMU to release the SDA line after an abrupt reset or deep sleep
     pinMode(PIN_WIRE_SDA, INPUT);
     pinMode(PIN_WIRE_SCL, OUTPUT);
     for (int i = 0; i < 9; i++) {
@@ -1432,70 +927,50 @@ void setup() {
     setLEDColor(0, 0, 255);
     delay(250);
     
-    // --- WATCHDOG ADDITION ---
     if (ENABLE_WATCHDOG) {
-        NRF_WDT->CONFIG = 0x00;       // pause running during sleep
-        NRF_WDT->CRV = 32768 * 10;  // 10 seconds timeout   
+        NRF_WDT->CONFIG = 0x01;       
+        NRF_WDT->CRV = 32768 * 10;  
         NRF_WDT->RREN = 0x01;         
         NRF_WDT->TASKS_START = 1;     
     }  
 
-    // 1. Safely discharge I2C pull-ups to prevent parasitic latch-up
     pinMode(PIN_WIRE_SDA, OUTPUT); digitalWrite(PIN_WIRE_SDA, LOW);
     pinMode(PIN_WIRE_SCL, OUTPUT); digitalWrite(PIN_WIRE_SCL, LOW);
     
     setLEDColor(255, 0, 0);
     delay(250);
 
-    // 2. Hard reset the IMU safely
     pinMode(IMU_INT_PIN, INPUT_PULLDOWN);
     pinMode(PIN_LSM6DS3TR_C_POWER, OUTPUT);
     digitalWrite(PIN_LSM6DS3TR_C_POWER, LOW);
-    delay(100); // Let IMU completely power off
+    delay(100); 
     digitalWrite(PIN_LSM6DS3TR_C_POWER, HIGH);
-    delay(250); // Let IMU boot up
+    delay(250); 
 
     setLEDColor(0, 255, 0);
     delay(250);
 
-    // 3. Restore I2C pins for normal communication
     pinMode(PIN_WIRE_SDA, INPUT);
     pinMode(PIN_WIRE_SCL, INPUT);
 
     setLEDColor(0, 0, 255);
     delay(250);
 
-    myIMU.settings.accelRange = 16;  // Expand range to 16G to catch the croquet strike
-    myIMU.settings.gyroRange = 2000; // Ensure gyro can track fast swings
+    myIMU.settings.accelRange = 16;  
+    myIMU.settings.gyroRange = 2000; 
 
     if (myIMU.begin() != 0) while (1);
 
     setLEDColor(255, 0, 0);
     delay(250);
 
+    // --- REVISED SETTINGS STORAGE (Keep calibration, ignore strikes) ---
     size_t actual_size = 0;
-    int kvStatus = kv_get("str_cnt", &storedStrikeCount, sizeof(storedStrikeCount), &actual_size);
-    
-    if (kvStatus != 0 && kvStatus != MBED_ERROR_ITEM_NOT_FOUND) {
-        kv_reset("/kv/"); 
+    if (kv_get("cal_matrix", &hardwareMatrix, sizeof(hardwareMatrix), &actual_size) != 0) {
         hardwareMatrix = {1.0f, 0.0f, 0.0f, 0.0f};
-        storedStrikeCount = 0;
-        currentMatchTime = 0;
         kv_set("cal_matrix", &hardwareMatrix, sizeof(hardwareMatrix), 0);
-        kv_set("str_cnt", &storedStrikeCount, sizeof(storedStrikeCount), 0);
-        kv_set("match_time", &currentMatchTime, sizeof(currentMatchTime), 0);
-    } else {
-        if (kvStatus == MBED_ERROR_ITEM_NOT_FOUND) { storedStrikeCount = 0; }
-        if (kv_get("cal_matrix", &hardwareMatrix, sizeof(hardwareMatrix), &actual_size) != 0) { 
-            hardwareMatrix = {1.0f, 0.0f, 0.0f, 0.0f};
-        }
-        if (kv_get("match_time", &currentMatchTime, sizeof(currentMatchTime), &actual_size) != 0) { 
-            currentMatchTime = 0;
-        }
     }
-
-    pendingStrikeCount = 0; 
-
+    
     setLEDColor(0, 255, 0); 
     delay(250);
     
@@ -1510,23 +985,14 @@ void setup() {
     
     filter.q0 = 1.0f; filter.q1 = 0.0f; filter.q2 = 0.0f; filter.q3 = 0.0f;
     filter.begin(500.0f); 
-    injectGravitySnapshot(); 
-
-    setLEDColor(127, 127, 127);
-    delay(100);
-    setLEDColor(0, 0, 0);
-    delay(100);
-    setLEDColor(127, 127, 127);
-    delay(100);
-    setLEDColor(0, 0, 0);
-    delay(500);                 // Rest safely before BLE.begin()
+    injectGravitySnapshot();              
 
     if (!BLE.begin()) while (1);
     
     setupBLEIdentity();
     calibrationChar.writeValue((uint8_t*)&hardwareMatrix, sizeof(hardwareMatrix));
   
-    BLE.setAdvertisedService(telemetryService);
+    // BLE.setAdvertisedService(telemetryService);
     telemetryService.addCharacteristic(telemetryChar);
     telemetryService.addCharacteristic(commandChar); 
     telemetryService.addCharacteristic(strikeChar);
@@ -1538,106 +1004,61 @@ void setup() {
     BLE.advertise();
     lastActivityTime = millis(); 
     previousImuMicros = micros();
-
-    // --- THE FIX: REBOOT-TO-SLEEP ROUTING ---
-    if (NRF_POWER->GPREGRET == 0x88) {
-        NRF_POWER->GPREGRET = 0; // Clear the flag
-        
-        // Spoof the clock so it perfectly triggers the disconnected sleep in 5 seconds
-        lastActivityTime = millis() - BLE_DISCONNECT_TIMEOUT_MS + 5000;
-    } else {
-        lastActivityTime = millis(); 
-    }
-    
-    previousImuMicros = micros();
-} // <-- End of setup()
-
+} 
 
 void loop() {
-    // --- WATCHDOG ADDITION (Start of Loop) ---
-    feedWatchdog();  // Feed the watchdog to prevent hardware reboot
+    feedWatchdog();  
 
-    // --- SAFE REBOOT HANDLER ---
     if (pendingReboot && (millis() - rebootTriggerTime > 500)) {
         NVIC_SystemReset(); 
     }
-    // ---------------------------
 
     BLEDevice central = BLE.central();
     unsigned long currentMillis = millis();
     unsigned long currentMicros = micros();
     bool connected = central && central.connected();
 
-    // Hardware-level failsafe: Force disarm if stuck in ARMED for over 30 seconds
     if (currentAppState == STATE_ARMED && (currentMillis - armedStateStartTime > ARMED_TIMEOUT_MS)) {
         isArmed = false;
         isSwinging = false;
         currentAppState = STATE_IDLE;
         strikeHoldEndTime = 0;
     }
-    
-    // --- NEW: Track advertising speed state ---
-    static bool isSlowAdvertising = false;
 
     if (!connected) {
-        if (!isGameMode) {
-            if (currentAppState != STATE_DISCONNECTED) { 
-                currentAppState = STATE_DISCONNECTED;
-                strikeHoldEndTime = 0; 
-                
-                // Start the countdown exactly at the moment Bluetooth disconnects!
-                lastActivityTime = currentMillis; 
-                
-                // Ensure fast advertising on fresh disconnect
-                if (isSlowAdvertising) {
-                    BLE.stopAdvertise();
-                    BLE.setAdvertisingInterval(160); // 100ms
-                    BLE.advertise();
-                    isSlowAdvertising = false;
-                }
-            }
-            
-            // Step down BLE advertising after 30 seconds
-            if (!isSlowAdvertising && (currentMillis - lastActivityTime > 30000)) {
-                BLE.stopAdvertise();
-                BLE.setAdvertisingInterval(1600); // 1000ms (1 second)
-                BLE.advertise();
-                isSlowAdvertising = true;
-            }
-            
-            // --- NEW: UNIFIED DISCONNECTED TIMEOUT ---
-            // After exactly 3 minutes (180,000 ms) of being disconnected, shut down.
-            if (currentMillis - lastActivityTime > BLE_DISCONNECT_TIMEOUT_MS) {
-                // Check USB state ONLY at the moment of shutdown
-                if (NRF_POWER->USBREGSTATUS & 1) {
-                    enterSafeChargingMode();
-                } else {
-                    goToDeepSleep(); 
-                }
+        if (currentAppState != STATE_DISCONNECTED) { 
+            currentAppState = STATE_DISCONNECTED;
+            strikeHoldEndTime = 0; 
+            lastActivityTime = currentMillis; 
+            BLE.stopAdvertise();
+            BLE.setAdvertisingInterval(160); 
+            BLE.advertise();
+        }
+        
+        if (currentMillis - lastActivityTime > BLE_DISCONNECT_TIMEOUT_MS) {
+            if (NRF_POWER->USBREGSTATUS & 1) {
+                enterSafeChargingMode();
+            } else {
+                NRF_POWER->GPREGRET = 0x88;
+                NVIC_SystemReset(); 
             }
         }
     } else {
-        if (currentAppState == STATE_DISCONNECTED && !isGameMode) {
+        if (currentAppState == STATE_DISCONNECTED) {
             currentAppState = STATE_IDLE;
             isArmed = false; isSwinging = false;
             previousBleMillis = currentMillis; 
             previousImuMicros = currentMicros;
             needsConnectionCalibration = true;
 
-            // CRITICAL FIX: Reset the timeout tracker upon reconnection!
             lastActivityTime = currentMillis;
         }
       
-        // --- NEW: UNIFIED CONNECTED TIMEOUT ---
-        // Uses the app's dynamic inactivityTimeout_ms
-        if (!isGameMode && (currentAppState == STATE_IDLE || currentAppState == STATE_REVIEW)) {
+        if (currentAppState == STATE_IDLE || currentAppState == STATE_REVIEW) {
             if (inactivityTimeout_ms > 0 && (currentMillis - lastActivityTime > inactivityTimeout_ms)) {
-                // Check USB state ONLY at the moment of shutdown
                 if (NRF_POWER->USBREGSTATUS & 1) {
                     enterSafeChargingMode();
                 } else {
-                    // THE FIX: Do not fight the stuck OS Bluetooth thread!
-                    // Set a hardware flag and reset the chip to clean the slate.
                     NRF_POWER->GPREGRET = 0x88;
                     NVIC_SystemReset();
                 }
@@ -1657,7 +1078,6 @@ void loop() {
             const uint8_t* data = commandChar.value(); 
             int len = commandChar.valueLength();
             
-            // Only reset the inactivity timer if the command is NOT a battery poll ('P')
             if (len > 0 && data[0] != 'P') {
                 lastActivityTime = currentMillis; 
             }
@@ -1669,22 +1089,13 @@ void loop() {
     updateLEDStateMachine();
     updateKinematics(currentMillis, currentMicros, connected);
 
-    // --- FIX: Allow telemetry during Match Mode ---
     if (connected && !inImpactWindow) {
 
-        // --- NEW: Dynamic Telemetry Throttling ---
-        // Default to fast 40ms (25Hz) for smooth app animations in Review, Calibrating, etc.
         long currentBleInterval = 40; 
-        
-        // Only drop to a power-saving 250ms (4Hz) heartbeat when fully idle
-        if (currentAppState == STATE_IDLE && !isGameMode) {
-            currentBleInterval = 250;
-        }
 
        if (currentMillis - previousBleMillis >= currentBleInterval) {
             previousBleMillis = currentMillis;
             
-            // --- FIX: Redundant math and I2C reads removed. Using shared globals. ---
             float dynR = radius_m;
 
             if (currentOmegaMag > 2.0) {
@@ -1704,38 +1115,20 @@ void loop() {
             pkt.az = (int16_t)(az * 100);
             pkt.appliedForce = currentAppliedForce; 
             
-            // Allow Web App to know the Game Mode sub-state for live coaching
-            if (isGameMode) {
-                pkt.appState = (uint8_t)(80 + currentGameSubState);
-            } else {
-                pkt.appState = (uint8_t)currentAppState;
-            }
-            
+            pkt.appState = (uint8_t)currentAppState;
             pkt.dynRadius = (uint16_t)(constrain(dynR * 1000.0f, 0, 65535)); 
             
             telemetryChar.writeValue((uint8_t*)&pkt, sizeof(pkt));
         }
     }
 
-    if (chunkDirty && pendingStrikeCount > 0) {
-        if (currentMillis - lastStrikeTime >= IDLE_SAVE_DELAY_MS) {
-            savePendingToFlash();
-        }
-    }
-
-    // --- NEW: CPU Low-Power Sleep ---
-    // Pauses the CPU clock until the next hardware interrupt (e.g., the 1ms SysTick or a BLE event).
-    // This stops spin-locking and drops baseline active current by ~85%.
     __WFE();
 
 }
 
 void enterSafeChargingMode() {
     feedWatchdog();
-    // 3. Save any pending data to flash memory
-    if (pendingStrikeCount > 0) savePendingToFlash();
 
-    // 1. Turn off all LEDs safely (hardware PWM shutdown)
     NRF_PWM0->ENABLE = 0;
     NRF_PWM1->ENABLE = 0;
     NRF_PWM2->ENABLE = 0;
@@ -1747,101 +1140,78 @@ void enterSafeChargingMode() {
     digitalWrite(LEDG, HIGH);
     digitalWrite(LEDB, HIGH);
 
-    // 2. Shut down Bluetooth to stop broadcasting
     BLE.disconnect();
     BLE.stopAdvertise();
     delay(200);
     BLE.end();
 
-    // 4. Trap the processor safely!
-    // We intentionally DO NOT shut down the IMU or touch the I2C pins here.
-    // The hardware stays stable while we wait for the USB to be unplugged.
     while (NRF_POWER->USBREGSTATUS & 1) {
-        feedWatchdog(); // Keep the watchdog timer happy
+        feedWatchdog(); 
         delay(250); 
     }
 
-    // 5. The USB cable was just unplugged!
-    // Perform a clean system deepsleep and the user can press the button to restart.
-    goToDeepSleep();
+    NRF_POWER->GPREGRET = 0x88;
+    NVIC_SystemReset();
 }
 
-void goToDeepSleep() {
-    feedWatchdog(); // 10 Seconds to shutdown cleanly or reboot if not
+void powerDown() {
     // ---------------------------------------------------------
-    // STEP 1: Flash Write - RED
+    // STEP 1: Prepare for sleep
     // ---------------------------------------------------------
-    setLEDColor(255, 0, 0);
-    delay(250);
     
-    if (pendingStrikeCount > 0) savePendingToFlash();
-
-    // ---------------------------------------------------------
-    // STEP 2: BLE Teardown - Green
-    // ---------------------------------------------------------
-    setLEDColor(0, 255, 0);
-    delay(250);
-
-    // Issue the disconnect command, but DO NOT wait for the phone to reply.
-    // REMOVED BLE.end() - trying to gracefully stop the OS here causes the crash.
-    BLE.disconnect(); 
-    BLE.stopAdvertise();
-    delay(100);
-    
-    // ---------------------------------------------------------
-    // STEP 3: IMU Standby - BLUE
-    // ---------------------------------------------------------
-    setLEDColor(0, 0, 255);
-    delay(250);
-
-    myIMU.writeRegister(0x10, 0x00); 
-    myIMU.writeRegister(0x11, 0x00);
-    delay(50); 
-
-    // ---------------------------------------------------------
-    // STEP 4: I2C & Interrupt Pin Lockdown - RED
-    // ---------------------------------------------------------
-    setLEDColor(255, 0, 0);
-    delay(250);
-    
-    NRF_TWIM0->ENABLE = 0; NRF_TWIM1->ENABLE = 0;
-    pinMode(PIN_WIRE_SDA, INPUT);
-    pinMode(PIN_WIRE_SCL, INPUT);
-    
-    detachInterrupt(digitalPinToInterrupt(IMU_INT_PIN));
-    // pinMode(IMU_INT_PIN, INPUT_PULLDOWN); // Park the pin safely to stop leakage
-    pinMode(IMU_INT_PIN, INPUT);
-    
-    // ---------------------------------------------------------
-    // STEP 4.5: Kill ADC and UART (Safely)
-    // ---------------------------------------------------------
-    // We omit Serial.end() to avoid crashing the Mbed OS USB stack!
-    // NRF_UARTE0->ENABLE = 0; // Force hardware-level UART shutdown
-    // NRF_SAADC->ENABLE = 0;  // Force hardware-level ADC shutdown
-
-    // ---------------------------------------------------------
-    // STEP 5: Peripheral Power Kills - GREEN
-    // ---------------------------------------------------------
-    setLEDColor(0, 255, 0);
-    delay(250);
-
-    // LEAVE POWER HIGH: Prevents 1.4mA reverse-leakage through I2C pull-ups!
-    // The IMU is already in its 3µA software sleep from Step 3.
+    // 1. Leave power HIGH to prevent 1.4mA reverse-leakage through I2C pull-ups
     pinMode(PIN_LSM6DS3TR_C_POWER, OUTPUT);
     digitalWrite(PIN_LSM6DS3TR_C_POWER, HIGH);
-
-    pinMode(PIN_VBAT_ENABLE, OUTPUT);
-    digitalWrite(PIN_VBAT_ENABLE, HIGH);
+    delay(50); // Allow voltage to stabilize
 
     // ---------------------------------------------------------
-    // STEP 6: QSPI & Nordic Errata - BLUE
+    // STEP 2: CRITICAL I2C BUS RECOVERY
     // ---------------------------------------------------------
-    setLEDColor(0, 0, 255);
-    delay(250);
+    // If the reset interrupted an IMU read, the IMU will hold SDA LOW. 
+    // We MUST clock it out manually before calling Wire.begin() to prevent an infinite hang.
+    pinMode(PIN_WIRE_SDA, INPUT);
+    pinMode(PIN_WIRE_SCL, OUTPUT);
+    for (int i = 0; i < 9; i++) {
+        digitalWrite(PIN_WIRE_SCL, HIGH);
+        delayMicroseconds(10);
+        digitalWrite(PIN_WIRE_SCL, LOW);
+        delayMicroseconds(10);
+    }
+    pinMode(PIN_WIRE_SCL, INPUT);
     
+    // ---------------------------------------------------------
+    // STEP 3: IMU Native Shutdown
+    // ---------------------------------------------------------
+    // 2. Put the IMU into its 3µA software sleep mode natively
+    Wire.begin();
+    
+    Wire.beginTransmission(0x6A); // IMU I2C Address
+    Wire.write(0x10); 
+    Wire.write(0x00); // Turn off Accelerometer
+    Wire.endTransmission();
+    
+    Wire.beginTransmission(0x6A);
+    Wire.write(0x11); 
+    Wire.write(0x00); // Turn off Gyroscope
+    Wire.endTransmission();
+        
+    Wire.end(); // Release the I2C hardware    
+
+    // ---------------------------------------------------------
+    // STEP 4: Hardware Pin Lockdown
+    // ---------------------------------------------------------
+    // 3. Safely park I2C pins as inputs to stop any floating currents
+    pinMode(PIN_WIRE_SDA, INPUT);
+    pinMode(PIN_WIRE_SCL, INPUT);
+
     NRF_QSPI->TASKS_DEACTIVATE = 1;
     NRF_QSPI->ENABLE = 0;
 
+    // 4. Safely park the battery voltage divider to prevent 20µA leakage
+    pinMode(PIN_VBAT_ENABLE, OUTPUT);
+    digitalWrite(PIN_VBAT_ENABLE, HIGH);
+
+    // Clear any wake interrupts
     for (int i = 0; i < 32; i++) { 
         if (i == 18) continue; // EXEMPT XIAO RESET BUTTON (P0.18)
         NRF_P0->PIN_CNF[i] &= ~(GPIO_PIN_CNF_SENSE_Msk); 
@@ -1854,60 +1224,61 @@ void goToDeepSleep() {
     (void) __get_FPSCR();
     NVIC_ClearPendingIRQ(FPU_IRQn);
     
-    // Say Good night in WHITE
-    setLEDColor(255, 255, 255);
-    delay(500);
-    
     // ---------------------------------------------------------
-    // STEP 7: Final Peripheral Kill & Hardened SYSTEMOFF
+    // STEP 5: Final Peripheral Kill & Hardened SYSTEMOFF
     // ---------------------------------------------------------
-    // 1. Kill PWMs
-    NRF_PWM0->ENABLE = 0; NRF_PWM1->ENABLE = 0; NRF_PWM2->ENABLE = 0; NRF_PWM3->ENABLE = 0;
     
-    // 2. FORCE KILL UART & RADIO (Overrides Mbed OS)
-    NRF_UARTE0->ENABLE = 0; 
-    NRF_RADIO->TASKS_DISABLE = 1; // Force the antenna off so it cannot block SYSTEMOFF
+    // Turn off LEDs safely by holding them HIGH and take a last breath
+    NRF_PWM0->ENABLE = 0;
+    NRF_PWM1->ENABLE = 0;
+    NRF_PWM2->ENABLE = 0;
+    NRF_PWM3->ENABLE = 0;
+
+
+    pinMode(LEDR, OUTPUT);
+    pinMode(LEDG, OUTPUT);
+    pinMode(LEDB, OUTPUT);
+
+    digitalWrite(LEDR, LOW);
+    digitalWrite(LEDG, LOW);
+    digitalWrite(LEDB, LOW);
     
-    // 3. Turn off LEDs
-    pinMode(LEDR, OUTPUT); pinMode(LEDG, OUTPUT); pinMode(LEDB, OUTPUT);
-    digitalWrite(LEDR, HIGH); digitalWrite(LEDG, HIGH); digitalWrite(LEDB, HIGH);
+    for(volatile long i = 0; i < 1500000; i++);
     
-    // 4. Force all peripheral register writes above to physically settle
+    digitalWrite(LEDR, HIGH);
+    digitalWrite(LEDG, HIGH);
+    digitalWrite(LEDB, HIGH);
+    
+    for(volatile long i = 0; i < 100000; i++);
     __DSB();
 
-    // 5. Completely disable the NVIC master switches to stop Mbed OS background triggers
+    // Completely disable the NVIC master switches to stop Mbed OS background triggers
     for (int i = 0; i < 48; i++) {
         NVIC_DisableIRQ((IRQn_Type)i);
         NVIC_ClearPendingIRQ((IRQn_Type)i);
     }
 
-    // 6. Stop the OS system timers dead in their tracks
+    // Stop the OS system timers dead in their tracks
     SysTick->CTRL = 0;
     NRF_RTC0->TASKS_STOP = 1;
     NRF_RTC1->TASKS_STOP = 1; 
     NRF_RTC2->TASKS_STOP = 1;
 
-    // 7. Final execution barrier sequence
     __DSB();     
     NRF_POWER->SYSTEMOFF = 1;  
     __DSB();     
     __ISB();
 
     // ---------------------------------------------------------
-    // STEP 8: The "Sleep Failed" Failsafe Beacon
+    // STEP 6: The "Sleep Failed" Failsafe Beacon
     // ---------------------------------------------------------
-    // If we reach here, SYSTEMOFF failed (usually a debugger attached or floating event)
+    // If we reach here, SYSTEMOFF failed (usually a debugger attached)
     pinMode(LEDR, OUTPUT);
     while(1) {
-        digitalWrite(LEDR, LOW); // Turn Red ON (Active Low)
+        digitalWrite(LEDR, LOW); 
         for(volatile long i=0; i<40000000; i++);
         
-        digitalWrite(LEDR, HIGH); // Turn Red OFF
+        digitalWrite(LEDR, HIGH); 
         for(volatile long i=0; i<40000000; i++);
-        
-        feedWatchdog();
-
-        // Let the CPU rest between flashes so it doesn't overheat in the bag
-        // __WFE(); 
     }
 }
