@@ -12,6 +12,7 @@ class LevelEdgeBLEManager {
         this.STRIKE_UUID = "19b30003-e8f2-537e-4f6c-d104768a1214";
         this.CALIBRATION_UUID = "19b30004-e8f2-537e-4f6c-d104768a1214";
         this.IDENTITY_UUID = "19b30005-e8f2-537e-4f6c-d104768a1214";
+        this.TRACE_UUID = "19b30006-e8f2-537e-4f6c-d104768a1214";
 
         // --- Hardware State ---
         this.device = null;
@@ -19,6 +20,8 @@ class LevelEdgeBLEManager {
         this.commandChar = null;
         this.calibrationChar = null;
         this.deviceName = "Unknown Mallet";
+        this._traceBuffer = new Array(40).fill(null);
+        this._chunksReceived = 0;
 
         // --- Telemetry Tracking ---
         this._lastRawTs = -1;
@@ -33,6 +36,7 @@ class LevelEdgeBLEManager {
         this.onLiveStrike = null;        // (parsedStrikeObject)
         this.onHistoricalStrike = null;  // (parsedStrikeObject)
         this.onError = null;             // (errorMessage)
+        this.onTraceData = null; // (assembledTraceArray)
     }
 
     /**
@@ -70,6 +74,12 @@ class LevelEdgeBLEManager {
             const strikeChar = await service.getCharacteristic(this.STRIKE_UUID); 
             await strikeChar.startNotifications(); 
             strikeChar.addEventListener('characteristicvaluechanged', (e) => this._parseStrikePacket(e));
+
+            // --- NEW: Setup Trace Stream ---
+            const traceChar = await service.getCharacteristic(this.TRACE_UUID);
+            await traceChar.startNotifications();
+            traceChar.addEventListener('characteristicvaluechanged', (e) => this._parseTracePacket(e));
+            // -------------------------------
 
             // 3. Store Command & Calibration Characteristics
             this.commandChar = await service.getCharacteristic(this.COMMAND_UUID);
@@ -247,6 +257,43 @@ class LevelEdgeBLEManager {
         } else {
             // 'S' - Live Strike
             if (this.onLiveStrike) this.onLiveStrike(parsedStrike);
+        }
+    }
+
+    _parseTracePacket(event) {
+        const data = event.target.value; 
+        // Ensure it's exactly 32 bytes and starts with 'T' (ASCII 84)
+        if (data.byteLength < 32 || data.getUint8(0) !== 84) return;
+
+        const chunkIndex = data.getUint8(1);
+
+        // Reset the buffer if this is the first chunk of a new trace
+        if (chunkIndex === 0) {
+            this._traceBuffer = new Array(40).fill(null);
+            this._chunksReceived = 0;
+        }
+
+        // Each packet holds up to 3 quaternions (8 bytes each)
+        let quatOffset = chunkIndex * 3;
+        for (let q = 0; q < 3; q++) {
+            if (quatOffset + q < 40) {
+                let byteOffset = 2 + (q * 8);
+                this._traceBuffer[quatOffset + q] = {
+                    q0: data.getInt16(byteOffset, true) / 10000.0,
+                    q1: data.getInt16(byteOffset + 2, true) / 10000.0,
+                    q2: data.getInt16(byteOffset + 4, true) / 10000.0,
+                    q3: data.getInt16(byteOffset + 6, true) / 10000.0
+                };
+            }
+        }
+
+        this._chunksReceived++;
+
+        // There are 40 samples at 3 per chunk = 13 chunks of 3, plus 1 chunk of 1 (14 total)
+        if (this._chunksReceived === 14) {
+            if (this.onTraceData) {
+                this.onTraceData(this._traceBuffer);
+            }
         }
     }
 }

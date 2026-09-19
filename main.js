@@ -119,6 +119,8 @@ window.syncHardwareOffsetFromCloud = function(x, y, z, w) {
     saveSettings();
 };
 
+window.pristinePathAngleRads = 0
+
 initScene();
 
 function bindLinkedSpinners(distId, twistId) {
@@ -1761,6 +1763,8 @@ function handleParsedTelemetry(t) {
                 window.pristineImpactQuat = null; // --- NEW: Clear it for the next swing!
                 window.strikeCastGenerated = false;
                 
+                window.pristinePathAngleRads = null;
+
                 window.lastEdgeData = { zVel: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; preRollBuffer = []; recordedFrames = []; rawTracePoints.length = 0; castData = [];
                 
                 sendBleCommand([71]); // 'G'
@@ -1936,6 +1940,12 @@ function handleParsedTelemetry(t) {
                 let dz = pastLocal2.z - pastLocal1.z; 
                 if (dz !== 0) pathAngleRads = Math.atan2(dx, Math.abs(dz)); 
             }
+
+            // --- FIX: OVERRIDE WITH PRISTINE HARDWARE PATH IF AVAILABLE ---
+            if (window.pristinePathAngleRads !== undefined && window.pristinePathAngleRads !== null) {
+                pathAngleRads = window.pristinePathAngleRads;
+            }
+            // --------------------------------------------------------------
 
             let leanEulerNode = new THREE.Euler().setFromQuaternion(iQuat, 'YXZ');
             let rawLeanDeg = THREE.MathUtils.radToDeg(leanEulerNode.z);
@@ -2330,8 +2340,10 @@ window.bleManager.onStateChange = (isConnected, name) => {
         let payload = [ 67, radius, mass / 10, impact * 10, offsetY * 10, timeout, sweetSpot * 10, ledGuidance, Math.round(twist * 10) ];
         
         window.bleManager.sendCommand(payload, true).then(() => {
+            window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z);
+
             if(inGameMode) { window.bleManager.sendCommand([75]); } else { window.bleManager.sendCommand([76]); }
-            showToast(`Connected to ${savedBleName} & Config Synced!`);
+            showToast(`Connected to ${savedBleName} & Push Synced!`);
         });
     }
 };
@@ -2358,10 +2370,7 @@ window.bleManager.onFirmwareVersion = (ver) => {
     let aboutFw = document.getElementById('about-fw-display'); if (aboutFw) aboutFw.innerText = ver;
 };
 
-window.bleManager.onCalibrationLoaded = (w, x, y, z) => {
-    hardwareMountOffset.set(x, y, z, w); 
-    saveSettings(); 
-    
+window.bleManager.onCalibrationLoaded = (w, x, y, z) => {    
     if (w === 1.0 && x === 0.0 && y === 0.0 && z === 0.0) {
         showToast("Mallet Matrix Confirmed Zeroed.");
     } else {
@@ -2595,6 +2604,56 @@ window.bleManager.onTelemetryData = function(t) {
         }
     }
 };
+
+window.bleManager.onTraceData = (traceArray) => {
+    console.log("Received pristine 160ms pre-impact hardware trace!");
+    
+    // Clear the messy 40ms telemetry buffer
+    rawTracePoints.length = 0;
+    
+    // Map the 40 pristine hardware quaternions directly to the 3D visualizer
+    traceArray.forEach(q => {
+        if (!q) return;
+        
+        // Apply the same matrix corrections used in handleParsedTelemetry
+        let pureQ = new THREE.Quaternion(q.q1, q.q2, q.q3, q.q0);
+        let orientedQ = new THREE.Quaternion(pureQ.y, -pureQ.z, -pureQ.x, pureQ.w).normalize();
+        orientedQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
+        
+        let euler = new THREE.Euler().setFromQuaternion(orientedQ, 'YZX');
+        euler.y = -euler.y;
+        orientedQ.setFromEuler(euler, 'YZX');
+        
+        let finalQuat = baseQuatInverse.clone().multiply(orientedQ);
+        
+        // Push to the 3D rendering array
+        rawTracePoints.push({
+            pos: new THREE.Vector3(0, pivotBaseY, 0), // Base anchor
+            rot: finalQuat,
+            color: { r: 0.0, g: 1.0, b: 0.8 },
+            isForward: true
+        });
+    });
+
+    // --- NEW: CALCULATE TRUE HARDWARE PATH ---
+    // Use the last 5 frames (the final 20ms of the swing) to calculate the approach vector
+    if (headPositions.length >= 5) {
+        let pastPos = headPositions[headPositions.length - 5];
+        let impactPos = headPositions[headPositions.length - 1];
+        
+        let dx = impactPos.x - pastPos.x; 
+        let dz = impactPos.z - pastPos.z; 
+        
+        if (dz !== 0) {
+            window.pristinePathAngleRads = Math.atan2(dx, Math.abs(dz));
+        }
+    }
+    // -----------------------------------------
+
+    // Force the 3D engine to draw the perfect arc immediately
+    updateSmoothTrail();
+};
+
 window.fetchCloudMatches = fetchCloudMatches;
 window.fetchCloudStrikes = fetchCloudStrikes;
 window.openMatchEdit = openMatchEdit;
