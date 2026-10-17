@@ -37,6 +37,48 @@ class LevelEdgeBLEManager {
         this.onHistoricalStrike = null;  // (parsedStrikeObject)
         this.onError = null;             // (errorMessage)
         this.onTraceData = null; // (assembledTraceArray)
+
+        // --- For bluetooth auto re-connect
+        this.intentionalDisconnect = false;
+        this.reconnectInterval = null;
+    }
+
+    async _setupGATT() {
+        this.server = await this.device.gatt.connect();
+        const service = await this.server.getPrimaryService(this.SERVICE_UUID);
+
+        const telemetryChar = await service.getCharacteristic(this.TELEMETRY_UUID); 
+        await telemetryChar.startNotifications(); 
+        telemetryChar.addEventListener('characteristicvaluechanged', (e) => this._parseTelemetryPacket(e));
+
+        const strikeChar = await service.getCharacteristic(this.STRIKE_UUID); 
+        await strikeChar.startNotifications(); 
+        strikeChar.addEventListener('characteristicvaluechanged', (e) => this._parseStrikePacket(e));
+
+        const traceChar = await service.getCharacteristic(this.TRACE_UUID);
+        await traceChar.startNotifications();
+        traceChar.addEventListener('characteristicvaluechanged', (e) => this._parseTracePacket(e));
+
+        this.commandChar = await service.getCharacteristic(this.COMMAND_UUID);
+        this.calibrationChar = await service.getCharacteristic(this.CALIBRATION_UUID);
+
+        try {
+            const calVal = await this.calibrationChar.readValue();
+            if (calVal.byteLength === 16) {
+                let w = calVal.getFloat32(0, true); 
+                let x = calVal.getFloat32(4, true); 
+                let y = calVal.getFloat32(8, true); 
+                let z = calVal.getFloat32(12, true);
+                if (this.onCalibrationLoaded) this.onCalibrationLoaded(w, x, y, z);
+            }
+        } catch(e) {
+            console.warn("No stored calibration matrix found on mallet.");
+        }
+
+        this._lastRawTs = -1;
+        this._tsOffset = 0;
+
+        if (this.onStateChange) this.onStateChange(true, this.deviceName);
     }
 
     /**
@@ -44,6 +86,7 @@ class LevelEdgeBLEManager {
      */
     async connect() {
         if (this.device && this.device.gatt && this.device.gatt.connected) {
+            this.intentionalDisconnect = true; // Mark as intentional
             this.disconnect();
             return;
         }
@@ -62,48 +105,8 @@ class LevelEdgeBLEManager {
             this.deviceName = this.device.name || "LVE Mallet";
             this.device.addEventListener('gattserverdisconnected', () => this._handleDisconnect());
             
-            this.server = await this.device.gatt.connect();
-            const service = await this.server.getPrimaryService(this.SERVICE_UUID);
-
-            // 1. Setup Telemetry Stream
-            const telemetryChar = await service.getCharacteristic(this.TELEMETRY_UUID); 
-            await telemetryChar.startNotifications(); 
-            telemetryChar.addEventListener('characteristicvaluechanged', (e) => this._parseTelemetryPacket(e));
-
-            // 2. Setup Strike/Event Stream
-            const strikeChar = await service.getCharacteristic(this.STRIKE_UUID); 
-            await strikeChar.startNotifications(); 
-            strikeChar.addEventListener('characteristicvaluechanged', (e) => this._parseStrikePacket(e));
-
-            // --- NEW: Setup Trace Stream ---
-            const traceChar = await service.getCharacteristic(this.TRACE_UUID);
-            await traceChar.startNotifications();
-            traceChar.addEventListener('characteristicvaluechanged', (e) => this._parseTracePacket(e));
-            // -------------------------------
-
-            // 3. Store Command & Calibration Characteristics
-            this.commandChar = await service.getCharacteristic(this.COMMAND_UUID);
-            this.calibrationChar = await service.getCharacteristic(this.CALIBRATION_UUID);
-
-            // 4. Fetch stored calibration matrix from hardware (if any)
-            try {
-                const calVal = await this.calibrationChar.readValue();
-                if (calVal.byteLength === 16) {
-                    let w = calVal.getFloat32(0, true); 
-                    let x = calVal.getFloat32(4, true); 
-                    let y = calVal.getFloat32(8, true); 
-                    let z = calVal.getFloat32(12, true);
-                    if (this.onCalibrationLoaded) this.onCalibrationLoaded(w, x, y, z);
-                }
-            } catch(e) {
-                console.warn("No stored calibration matrix found on mallet.");
-            }
-
-            // Reset timestamp trackers on clean connect
-            this._lastRawTs = -1;
-            this._tsOffset = 0;
-
-            if (this.onStateChange) this.onStateChange(true, this.deviceName);
+            this.intentionalDisconnect = false; // User initiated a real connection
+            await this._setupGATT(); // Call the abstracted method here
 
         } catch (error) {
             if (this.onError) this.onError(error.message);
@@ -111,6 +114,8 @@ class LevelEdgeBLEManager {
     }
 
     disconnect() {
+        this.intentionalDisconnect = true; // Mark as intentional
+        if (this.reconnectInterval) clearInterval(this.reconnectInterval);
         if (this.device && this.device.gatt && this.device.gatt.connected) {
             this.device.gatt.disconnect();
         }
@@ -120,6 +125,38 @@ class LevelEdgeBLEManager {
         this.commandChar = null;
         this.calibrationChar = null;
         if (this.onStateChange) this.onStateChange(false, null);
+        
+        // Trigger auto-reconnect if it was accidental
+        if (!this.intentionalDisconnect && this.device) {
+            this._autoReconnect();
+        }
+    }
+
+    async _autoReconnect() {
+        if (this.reconnectInterval) clearInterval(this.reconnectInterval);
+        
+        let attempts = 0;
+        // 36 attempts * 5000ms = 180 seconds (3 mins) matching the firmware timeout
+        this.reconnectInterval = setInterval(async () => {
+            attempts++;
+            if (this.device.gatt.connected) {
+                clearInterval(this.reconnectInterval);
+                return;
+            }
+            if (attempts > 36) {
+                clearInterval(this.reconnectInterval);
+                if (this.onError) this.onError("Auto-reconnect timed out after 3 minutes.");
+                return;
+            }
+            
+            try {
+                if (this.onError) this.onError(`Reconnecting... (Attempt ${attempts}/36)`);
+                await this._setupGATT();
+                clearInterval(this.reconnectInterval);
+            } catch(e) {
+                // Silently fail and wait for the next interval tick
+            }
+        }, 5000);
     }
 
     /**

@@ -27,12 +27,12 @@ export async function loadCloudProfile() {
         // Load the new fields (fallback to auth metadata if table is null)
         document.getElementById('playerNameInput').value = p.display_name || authMeta.display_name || '';
         document.getElementById('playerCountryInput').value = p.country || authMeta.country || '';
-
         document.getElementById('malletNameInput').value = p.name;
         document.getElementById('malletLengthInput').value = p.head_length;
         document.getElementById('malletWidthInput').value = p.face_width;
         document.getElementById('massInput').value = p.mass;
         document.getElementById('offsetYInput').value = p.offset_y;
+        document.getElementById('offsetZInput').value = p.offset_z || 10.0; // Added fallback to 10.0 for older profiles
         document.getElementById('radiusInput').value = p.radius;
         document.getElementById('difficultySelect').value = p.skill_tier;
         document.getElementById('sweetSpotInput').value = p.sweet_spot;
@@ -60,6 +60,8 @@ export async function saveCloudProfile(hardwareMountOffset) {
         face_width: parseFloat(document.getElementById('malletWidthInput').value) || 6.0,
         mass: parseFloat(document.getElementById('massInput').value) || 1000,
         offset_y: parseFloat(document.getElementById('offsetYInput').value) || 5.5,
+        offset_y: parseFloat(document.getElementById('offsetYInput').value) || 5.5,
+        offset_z: parseFloat(document.getElementById('offsetZInput').value) || 10.0, 
         matrix_w: hardwareMountOffset.w, matrix_x: hardwareMountOffset.x, matrix_y: hardwareMountOffset.y, matrix_z: hardwareMountOffset.z,
         radius: parseFloat(document.getElementById('radiusInput').value) || 127,
         skill_tier: document.getElementById('difficultySelect').value, sweet_spot: parseFloat(document.getElementById('sweetSpotInput').value) || 1.5,

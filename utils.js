@@ -44,7 +44,7 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
     // --- NEW: Format Lean ---
     let leanDisplay = c.lean !== undefined ? `${c.lean.toFixed(1)}° ${c.leanDir}`.trim() : `--`;
     
-    let distStr = c.estDist ? `Est: ${Math.round(c.estDist)}m` : `Est: 0m`;
+    let distStr = c.estDist ? `Dst: ${Math.round(c.estDist)}m` : `Dst: 0m`;
     
     // formatOffset is already in utils.js, so we can call it directly
     let pDeltaStr = `PΔ: ${formatOffset(c.pDelta)}`;
@@ -61,8 +61,7 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
         <div class="flex justify-between items-center">
             <span style="flex: 1; text-align: left;">${prefix}: ${distStr}</span>
             <span style="flex: 1; text-align: center;">${traceAccStr}</span>
-            <span style="flex: 1; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 6px;">
-                ${pDeltaStr}
+            <span style="flex: 1; text-align: right;">${starDisplay}
                 <span class="expand-icon text-muted" style="font-size: 0.6rem; margin-top: 2px;">▼</span>
             </span>
         </div>
@@ -85,7 +84,8 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
 
             <div class="flex justify-between items-center text-muted font-normal mt-1">
                 <span style="flex: 1; text-align: left;">${speedStr}</span>
-                <span style="flex: 1; text-align: right;">${starDisplay}</span>
+                <span style="flex: 1; text-align: right; display: flex; justify-content: flex-end; align-items: center; gap: 6px;">
+                ${pDeltaStr} </span>
             </div>
         </div>
         

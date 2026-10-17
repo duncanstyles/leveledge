@@ -24,6 +24,7 @@ const AppConfig = {
     flatMag: 1.0,
     malletLengthCm: 27.6,
     malletWidthCm: 6.0,
+    offsetZCm: 10.0,
     handleLengthCm: 91.4,
     sweetSpot: 1.5,
     lawnSpeed: 10.0,
@@ -59,6 +60,10 @@ function syncAppConfig() {
         } else {
             bpmContainer.classList.add('hidden');
         }
+
+    let offZInp = document.getElementById('offsetZInput');
+    AppConfig.offsetZCm = offZInp ? (parseFloat(offZInp.value) || 10.0) : 10.0;
+
     }
 
     let hlInp = document.getElementById('handleLengthInput');
@@ -363,10 +368,9 @@ function switchHistoryTab(tab) {
 }
 
 // --- FIX: Dynamic trigger line with correct mallet length fallback ---
-let lockedFaceZ = null; 
 function getDynamicFaceZ() { 
-    // Uses your exact posture if locked, otherwise defaults perfectly to your mallet settings
-    return lockedFaceZ !== null ? lockedFaceZ : (AppConfig.malletLengthCm / 2.0); 
+    // Uses exact posture if locked, otherwise defaults perfectly to the sensor offset
+    return lockedFaceZ !== null ? lockedFaceZ : AppConfig.offsetZCm; 
 }
 // ---------------------------------------------------------------------
 
@@ -422,7 +426,7 @@ let isViewFlipped = false;
 const settingsElements = [
     'malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 
     'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 
-    'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 
+    'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'offsetZInput',
     'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'allowRealtimeTuningCheck',
     'trainerDistSetup', 'trainerTwistSetup', 'singleSwingCheck', 
     'matchLedToggle', 'matchAudioToggle', 'matchDistSetup', 'matchTwistSetup', 'matchLawnSetup',
@@ -931,15 +935,30 @@ function updateSystemGeometry() {
 
 function updateMalletScale() {
     if (!mainMalletMesh || !ghostMalletMesh) return;
-    let len = AppConfig.malletLengthCm; let wid = AppConfig.malletWidthCm;
+    let len = AppConfig.malletLengthCm; 
+    let wid = AppConfig.malletWidthCm;
+    let offsetZ = AppConfig.offsetZCm;
     
     setMalletHalfWidth(wid / 2.0);
     if (typeof setMalletDimensions === 'function') setMalletDimensions(len, wid); 
 
-    let scaleX = len / baseStlSize.x; let scaleY = wid / baseStlSize.y; let scaleZ = wid / baseStlSize.z; 
-    mainMalletMesh.scale.set(scaleX, scaleY, scaleZ); ghostMalletMesh.scale.set(scaleX, scaleY, scaleZ);
-    mainMalletMesh.position.z = 0; ghostMalletMesh.position.z = 0; faceTrackerNode.position.set(0, 0, len / 2.0);
-    updateSystemGeometry(); rebuildArcPts(loadedRadius);
+    let scaleX = len / baseStlSize.x; 
+    let scaleY = wid / baseStlSize.y; 
+    let scaleZ = wid / baseStlSize.z; 
+    
+    mainMalletMesh.scale.set(scaleX, scaleY, scaleZ); 
+    ghostMalletMesh.scale.set(scaleX, scaleY, scaleZ);
+    
+    // Shift the physical mallet mesh backward so the sensor sits at the true offset
+    let meshShift = offsetZ - (len / 2.0); 
+    mainMalletMesh.position.z = meshShift; 
+    ghostMalletMesh.position.z = meshShift; 
+    
+    // Pin the face tracker exactly at the physical front face
+    faceTrackerNode.position.set(0, 0, offsetZ);
+    
+    updateSystemGeometry(); 
+    rebuildArcPts(loadedRadius);
 }
 
 function loadSettings() {
