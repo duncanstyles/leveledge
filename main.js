@@ -12,7 +12,8 @@ import {
     handleMesh, ghostHandleMesh,
     MAX_TRAIL_POINTS, trailPositions, trailColors, rawTracePoints, trailGeometry, trailLine,
     initScene, drawStrikeLaser, updateSmoothTrail, rebuildArcPts, hemiLight,
-    ribbonMesh, setMalletHalfWidth, twistRibbonMesh, setMalletDimensions, setTwistMagnifier
+    ribbonMesh, setMalletHalfWidth, twistRibbonMesh, setMalletDimensions, setTwistMagnifier,
+    setActiveOffsetZ
 } from './scene.js';
 
 // --- CACHED APP CONFIG & DOM ELEMENTS FOR PERFORMANCE ---
@@ -368,6 +369,9 @@ function switchHistoryTab(tab) {
 }
 
 // --- FIX: Dynamic trigger line with correct mallet length fallback ---
+
+let lockedFaceZ = null;
+
 function getDynamicFaceZ() { 
     // Uses exact posture if locked, otherwise defaults perfectly to the sensor offset
     return lockedFaceZ !== null ? lockedFaceZ : AppConfig.offsetZCm; 
@@ -938,6 +942,8 @@ function updateMalletScale() {
     let len = AppConfig.malletLengthCm; 
     let wid = AppConfig.malletWidthCm;
     let offsetZ = AppConfig.offsetZCm;
+
+    if (typeof setActiveOffsetZ === 'function') setActiveOffsetZ(offsetZ);
     
     setMalletHalfWidth(wid / 2.0);
     if (typeof setMalletDimensions === 'function') setMalletDimensions(len, wid); 
@@ -953,6 +959,9 @@ function updateMalletScale() {
     let meshShift = offsetZ - (len / 2.0); 
     mainMalletMesh.position.z = meshShift; 
     ghostMalletMesh.position.z = meshShift; 
+
+    if (handleMesh) handleMesh.position.z = meshShift;
+    if (ghostHandleMesh) ghostHandleMesh.position.z = meshShift;
     
     // Pin the face tracker exactly at the physical front face
     faceTrackerNode.position.set(0, 0, offsetZ);
@@ -1380,8 +1389,13 @@ function animate() {
 
             let len = AppConfig.malletLengthCm;
             let wid = AppConfig.malletWidthCm;
-            
-            let yOffset = (wizardStep === 3 || wizardStep === 4) ? (len / 2.0) : (wid / 2.0);
+            let offsetZ = AppConfig.offsetZCm;
+
+            // --- REPLACE THE OLD yOffset LINE WITH THIS ---
+            let yOffset = (wid / 2.0); // Default for side/top/bottom
+            if (wizardStep === 3) yOffset = offsetZ; // Front face (Step 4)
+            if (wizardStep === 4) yOffset = len - offsetZ; // Back face (Step 5)
+            // ----------------------------------------------
             let tableY = pivotBaseY - loadedRadius - 1.5; 
             
             masterPivot.position.set(0, tableY + yOffset, 0); 
@@ -2708,6 +2722,8 @@ document.getElementById('powerOffBtn').addEventListener('click', async () => {
     if (confirm("Are you sure you want to power off the mallet?")) {
         showToast("Powering off mallet...");
         
+        window.bleManager.intentionalDisconnect = true;
+
         // 1. Force writeValueWithResponse by passing 'true' as the second argument
         // This guarantees delivery at the BLE protocol level
         await sendBleCommand([88], true); 

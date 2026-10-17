@@ -68,6 +68,12 @@ export let malletHalfWidth = 3.0;
 export function setMalletHalfWidth(val) { malletHalfWidth = val; }
 
 export let malletHalfLength = 13.8;
+export let activeOffsetZ = 10.0;
+
+export function setActiveOffsetZ(val) {
+    activeOffsetZ = val;
+}
+
 export let malletHalfHeight = 3.0; 
 export let twistMagnifier = 4.0; 
 
@@ -288,7 +294,7 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
         
         // --- ALL VISUALS NOW ANCHORED TO THE FRONT STRIKING FACE ---
         let vNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(qInterp);
-        let faceCenter = smoothPoints[i].clone().add(vNormal.clone().multiplyScalar(malletHalfLength));
+        let faceCenter = smoothPoints[i].clone().add(vNormal.clone().multiplyScalar(activeOffsetZ));
 
         // Update standard trace line to track the face
         trailPositions[i * 3] = faceCenter.x; 
@@ -303,19 +309,41 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
 
         // 2. Dynamic Twist Indicator (Face-to-Path calculation)
         let pathTangent = new THREE.Vector3();
+        let segmentLength = 0; // Track the physical distance moved
+        
         if (i < sampleCount) {
-            pathTangent.subVectors(smoothPoints[i+1], smoothPoints[i]).normalize();
+            pathTangent.subVectors(smoothPoints[i+1], smoothPoints[i]);
+            segmentLength = pathTangent.length();
+            pathTangent.normalize();
         } else {
-            pathTangent.subVectors(smoothPoints[i], smoothPoints[i-1]).normalize();
+            pathTangent.subVectors(smoothPoints[i], smoothPoints[i-1]);
+            segmentLength = pathTangent.length();
+            pathTangent.normalize();
         }
         
         let vUp = new THREE.Vector3(0, 1, 0).applyQuaternion(qInterp);
         
         let vLeft = new THREE.Vector3().crossVectors(vUp, pathTangent).normalize();
         if (vLeft.lengthSq() < 0.001) vLeft = new THREE.Vector3(1,0,0).applyQuaternion(qInterp); 
-        
-        // Calculate how much the side of the mallet is exposed laterally (magnified for visibility)
-        let totalLateralExposure = vNormal.dot(vLeft) * (malletHalfLength * 2.0) * twistMagnifier;
+
+        // --- MORE AGGRESSIVE FADE LOGIC ---
+        let progress = i / sampleCount; 
+        let edgeFade = 1.0;
+
+        // Taper the first 20% and last 20% of the trace (up from 15%)
+        if (progress < 0.20) edgeFade = progress / 0.20;
+        else if (progress > 0.80) edgeFade = (1.0 - progress) / 0.20;
+
+        // The Velocity Gate: Increased from 0.2 to 0.4cm. 
+        // This demands a much faster physical movement to show the twist.
+        let speedFade = 1.0;
+        if (segmentLength < 0.4) { 
+            speedFade = Math.max(0, segmentLength / 0.4); 
+}
+
+        // Apply BOTH fades to strangle the noise, and lock to your new sensor offset
+        let totalLateralExposure = vNormal.dot(vLeft) * (activeOffsetZ * 2.0) * twistMagnifier * edgeFade * speedFade;
+        // -----------------------------
         
         let pRoot = faceCenter.clone();
         let pEdge = faceCenter.clone();
@@ -372,7 +400,8 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
 export function rebuildArcPts(radius) {
     let arcPts = []; 
     // Shift the origin of the perfect ghost arc forward by malletHalfLength
-    let baseVec = new THREE.Vector3(0, -radius, malletHalfLength); 
+    let baseVec = new THREE.Vector3(0, -radius, activeOffsetZ); 
+    
     for(let i=-60; i<=60; i+=2) { 
             let a = THREE.MathUtils.degToRad(i); 
             let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); 
