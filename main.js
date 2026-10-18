@@ -368,6 +368,7 @@ function switchHistoryTab(tab) {
     }
 }
 
+//
 // --- FIX: Dynamic trigger line with correct mallet length fallback ---
 
 let lockedFaceZ = null;
