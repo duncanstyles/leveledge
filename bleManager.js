@@ -10,7 +10,6 @@ class LevelEdgeBLEManager {
         this.TELEMETRY_UUID = "19b30001-e8f2-537e-4f6c-d104768a1214"; 
         this.COMMAND_UUID = "19b30002-e8f2-537e-4f6c-d104768a1214"; 
         this.STRIKE_UUID = "19b30003-e8f2-537e-4f6c-d104768a1214";
-        this.CALIBRATION_UUID = "19b30004-e8f2-537e-4f6c-d104768a1214";
         this.IDENTITY_UUID = "19b30005-e8f2-537e-4f6c-d104768a1214";
         this.TRACE_UUID = "19b30006-e8f2-537e-4f6c-d104768a1214";
 
@@ -18,7 +17,6 @@ class LevelEdgeBLEManager {
         this.device = null;
         this.server = null;
         this.commandChar = null;
-        this.calibrationChar = null;
         this.deviceName = "Unknown Mallet";
         this._traceBuffer = new Array(40).fill(null);
         this._chunksReceived = 0;
@@ -31,7 +29,6 @@ class LevelEdgeBLEManager {
         this.onStateChange = null;       // (isConnected, deviceName)
         this.onBatteryUpdate = null;     // (batteryPct, isCharging, availStrikes)
         this.onFirmwareVersion = null;   // (versionString)
-        this.onCalibrationLoaded = null; // (w, x, y, z)
         this.onTelemetryData = null;     // (telemetryObject)
         this.onLiveStrike = null;        // (parsedStrikeObject)
         this.onHistoricalStrike = null;  // (parsedStrikeObject)
@@ -60,20 +57,6 @@ class LevelEdgeBLEManager {
         traceChar.addEventListener('characteristicvaluechanged', (e) => this._parseTracePacket(e));
 
         this.commandChar = await service.getCharacteristic(this.COMMAND_UUID);
-        this.calibrationChar = await service.getCharacteristic(this.CALIBRATION_UUID);
-
-        try {
-            const calVal = await this.calibrationChar.readValue();
-            if (calVal.byteLength === 16) {
-                let w = calVal.getFloat32(0, true); 
-                let x = calVal.getFloat32(4, true); 
-                let y = calVal.getFloat32(8, true); 
-                let z = calVal.getFloat32(12, true);
-                if (this.onCalibrationLoaded) this.onCalibrationLoaded(w, x, y, z);
-            }
-        } catch(e) {
-            console.warn("No stored calibration matrix found on mallet.");
-        }
 
         this._lastRawTs = -1;
         this._tsOffset = 0;
@@ -123,7 +106,6 @@ class LevelEdgeBLEManager {
 
     _handleDisconnect() {
         this.commandChar = null;
-        this.calibrationChar = null;
         if (this.onStateChange) this.onStateChange(false, null);
         
         // Trigger auto-reconnect if it was accidental
@@ -135,26 +117,17 @@ class LevelEdgeBLEManager {
     async _autoReconnect() {
         if (this.reconnectInterval) clearInterval(this.reconnectInterval);
         
-        let attempts = 0;
-        // 36 attempts * 5000ms = 180 seconds (3 mins) matching the firmware timeout
         this.reconnectInterval = setInterval(async () => {
-            attempts++;
             if (this.device.gatt.connected) {
                 clearInterval(this.reconnectInterval);
                 return;
             }
-            if (attempts > 36) {
-                clearInterval(this.reconnectInterval);
-                if (this.onError) this.onError("Auto-reconnect timed out after 3 minutes.");
-                return;
-            }
             
             try {
-                if (this.onError) this.onError(`Reconnecting... (Attempt ${attempts}/36)`);
                 await this._setupGATT();
                 clearInterval(this.reconnectInterval);
             } catch(e) {
-                // Silently fail and wait for the next interval tick
+                // Silently fail and wait for the next interval tick indefinitely
             }
         }, 5000);
     }
@@ -174,25 +147,6 @@ class LevelEdgeBLEManager {
             } else {
                 await this.commandChar.writeValueWithoutResponse(new Uint8Array(cmdArray));
             }
-            return true;
-        } catch(e) {
-            return false;
-        }
-    }
-
-    /**
-     * Writes a new hardware calibration matrix directly to permanent flash.
-     */
-    async sendCalibrationMatrix(w, x, y, z) {
-        if (!this.calibrationChar) return false;
-        try {
-            let buffer = new ArrayBuffer(16); 
-            let view = new DataView(buffer);
-            view.setFloat32(0, w, true); 
-            view.setFloat32(4, x, true); 
-            view.setFloat32(8, y, true); 
-            view.setFloat32(12, z, true);
-            await this.calibrationChar.writeValueWithResponse(new Uint8Array(buffer));
             return true;
         } catch(e) {
             return false;

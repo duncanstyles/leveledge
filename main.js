@@ -269,104 +269,71 @@ async function startMatchSequence() {
 
 document.getElementById('menuToggleBtn').onclick = () => { document.getElementById('menu-drawer').classList.toggle('open'); };
 
-document.getElementById('topToggleHistoryBtn').onclick = () => { 
+// --- NEW HISTORY & ANALYTICS PANEL LOGIC ---
+let activePanelMode = 'history'; // Tracks which view is currently injected into the panel
+
+function setPanelContent(mode) {
+    activePanelMode = mode;
+    if (mode === 'history') {
+        document.getElementById('training-tab-content').classList.remove('hidden');
+        document.getElementById('cloud-training-tab-content').classList.add('hidden');
+        document.getElementById('match-tab-content').classList.add('hidden');
+    } else {
+        document.getElementById('training-tab-content').classList.add('hidden');
+        document.getElementById('cloud-training-tab-content').classList.remove('hidden');
+        document.getElementById('match-tab-content').classList.remove('hidden');
+        
+        // Fetch fresh cloud data if applicable
+        if (currentUser) {
+            fetchCloudMatches();
+            if (AppConfig.isSubscribed) fetchCloudTraining();
+        }
+    }
+}
+
+function togglePanelState(targetMode) {
     const panel = document.getElementById('history-panel');
     const controlPanel = document.getElementById('control-panel');
-    
-    if (window.innerWidth <= 768) {
-        panel.classList.toggle('mobile-open'); 
-        
-        // Hide the whole control panel when history is open
-        if (panel.classList.contains('mobile-open')) {
-            controlPanel?.classList.add('hidden');
-        } else {
-            controlPanel?.classList.remove('hidden');
-        }
-    } else {
-        panel.classList.toggle('desktop-closed');
-    }
-};
+    const isOpen = window.innerWidth <= 768 ? panel.classList.contains('mobile-open') : !panel.classList.contains('desktop-closed');
 
-let closeHistBtn = document.getElementById('closeHistoryBtn');
-if (closeHistBtn) {
-    closeHistBtn.addEventListener('click', () => {
-        const panel = document.getElementById('history-panel');
-        const controlPanel = document.getElementById('control-panel');
-        
+    if (isOpen && activePanelMode === targetMode) {
+        // Close it if they click the same button that is already open
         if (window.innerWidth <= 768) {
             panel.classList.remove('mobile-open'); 
-            controlPanel?.classList.remove('hidden'); // Bring the buttons back
+            controlPanel?.classList.remove('hidden');
         } else {
             panel.classList.add('desktop-closed');
         }
-    });
+    } else {
+        // Open it (or seamlessly swap contents if already open)
+        setPanelContent(targetMode);
+        if (window.innerWidth <= 768) {
+            panel.classList.add('mobile-open'); 
+            controlPanel?.classList.add('hidden');
+        } else {
+            panel.classList.remove('desktop-closed');
+        }
+    }
 }
 
-document.getElementById('tab-training-btn').onclick = () => switchHistoryTab('training');
-document.getElementById('tab-cloud-training-btn').onclick = () => switchHistoryTab('cloud');
-document.getElementById('tab-match-btn').onclick = () => switchHistoryTab('match');
+document.getElementById('topToggleHistoryBtn').onclick = () => togglePanelState('history');
+document.getElementById('topToggleAnalyticsBtn').onclick = () => togglePanelState('analytics');
 
-// --- EXPERIMENTAL FEATURE GATING ---
+// Experimental gating fallback for matches
 function updateExperimentalFeatures() {
     const isExperimental = document.getElementById('experimentalCheck')?.checked || false;
     const matchBtn = document.getElementById('openMatchModalBtn');
-    const matchTab = document.getElementById('tab-match-btn');
+    const matchContent = document.getElementById('match-tab-content');
 
     if (isExperimental) {
         if (matchBtn) matchBtn.style.display = ''; 
-        if (matchTab) matchTab.style.display = '';
+        if (matchContent) matchContent.style.display = '';
     } else {
         if (matchBtn) matchBtn.style.display = 'none';
-        if (matchTab) matchTab.style.display = 'none';
-        
-        // If they toggle it off while on the Match tab, kick them back to Training
-        if (matchTab && matchTab.classList.contains('active')) {
-            switchHistoryTab('training');
-        }
+        if (matchContent) matchContent.style.display = 'none';
     }
 }
-
-function switchHistoryTab(tab) {
-    // 1. Reset all buttons
-    document.getElementById('tab-training-btn').classList.remove('active');
-    document.getElementById('tab-match-btn').classList.remove('active');
-    document.getElementById('tab-cloud-training-btn').classList.remove('active');
-    
-    // 2. Hide all contents
-    document.getElementById('training-tab-content').classList.add('hidden');
-    document.getElementById('match-tab-content').classList.add('hidden');
-    document.getElementById('cloud-training-tab-content').classList.add('hidden');
-
-    // 3. Activate the correct tab
-    if (tab === 'training') {
-        document.getElementById('tab-training-btn').classList.add('active');
-        document.getElementById('training-tab-content').classList.remove('hidden');
-    } else if (tab === 'cloud') {
-            document.getElementById('tab-cloud-training-btn').classList.add('active');
-            document.getElementById('cloud-training-tab-content').classList.remove('hidden');
-            
-            // NEW: Intercept for Subscription Gate
-            if (!AppConfig.isSubscribed) {
-                let dash = document.getElementById('performance-dashboard');
-                if (dash) dash.classList.add('hidden'); // Hide the charts
-                document.getElementById('cloud-training-container').innerHTML = '<div class="p-5 mt-5 text-center" style="color: var(--danger); font-size: 0.95rem; font-weight: bold;">Please subscribe to see Advanced Analytics</div>';
-            } else if (currentUser) {
-                fetchCloudTraining();
-            } else {
-                let dash = document.getElementById('performance-dashboard');
-                if (dash) dash.classList.add('hidden');
-                document.getElementById('cloud-training-container').innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Sessions.</div>';
-            }
-    } else {
-        document.getElementById('tab-match-btn').classList.add('active');
-        document.getElementById('match-tab-content').classList.remove('hidden');
-        if (currentUser) {
-            fetchCloudMatches();
-        } else {
-            document.getElementById('cloud-matches-container').innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Matches.</div>';
-        }
-    }
-}
+// -------------------------------------------
 
 //
 // --- FIX: Dynamic trigger line with correct mallet length fallback ---
@@ -472,7 +439,6 @@ async function resetSystemState(silent = false, wipeHistory = false) {
     document.getElementById('calibration-container').classList.add('hidden');
     document.getElementById('live-tracking-card').classList.add('hidden');
     document.getElementById('playback-panel').classList.add('hidden');
-    document.getElementById('tune-action-panel').classList.add('hidden');
     document.getElementById('alignment-panel').style.display = 'none';
     
     let swingStateTxt = document.getElementById('swing-state'); 
@@ -728,23 +694,10 @@ document.getElementById('btnDeleteMatch').onclick = async () => {
 document.getElementById('toggleDiagnosticHudBtn').addEventListener('click', toggleDeveloperHUD);
 
 document.getElementById('devResetCalibrationBtn').onclick = () => {
-    if (confirm("Reset calibration matrix to perfect zero (Identity)? This will reset both the app and the connected mallet.")) {
-        
+    if (confirm("Reset calibration matrix to perfect zero (Identity)?")) {
         hardwareMountOffset.set(0, 0, 0, 1);
         saveSettings();
-        
-        if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
-            window.bleManager.sendCalibrationMatrix(1.0, 0.0, 0.0, 0.0).then((success) => {
-                if (success) {
-                    showToast("Calibration wiped locally and on mallet!");
-                } else {
-                    showToast("Wiped locally, but hardware sync failed.");
-                }
-            });
-        } else {
-            showToast("Calibration wiped locally (Mallet not connected).");
-        }
-        
+        showToast("Calibration wiped locally.");
         document.getElementById('dev-options-modal').close();
     }
 };
@@ -765,7 +718,6 @@ document.getElementById('closeDevOptionsBtn').onclick = () => { document.getElem
 
 document.getElementById('enterTuningBtn').onclick = () => {
     if (!window.currentlyViewedCast) return;
-    document.getElementById('tune-action-panel').classList.add('hidden');
     document.getElementById('alignment-panel').style.display = 'block';
     tuneBaseOffset.copy(hardwareMountOffset);
     
@@ -833,18 +785,13 @@ document.getElementById('saveTuneBtn').addEventListener('click', () => {
     let unifiedQuat = new THREE.Quaternion();
     unifiedQuat.multiplyQuaternions(tuningQuat, baseQuat).normalize(); 
 
-    window.bleManager.sendCalibrationMatrix(unifiedQuat.w, unifiedQuat.x, unifiedQuat.y, unifiedQuat.z).then((success) => {
-        if (success) {
-            showToast("Target Line Offset Saved & Burned to Mallet.");
-            hardwareMountOffset.copy(unifiedQuat);
-            document.getElementById('alignment-panel').style.display = 'none';
-            if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
-            if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
-            saveSettings();
-        } else {
-            showToast("Hardware transmission failure.");
-        }
-    });
+    // --- RESTORED LOGIC TO SAVE LOCALLY ---
+    hardwareMountOffset.copy(unifiedQuat);
+    document.getElementById('alignment-panel').style.display = 'none';
+    if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
+    if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
+    saveSettings();
+    showToast("Target Line Offset Saved.");
 });
 
 let versionTapCount = 0;
@@ -1158,11 +1105,6 @@ function calculateRotationMatrix() {
 
     let traceCheck = document.getElementById('showTraceCheck');
     trailLine.visible = traceCheck ? traceCheck.checked : true;
-
-    window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z).then((success) => {
-        if(success) showToast("HARDWARE MATRIX BURNED SUCCESSFULLY TO MALLET.");
-        else showToast("HARDWARE MATRIX SAVED LOCALLY.");
-    });
 }
 
 window.addEventListener('modelLoaded', () => {
@@ -1256,21 +1198,25 @@ document.getElementById('exitReplayBtn').onclick = () => {
 window.currentReviewSwingIdx = -1;
 window.currentReviewCastIdx = -1;
 
-document.getElementById('btnStopReview').onclick = () => {
+// Function to cleanly exit the trace review
+window.stopSwingReview = function() {
     if (typeof targetEnvironmentGroup !== 'undefined') {
         if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
         if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
     }
 
     isReviewingLog = false; window.currentlyViewedCast = null;
-    document.getElementById('tune-action-panel').classList.add('hidden');
+
+    const togglePanel = document.getElementById('trace-toggles-panel');
+    if (togglePanel) togglePanel.classList.add('hidden');
+
     let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
     
     // Hide advanced meshes on STOP, show base trace of all casts
     visBase = true; visWobble = false; visTwist = false;
-    document.getElementById('toggleBase').classList.add('active');
-    document.getElementById('toggleWobble').classList.remove('active');
-    document.getElementById('toggleTwist').classList.remove('active');
+    let tb = document.getElementById('toggleBase'); if (tb) tb.classList.add('active');
+    let tw = document.getElementById('toggleWobble'); if (tw) tw.classList.remove('active');
+    let tt = document.getElementById('toggleTwist'); if (tt) tt.classList.remove('active');
     window.updateMeshVisibility();
     
     // Clear list highlight and collapse all details
@@ -1292,19 +1238,6 @@ document.getElementById('btnStopReview').onclick = () => {
     if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
     clearImpactLasers();
     masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
-};
-
-document.getElementById('btnPrevCast').onclick = () => {
-    if (window.currentReviewCastIdx > 0) {
-        highlightPass(window.currentReviewSwingIdx, window.currentReviewCastIdx - 1);
-    }
-};
-
-document.getElementById('btnNextCast').onclick = () => {
-    let maxCasts = swingDatabase[window.currentReviewSwingIdx].casts.length - 1;
-    if (window.currentReviewCastIdx < maxCasts) {
-        highlightPass(window.currentReviewSwingIdx, window.currentReviewCastIdx + 1);
-    }
 };
 
 document.getElementById('toggleBase').onclick = (e) => { visBase = !visBase; e.currentTarget.classList.toggle('active'); window.updateMeshVisibility(); };
@@ -1487,9 +1420,23 @@ function triggerReplay(index) {
     if(data.casts && data.casts.length > 0) drawStrikeLaser(data.casts[data.casts.length - 1]); else { clearImpactLasers(); }
     document.getElementById('pauseBtn').innerText = "⏸ PAUSE"; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `REPLAYING SWING #${index + 1}...`; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
     document.getElementById('playback-panel').classList.remove('hidden');
-    document.getElementById('tune-action-panel').classList.add('hidden');
-    document.getElementById('history-panel').classList.add('mobile-open');
-};
+    
+    // --- 1. FORCE ADVANCED RIBBONS OFF ---
+    visWobble = false; 
+    visTwist = false;
+    window.updateMeshVisibility();
+    document.getElementById('toggleWobble')?.classList.remove('active');
+    document.getElementById('toggleTwist')?.classList.remove('active');
+
+    // --- 2. HIDE HISTORY PANEL FOR CLEAN VIEW ---
+    const panel = document.getElementById('history-panel');
+    if (window.innerWidth <= 768) {
+        panel.classList.remove('mobile-open');
+        document.getElementById('control-panel')?.classList.remove('hidden'); 
+    } else {
+        panel.classList.add('desktop-closed');
+    }
+}
 
 function highlightPass(swingIdx, castIdx) {
     if (!swingDatabase[swingIdx]) return; let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
@@ -1499,11 +1446,6 @@ function highlightPass(swingIdx, castIdx) {
     
     playbackMode = false; isPaused = false; isReviewingLog = true; 
     document.getElementById('playback-panel').classList.add('hidden');
-    
-    let tunePanel = document.getElementById('tune-action-panel');
-    tunePanel.classList.remove('hidden');
-    tunePanel.classList.add('mt-3');
-    tunePanel.style.marginBottom = '0';
     
     // Highlight UI logic
     document.querySelectorAll('.active-cast-row').forEach(el => el.classList.remove('active-cast-row'));
@@ -1529,22 +1471,15 @@ function highlightPass(swingIdx, castIdx) {
         let activeIcon = activeRow.querySelector('.expand-icon');
         if (activeIcon) activeIcon.innerText = '▲';
     }
-    
-    // Button states
-    let btnPrev = document.getElementById('btnPrevCast');
-    let btnNext = document.getElementById('btnNextCast');
-    if (btnPrev) btnPrev.disabled = (castIdx === 0);
-    if (btnNext) btnNext.disabled = (castIdx === swing.casts.length - 1);
-    
-    let container = document.getElementById('cast-container-' + swingIdx);
-    if (container) {
-        container.appendChild(tunePanel);
-    }
-    
-    if (document.getElementById('allowRealtimeTuningCheck') && document.getElementById('allowRealtimeTuningCheck').checked) {
-        document.getElementById('enterTuningBtn').classList.remove('hidden');
-    } else {
-        document.getElementById('enterTuningBtn').classList.add('hidden');
+
+    // Show the toggles and attach them to the bottom of the casting list
+    let togglePanel = document.getElementById('trace-toggles-panel');
+    if (togglePanel) {
+        togglePanel.classList.remove('hidden');
+        let container = document.getElementById('cast-container-' + swingIdx);
+        if (container) {
+            container.appendChild(togglePanel);
+        }
     }
     
     window.fullSwingTraceBuffer = swing.rawTracePoints;
@@ -2331,9 +2266,9 @@ async function finalizeSwingData(nowTime) {
 window.bleManager.onStateChange = (isConnected, name) => {
     if (!isConnected) {
         const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-disconnected";
-        document.getElementById('swing-state').innerHTML = "CONNECT BLUETOOTH MALLET<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Turn on sensor and ensure Bluetooth is enabled.</span>"; 
+        document.getElementById('swing-state').innerHTML = "<span style='text-decoration: underline;'>CONNECT BLUETOOTH MALLET</span><br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal; text-decoration: none;'>Tap here to connect sensor.</span>"; 
         document.getElementById('swing-state').className = "text-center font-bold mb-4";
-        
+        document.getElementById('swing-state').style.cursor = "pointer";
         document.getElementById('ready-group').classList.add('hidden');
         document.getElementById('cancelArmBtn').classList.add('hidden');
         document.getElementById('powerOffBtn').classList.add('hidden');
@@ -2354,8 +2289,11 @@ window.bleManager.onStateChange = (isConnected, name) => {
         // ------------------------------------------------------------
         
         let swingStateTxt = document.getElementById('swing-state');
-        if(swingStateTxt) { swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
-
+        if(swingStateTxt) { 
+            swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal; text-decoration: none;'>Select an activity to begin.</span>"; 
+            swingStateTxt.className = "text-accent text-center font-bold mb-4"; 
+            swingStateTxt.style.cursor = "default"; // Remove pointer on success
+        }
       
         document.getElementById('ready-group').classList.remove('hidden');
         document.getElementById('powerOffBtn').classList.remove('hidden');
@@ -2374,8 +2312,6 @@ window.bleManager.onStateChange = (isConnected, name) => {
         let payload = [ 67, radius, mass / 10, impact * 10, offsetY * 10, timeout, sweetSpot * 10, ledGuidance, Math.round(twist * 10) ];
         
         window.bleManager.sendCommand(payload, true).then(() => {
-            window.bleManager.sendCalibrationMatrix(hardwareMountOffset.w, hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z);
-
             if(inGameMode) { window.bleManager.sendCommand([75]); } else { window.bleManager.sendCommand([76]); }
             showToast(`Connected to ${savedBleName} & Push Synced!`);
         });
@@ -2404,20 +2340,17 @@ window.bleManager.onFirmwareVersion = (ver) => {
     let aboutFw = document.getElementById('about-fw-display'); if (aboutFw) aboutFw.innerText = ver;
 };
 
-window.bleManager.onCalibrationLoaded = (w, x, y, z) => {    
-    if (w === 1.0 && x === 0.0 && y === 0.0 && z === 0.0) {
-        showToast("Mallet Matrix Confirmed Zeroed.");
-    } else {
-        showToast("Calibration Matrix loaded from Mallet!"); 
-    }
-};
-
 window.bleManager.onTelemetryData = handleParsedTelemetry;
 window.bleManager.onHistoricalStrike = handleHistoricalStrike;
 window.bleManager.onLiveStrike = handleLiveStrike;
 window.bleManager.onError = showToast;
 
 document.getElementById('btToggleBtn').addEventListener('click', () => window.bleManager.connect());
+document.getElementById('swing-state').addEventListener('click', () => {
+    if (appState === 0) {
+        window.bleManager.connect();
+    }
+});
 
 setInterval(() => {
     if (window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
@@ -2703,14 +2636,18 @@ document.getElementById('training-tab-content').addEventListener('click', (e) =>
     const replayBtn = e.target.closest('.replay-btn');
     if (replayBtn) {
         const swingIndex = parseInt(replayBtn.getAttribute('data-swing-index'), 10);
-        if (!isNaN(swingIndex)) {
-            triggerReplay(swingIndex);
-        }
+        if (!isNaN(swingIndex)) triggerReplay(swingIndex);
         return; 
     }
 
     const castRow = e.target.closest('.highlight-pass-btn');
     if (castRow) {
+        // If the row is ALREADY active, tapping it again stops the review!
+        if (castRow.classList.contains('active-cast-row')) {
+            window.stopSwingReview();
+            return;
+        }
+
         const swingIdx = parseInt(castRow.getAttribute('data-swing-index'), 10);
         const castIdx = parseInt(castRow.getAttribute('data-cast-index'), 10);
         if (!isNaN(swingIdx) && !isNaN(castIdx)) {
@@ -2718,6 +2655,13 @@ document.getElementById('training-tab-content').addEventListener('click', (e) =>
         }
     }
 });
+
+// Trigger the Stop logic if the user manually collapses the "View Casting Traces" accordion
+document.getElementById('training-tab-content').addEventListener('toggle', (e) => {
+    if (e.target.tagName === 'DETAILS' && e.target.classList.contains('advanced-metrics')) {
+        if (!e.target.open) window.stopSwingReview();
+    }
+}, true); // 'true' forces the event to capture since <details> toggle events don't bubble naturally
 
 document.getElementById('powerOffBtn').addEventListener('click', async () => {
     if (confirm("Are you sure you want to power off the mallet?")) {

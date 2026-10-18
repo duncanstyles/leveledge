@@ -6,7 +6,7 @@
     <title>LevelEdge AI</title>
     <script>
         // UPDATE THE VERSION HERE
-        const APP_VERSION = "9.5.10"; // Change this single variable to update the version everywhere
+        const APP_VERSION = "9.5.11"; // Change this single variable to update the version everywhere
         
         document.addEventListener("DOMContentLoaded", () => {
             document.title = `LevelEdge v${APP_VERSION}`;
@@ -62,6 +62,15 @@
                     <line x1="2" y1="2" x2="22" y2="22"></line><polyline points="12 1 17.5 6.5 13.5 10.5"></polyline><polyline points="6.5 6.5 10.5 10.5"></polyline><polyline points="12 23 17.5 17.5 12 12"></polyline>
                 </svg>
             </button>
+
+            <button id="topToggleAnalyticsBtn" class="icon-btn" title="Cloud Analytics & Matches">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="20" x2="18" y2="10"></line>
+                    <line x1="12" y1="20" x2="12" y2="4"></line>
+                    <line x1="6" y1="20" x2="6" y2="14"></line>
+                </svg>
+            </button>
+
             <button id="topToggleHistoryBtn" class="icon-btn" title="Toggle Swing Log">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -129,8 +138,32 @@
         <button id="endGameModeBtn" class="btn-primary btn-danger mt-5" style="max-width: 300px;">END ON-COURSE MATCH</button>
     </div>
 
+    <!-- === FLOATING REPLAY CONTROLS === -->
+    <!-- === FLOATING REPLAY CONTROLS === 
+    <div id="tune-action-panel" class="hidden flex gap-2" style="position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 50; width: 90%; max-width: 350px; background: var(--bg-panel); padding: 15px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); border: 1px solid var(--warning);">
+        <button id="btnPrevCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">⏪</button>
+        <button id="btnPlayReview" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">▶️</button>
+        <button id="btnStopReview" class="drawer-btn justify-center p-2" style="width: 60px; flex: none; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main);">⏹️</button>
+        <button id="btnNextCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">⏩</button>
+    </div>
+    -->
+
+    <div id="playback-panel" class="hidden" style="position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 50; width: 90%; max-width: 350px; background: var(--bg-panel); padding: 15px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); border: 1px solid var(--accent-primary);">
+        <div class="text-accent font-800 mb-2" style="font-size: 0.85rem; text-align: center;">REPLAY MONITOR</div>
+        <div class="flex-col gap-2 mb-4">
+            <label id="scrubberLabel" for="replayScrubber" class="font-mono text-muted text-center w-full block" style="font-size: 0.75rem;">Frame: 0 / 0</label>
+            <input type="range" id="replayScrubber" min="0" value="0" step="1" class="w-full">
+        </div>
+        <div class="flex gap-2">
+            <button id="pauseBtn" class="drawer-btn flex-1 justify-center p-3">⏸ PAUSE</button>
+            <button id="slowMoBtn" class="drawer-btn flex-1 justify-center p-3">🐌 SLOW</button>
+            <button id="exitReplayBtn" class="btn-primary btn-danger flex-1 p-3">🛑 STOP</button>
+        </div>
+    </div>
+    <!-- ================================ -->
+
     <div id="control-panel">
-        <div id="swing-state">CONNECT MALLET<br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal;">Turn on sensor and ensure Bluetooth is enabled.</span></div>
+        <div id="swing-state" style="cursor: pointer;"><span style="text-decoration: underline;">CONNECT MALLET</span><br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal; text-decoration: none;">Tap here to pair your Bluetooth sensor.</span></div>
         <div id="ready-group" class="hidden flex justify-center gap-2 w-full">
             <button id="openTrainerModalBtn" class="btn-primary btn-warning flex-1" style="color: #111; border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">SWING TRAINER</button>
             <button id="openMatchModalBtn" class="btn-primary btn-success flex-1" style="border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">START MATCH</button>
@@ -142,60 +175,29 @@
     </div>
 
     <div id="history-panel" class="desktop-closed">
-        <div style="padding: 10px 10px 0 10px;">
-            <button id="closeHistoryBtn" class="btn-primary" style="background: var(--bg-card); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-                BACK TO LIVE VIEW
-            </button>
-        </div>
-        <div class="panel-tab-bar">
-            <button id="tab-training-btn" class="panel-tab-btn active">THIS SESSION</button>
-            <button id="tab-cloud-training-btn" class="panel-tab-btn">ANALYTICS</button>
-            <button id="tab-match-btn" class="panel-tab-btn">MATCHES</button>
-        </div>
-
         <div id="training-tab-content">
             <div class="feed-header">
-    <span>Swing Log</span>
-    <div class="flex gap-2">
-        <button id="askAiCoachBtn" class="btn-primary btn-warning" style="color: #111; font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Ask Nathaniel 🤖</button>
-        <button id="resetMaxBtn" class="btn-primary btn-danger" style="font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Clear Log 🗑️</button>
-    </div>
-</div>
-
-            <div id="tune-action-panel" class="hidden flex-col gap-2">
-                <div class="flex justify-around items-center p-2 mb-1" style="background: var(--bg-base); border-radius: 8px; border: 1px solid var(--border-color);">
-                    <button id="toggleBase" class="vis-toggle active" title="Base Path">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 20c4-10 10-15 18-15"></path></svg>
-                    </button>
-                    <button id="toggleWobble" class="vis-toggle" title="Wobble (Roll)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12h4l3-5 5 10 3-5h5"></path></svg>
-                    </button>
-                    <button id="toggleTwist" class="vis-toggle" title="Twist (Yaw)">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transform: rotate(-30deg) scaleY(0.6);"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-                    </button>
-                    <button id="enterTuningBtn" class="vis-toggle hidden" title="Tune Matrix" style="color: var(--warning); border-color: var(--warning);">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
-                    </button>
-                </div>
+                <span>Swing Log</span>
                 <div class="flex gap-2">
-                    <button id="btnPrevCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">⏪ PREV</button>
-                    <button id="btnStopReview" class="drawer-btn justify-center p-2" style="width: 60px; flex: none; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main);">⏹️</button>
-                    <button id="btnNextCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">NEXT ⏩</button>
+                    <button id="askAiCoachBtn" class="btn-primary btn-warning" style="color: #111; font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Ask Nathaniel 🤖</button>
+                    <button id="resetMaxBtn" class="btn-primary btn-danger" style="font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Clear Log 🗑️</button>
                 </div>
             </div>
-
-            <div id="playback-panel" class="hidden">
-                <div class="text-accent font-800 mb-2" style="font-size: 0.85rem;">REPLAY MONITOR</div>
-                <div class="flex-col gap-2 mb-4">
-                    <label id="scrubberLabel" for="replayScrubber" class="font-mono text-muted" style="font-size: 0.75rem;">Frame: 0 / 0</label>
-                    <input type="range" id="replayScrubber" min="0" value="0" step="1" class="w-full">
-                </div>
-                <div class="flex gap-2">
-                    <button id="pauseBtn" class="drawer-btn flex-1 justify-center p-3">⏸ PAUSE</button>
-                    <button id="slowMoBtn" class="drawer-btn flex-1 justify-center p-3">🐌 SLOW</button>
-                    <button id="exitReplayBtn" class="btn-primary btn-danger flex-1 p-3">🛑 STOP</button>
-                </div>
+            
+            <!-- === ANCHORED TRACE TOGGLES === -->
+            <div id="trace-toggles-panel" class="hidden flex justify-around items-center p-2 mb-1 mt-3" style="background: var(--bg-base); border-radius: 8px; border: 1px solid var(--border-color);">
+                <button id="toggleBase" class="vis-toggle active" title="Base Path">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 20c4-10 10-15 18-15"></path></svg>
+                </button>
+                <button id="toggleWobble" class="vis-toggle" title="Wobble (Roll)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 12h4l3-5 5 10 3-5h5"></path></svg>
+                </button>
+                <button id="toggleTwist" class="vis-toggle" title="Twist (Yaw)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="transform: rotate(-30deg) scaleY(0.6);"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+                </button>
+                <button id="enterTuningBtn" class="vis-toggle hidden" title="Tune Matrix" style="color: var(--warning); border-color: var(--warning);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+                </button>
             </div>
 
             <div id="live-tracking-card" class="history-card hidden">
