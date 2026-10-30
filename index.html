@@ -6,7 +6,7 @@
     <title>LevelEdge AI</title>
     <script>
         // UPDATE THE VERSION HERE
-        const APP_VERSION = "9.5.11"; // Change this single variable to update the version everywhere
+        const APP_VERSION = "9.7.01"; // Change this single variable to update the version everywhere
         
         document.addEventListener("DOMContentLoaded", () => {
             document.title = `LevelEdge v${APP_VERSION}`;
@@ -112,7 +112,7 @@
         <h3 style="margin-top:0; font-size:1.1rem; color:var(--text-main); text-transform:uppercase;">Align Target Line</h3>
         <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:15px;">Rotate the environment grid to perfectly match your physical swing path.</p>
         
-        <button id="snapYawBtn" class="btn-primary" style="background-color: #38bdf8; color: #000; font-size: 0.8rem; padding: 8px; margin-bottom: 15px;">SNAP GRID TO SWING PATH</button>
+        <button id="snapYawBtn" class="btn-primary" style="font-size: 0.8rem; padding: 8px; margin-bottom: 15px;">SNAP GRID TO SWING PATH</button>
 
         <div>
             <label for="spinY" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">TARGET LINE YAW</label>
@@ -138,16 +138,6 @@
         <button id="endGameModeBtn" class="btn-primary btn-danger mt-5" style="max-width: 300px;">END ON-COURSE MATCH</button>
     </div>
 
-    <!-- === FLOATING REPLAY CONTROLS === -->
-    <!-- === FLOATING REPLAY CONTROLS === 
-    <div id="tune-action-panel" class="hidden flex gap-2" style="position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 50; width: 90%; max-width: 350px; background: var(--bg-panel); padding: 15px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); border: 1px solid var(--warning);">
-        <button id="btnPrevCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">⏪</button>
-        <button id="btnPlayReview" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">▶️</button>
-        <button id="btnStopReview" class="drawer-btn justify-center p-2" style="width: 60px; flex: none; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-main);">⏹️</button>
-        <button id="btnNextCast" class="drawer-btn flex-1 justify-center p-2" style="font-size:0.85rem;">⏩</button>
-    </div>
-    -->
-
     <div id="playback-panel" class="hidden" style="position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 50; width: 90%; max-width: 350px; background: var(--bg-panel); padding: 15px; border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); border: 1px solid var(--accent-primary);">
         <div class="text-accent font-800 mb-2" style="font-size: 0.85rem; text-align: center;">REPLAY MONITOR</div>
         <div class="flex-col gap-2 mb-4">
@@ -163,10 +153,15 @@
     <!-- ================================ -->
 
     <div id="control-panel">
-        <div id="swing-state" style="cursor: pointer;"><span style="text-decoration: underline;">CONNECT MALLET</span><br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal; text-decoration: none;">Tap here to pair your Bluetooth sensor.</span></div>
+        <div id="swing-state" class="text-accent text-center font-bold mb-4">MALLET DISCONNECTED<br><span class="small-help text-muted" style="font-size: 0.75rem; font-weight: normal; text-decoration: none;">Ensure Bluetooth is on.</span></div>
+        
+        <div id="connect-group" class="flex justify-center w-full mb-2">
+            <button id="connectMalletBtn" class="btn-primary flex-1" style="border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">CONNECT MALLET</button>
+        </div>
+
         <div id="ready-group" class="hidden flex justify-center gap-2 w-full">
-            <button id="openTrainerModalBtn" class="btn-primary btn-warning flex-1" style="color: #111; border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">SWING TRAINER</button>
-            <button id="openMatchModalBtn" class="btn-primary btn-success flex-1" style="border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">START MATCH</button>
+            <button id="openTrainerModalBtn" class="btn-primary flex-1" style="border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">SWING TRAINER</button>
+            <button id="openMatchModalBtn" class="btn-primary flex-1" style="border-radius: 50px; font-size: 0.75rem; padding: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">START MATCH</button>
         </div>
         
         <div id="live-countdown" class="hidden">0s</div>
@@ -179,7 +174,7 @@
             <div class="feed-header">
                 <span>Swing Log</span>
                 <div class="flex gap-2">
-                    <button id="askAiCoachBtn" class="btn-primary btn-warning" style="color: #111; font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Ask Nathaniel 🤖</button>
+                    <button id="askAiCoachBtn" class="btn-primary" style="font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Ask Nathaniel 🤖</button>
                     <button id="resetMaxBtn" class="btn-primary btn-danger" style="font-size: 0.75rem; padding: 6px 12px; width: auto; text-transform: uppercase;">Clear Log 🗑️</button>
                 </div>
             </div>
@@ -297,7 +292,7 @@
             
             <input type="hidden" id="trainerTwistSetup" value="0.53">
             
-            <button id="confirmStartTrainerBtn" class="btn-primary btn-warning" style="color:#111; border-radius: 50px; padding: 10px; font-size: 0.85rem;">START TRAINER</button>
+            <button id="confirmStartTrainerBtn" class="btn-primary" style="border-radius: 50px; padding: 10px; font-size: 0.85rem;">START TRAINER</button>
         </div>
     </dialog>
 
@@ -346,8 +341,8 @@
                 </div>
             </div>
         </div>
-        <button id="confirmStartMatchBtn" class="btn-primary btn-success">START MATCH</button>
-    </div>
+        <button id="confirmStartMatchBtn" class="btn-primary">START MATCH</button>
+        </div>
     </dialog>
 
     <!-- LOGIN MODAL -->
@@ -405,7 +400,7 @@
                     </div>
                 </div>
                 <div class="flex-col gap-3">
-                    <button id="btnConfirmSignup" class="btn-primary btn-success" type="submit">SIGN UP</button>
+                    <button id="btnConfirmSignup" class="btn-primary" type="submit">SIGN UP</button>
                     <button id="btnBackToLogin" class="drawer-btn justify-center" type="button">BACK TO LOGIN</button>
                 </div>
             </form>
@@ -427,7 +422,7 @@
                     </div>
                 </div>
                 <div class="flex-col gap-3">
-                    <button id="btnSaveNewPassword" class="btn-primary btn-success" type="submit">SAVE NEW PASSWORD</button>
+                    <button id="btnSaveNewPassword" class="btn-primary" type="submit">SAVE NEW PASSWORD</button>
                     <button id="btnCloseUpdatePassword" class="btn-primary btn-danger mt-2" type="button">CANCEL</button>
                 </div>
             </form>
@@ -451,7 +446,7 @@
             </div>
 
             <div class="flex-col gap-3">
-                <button id="btnSaveMatchEdit" class="btn-primary btn-success">SAVE DETAILS</button>
+                <button id="btnSaveMatchEdit" class="btn-primary">SAVE DETAILS</button>
                 <button id="btnDeleteMatch" class="drawer-btn justify-center text-danger" style="border-color: var(--danger);">DELETE MATCH</button>
             </div>
         </div>
@@ -585,7 +580,7 @@
                 <div class="setting-item setting-checkbox span-2"><label for="showTraceCheck">Render 3D Trace:</label><input type="checkbox" id="showTraceCheck" checked></div>
                 
                 <div class="setting-item mt-2"><button id="btnUpdateFW" class="btn-primary">Sync FW</button></div>
-                <div class="setting-item mt-2"><button id="btnResetFW" class="btn-primary btn-warning" style="color:#111;">Reboot HW</button></div>
+                <div class="setting-item mt-2"><button id="btnResetFW" class="btn-primary">Reboot HW</button></div>
                 <div class="setting-item mt-2"><button id="btnWipeData" class="btn-primary btn-danger">Wipe Mallet</button></div>
             </div>
         </div>
@@ -653,7 +648,7 @@
             <div class="font-mono mb-5" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
                 Offline Strokes: <span id="about-storage-display" class="text-accent">--</span><br>
-                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 9.7.01</span>
+                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 9.7.02</span>
             </div>
             <div class="text-muted line-height-15" style="font-size: 0.8rem;">
                 &copy; Duncan Styles<br>
@@ -683,7 +678,7 @@
                 </div>
 
                 <button id="toggleDiagnosticHudBtn" class="btn-primary">TOGGLE KINEMATIC HUD</button>
-                <button id="devResetCalibrationBtn" class="btn-primary btn-warning" style="margin-top: 15px; color: #111;">WIPE CALIBRATION (ZERO MATRIX)</button>
+                <button id="devResetCalibrationBtn" class="btn-primary" style="margin-top: 15px;">WIPE CALIBRATION (ZERO MATRIX)</button>
             </div>
         </div>
     </dialog>
