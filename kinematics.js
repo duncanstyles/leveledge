@@ -115,3 +115,44 @@ export function calculateOffCenterImpact(peakTwistDegPerSec, speedMps) {
     return Math.min(distanceMm, 30.0); 
 }
 
+export function anchorSwingToImpact(swing) {
+    if (!swing || !swing.casts || swing.casts.length === 0) return;
+
+    let strikeCast = swing.casts.find(c => c.isStrike || c.isHit) || swing.casts[swing.casts.length - 1];
+    
+    let impactEuler = new THREE.Euler().setFromQuaternion(strikeCast.pivotQuat, 'YXZ');
+    let impactYaw = impactEuler.y;
+    let correctionQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -impactYaw);
+
+    // 1. Rotate the raw trace points (Fixing the .rot typo)
+    if (swing.rawTracePoints) {
+        swing.rawTracePoints.forEach(pt => {
+            if (pt.pos) pt.pos.applyQuaternion(correctionQuat);
+            if (pt.rot) pt.rot.premultiply(correctionQuat); 
+        });
+    }
+
+    // 2. Rotate the scrubber/replay frames so playback aligns with the trace
+    if (swing.frames) {
+        swing.frames.forEach(frame => {
+            if (frame.pivotPos) frame.pivotPos.applyQuaternion(correctionQuat);
+            if (frame.rotation) frame.rotation.premultiply(correctionQuat);
+        });
+    }
+
+    // 3. Rotate every single cast (Practice & Strike)
+    swing.casts.forEach(cast => {
+        if (cast.pivotPos) cast.pivotPos.applyQuaternion(correctionQuat);
+        if (cast.pivotQuat) cast.pivotQuat.premultiply(correctionQuat);
+        if (cast.pos) cast.pos.applyQuaternion(correctionQuat);
+        
+        if (cast.taredYaw !== undefined) cast.taredYaw -= THREE.MathUtils.radToDeg(impactYaw);
+        if (cast.pathAngleRads !== undefined) cast.pathAngleRads -= impactYaw;
+    });
+
+    // 4. Rotate the static UI/Review states
+    if (swing.baseMatrixQuat) swing.baseMatrixQuat.premultiply(correctionQuat);
+    if (swing.finalReviewPivotPos) swing.finalReviewPivotPos.applyQuaternion(correctionQuat);
+    if (swing.finalReviewPivotQuat) swing.finalReviewPivotQuat.premultiply(correctionQuat);
+    if (swing.setupQuat) swing.setupQuat.premultiply(correctionQuat);
+}

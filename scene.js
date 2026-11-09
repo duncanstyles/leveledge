@@ -244,14 +244,54 @@ export function initScene() {
 }
 
 export function drawStrikeLaser(cast) {
-    impactLasers.forEach(m => scene.remove(m)); impactLasers.length = 0;
-    if (!cast || !cast.pos || cast.isWhiff) return;
-    let laserGroup = new THREE.Group(); let cylGeo = new THREE.CylinderGeometry(0.15, 0.15, 1.5, 8); cylGeo.rotateX(Math.PI / 2); let cylMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
-    let correctedRot = cast.rot.clone(); let laserDir = new THREE.Vector3(0, 0, 1).applyQuaternion(correctedRot);
-    if (laserDir.z < 0) { let flipRot = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI); correctedRot.multiply(flipRot); }
-    let impactOffset = new THREE.Vector3(-cast.rawDev, 0, 0); let trueOrigin = impactOffset.applyQuaternion(correctedRot).add(cast.pos);
-    for(let i=0; i<10; i++) { let dash = new THREE.Mesh(cylGeo, cylMat); let forwardStep = new THREE.Vector3(0, 0, (i * 3.0) + 0.75); dash.position.copy(forwardStep.applyQuaternion(correctedRot).add(trueOrigin)); dash.quaternion.copy(correctedRot); laserGroup.add(dash); }
-    scene.add(laserGroup); impactLasers.push(laserGroup);
+    clearImpactLasers();
+    if (!cast) return;
+
+    // 1. Start at the physical center of the visual mallet face
+    let startPos = cast.pos.clone();
+    
+    // 2. Adjust origin ONLY for actual physical strikes
+    // For practice casts (no collision), it assumes a dead-center hit and originates perfectly from the mallet.
+    if (cast.isStrike && cast.rawDev !== undefined) {
+        let offsetMeters = cast.rawDev / 100.0; // rawDev is in centimeters
+        
+        // Extract the local "Left/Right" axis directly from the mallet face's 3D rotation
+        let faceRightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(cast.rot);
+        
+        // THE FIX: SUBTRACT the offset. (If mallet center is +2cm to the right, the ball is -2cm to the left)
+        startPos.sub(faceRightVector.multiplyScalar(offsetMeters));
+    }
+    
+    // 3. Grab the true physical trajectory of the ball
+    let launchRads = cast.trueLaunchRads || 0;
+    
+    let direction = new THREE.Vector3(0, 0, 1);
+    direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), launchRads);
+    
+    if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+        direction.applyQuaternion(ghostPivot.quaternion);
+    }
+    
+    // 4. Extend the line forward 10 meters, and slightly backward so it passes through the ball
+    let distance = 10.0; 
+    let endPos = startPos.clone().add(direction.clone().multiplyScalar(distance));
+    let backPos = startPos.clone().add(direction.clone().multiplyScalar(-0.25)); 
+
+    // 5. Build the Red Dotted Line
+    let laserGeo = new THREE.BufferGeometry().setFromPoints([backPos, endPos]);
+    let laserMat = new THREE.LineDashedMaterial({
+        color: 0xff0000,
+        linewidth: 2,
+        dashSize: 0.1,
+        gapSize: 0.1,
+        transparent: true,
+        opacity: 0.8
+    });
+
+    let laserMesh = new THREE.Line(laserGeo, laserMat);
+    laserMesh.computeLineDistances(); 
+
+    impactLasers.add(laserMesh);
 }
 
 export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
@@ -271,6 +311,10 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
     let leftPts = [], rightPts = [];
     let tLeftPts = [], tRightPts = []; 
     let interpColors = [];
+    
+    // PERFORMANCE FIX: Check the UI toggle ONCE before the loop, not 5000 times!
+    let hideBackswingToggle = document.getElementById('hideBackswingCheck');
+    let hideBackswing = hideBackswingToggle ? hideBackswingToggle.checked : true;
     
     for (let i = 0; i <= sampleCount; i++) {
         if (i >= MAX_TRAIL_POINTS) break;
@@ -292,76 +336,80 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
         let q2 = pts[idx2].rot || new THREE.Quaternion();
         let qInterp = new THREE.Quaternion().copy(q1).slerp(q2, lerpFactor);
         
-        // --- ALL VISUALS NOW ANCHORED TO THE FRONT STRIKING FACE ---
         let vNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(qInterp);
         let faceCenter = smoothPoints[i].clone().add(vNormal.clone().multiplyScalar(activeOffsetZ));
 
-        // Update standard trace line to track the face
-        trailPositions[i * 3] = faceCenter.x; 
-        trailPositions[i * 3 + 1] = faceCenter.y; 
-        trailPositions[i * 3 + 2] = faceCenter.z;
-        
-        // 1. Wobble Ribbon Math (Extruding from Face Center)
-        let vRightOffset = new THREE.Vector3(malletHalfWidth, 0, 0).applyQuaternion(qInterp);
-        let vLeftOffset = new THREE.Vector3(-malletHalfWidth, 0, 0).applyQuaternion(qInterp);
-        rightPts.push(faceCenter.clone().add(vRightOffset));
-        leftPts.push(faceCenter.clone().add(vLeftOffset));
-
-        // 2. Dynamic Twist Indicator (Face-to-Path calculation)
-        let pathTangent = new THREE.Vector3();
-        let segmentLength = 0; // Track the physical distance moved
-        
-        if (i < sampleCount) {
-            pathTangent.subVectors(smoothPoints[i+1], smoothPoints[i]);
-            segmentLength = pathTangent.length();
-            pathTangent.normalize();
+        // --- THE VISUAL BREAK LOGIC ---
+        if (hideBackswing && !pts[idx1].isForward) {
+            // Break Center Trace
+            trailPositions[i * 3] = NaN; 
+            trailPositions[i * 3 + 1] = NaN; 
+            trailPositions[i * 3 + 2] = NaN;
+            
+            // Break Wobble Ribbon
+            leftPts.push(new THREE.Vector3(NaN, NaN, NaN));
+            rightPts.push(new THREE.Vector3(NaN, NaN, NaN));
+            
+            // Break Twist Ribbon
+            tLeftPts.push({ pos: new THREE.Vector3(NaN, NaN, NaN), color: { r: 0, g: 0, b: 0 } });
+            tRightPts.push({ pos: new THREE.Vector3(NaN, NaN, NaN), color: { r: 0, g: 0, b: 0 } });
         } else {
-            pathTangent.subVectors(smoothPoints[i], smoothPoints[i-1]);
-            segmentLength = pathTangent.length();
-            pathTangent.normalize();
+            // Draw standard forward trace normally
+            trailPositions[i * 3] = faceCenter.x; 
+            trailPositions[i * 3 + 1] = faceCenter.y; 
+            trailPositions[i * 3 + 2] = faceCenter.z;
+            
+            let vRightOffset = new THREE.Vector3(malletHalfWidth, 0, 0).applyQuaternion(qInterp);
+            let vLeftOffset = new THREE.Vector3(-malletHalfWidth, 0, 0).applyQuaternion(qInterp);
+            rightPts.push(faceCenter.clone().add(vRightOffset));
+            leftPts.push(faceCenter.clone().add(vLeftOffset));
+
+            let pathTangent = new THREE.Vector3();
+            let segmentLength = 0; 
+            
+            if (i < sampleCount) {
+                pathTangent.subVectors(smoothPoints[i+1], smoothPoints[i]);
+                segmentLength = pathTangent.length();
+                pathTangent.normalize();
+            } else {
+                pathTangent.subVectors(smoothPoints[i], smoothPoints[i-1]);
+                segmentLength = pathTangent.length();
+                pathTangent.normalize();
+            }
+            
+            let vUp = new THREE.Vector3(0, 1, 0).applyQuaternion(qInterp);
+            let vLeft = new THREE.Vector3().crossVectors(vUp, pathTangent).normalize();
+            if (vLeft.lengthSq() < 0.001) vLeft = new THREE.Vector3(1,0,0).applyQuaternion(qInterp); 
+
+            let progress = i / sampleCount; 
+            let edgeFade = 1.0;
+
+            if (progress < 0.20) edgeFade = progress / 0.20;
+            else if (progress > 0.80) edgeFade = (1.0 - progress) / 0.20;
+
+            let speedFade = 1.0;
+            if (segmentLength < 0.4) { 
+                speedFade = Math.max(0, segmentLength / 0.4); 
+            }
+
+            let totalLateralExposure = vNormal.dot(vLeft) * (activeOffsetZ * 2.0) * twistMagnifier * edgeFade * speedFade;
+            
+            let pRoot = faceCenter.clone();
+            let pEdge = faceCenter.clone();
+            let cRoot = { r: 1.0, g: 1.0, b: 1.0 }; 
+            let cEdge = { r: 1.0, g: 1.0, b: 1.0 };
+
+            if (totalLateralExposure > 0.1) { 
+                pEdge.sub(vLeft.clone().multiplyScalar(totalLateralExposure));
+                cEdge = { r: 1.0, g: 0.2, b: 0.2 };
+            } else if (totalLateralExposure < -0.1) { 
+                pEdge.sub(vLeft.clone().multiplyScalar(totalLateralExposure));
+                cEdge = { r: 0.0, g: 0.5, b: 1.0 };
+            }
+
+            tLeftPts.push({ pos: pRoot, color: cRoot });
+            tRightPts.push({ pos: pEdge, color: cEdge });
         }
-        
-        let vUp = new THREE.Vector3(0, 1, 0).applyQuaternion(qInterp);
-        
-        let vLeft = new THREE.Vector3().crossVectors(vUp, pathTangent).normalize();
-        if (vLeft.lengthSq() < 0.001) vLeft = new THREE.Vector3(1,0,0).applyQuaternion(qInterp); 
-
-        // --- MORE AGGRESSIVE FADE LOGIC ---
-        let progress = i / sampleCount; 
-        let edgeFade = 1.0;
-
-        // Taper the first 20% and last 20% of the trace (up from 15%)
-        if (progress < 0.20) edgeFade = progress / 0.20;
-        else if (progress > 0.80) edgeFade = (1.0 - progress) / 0.20;
-
-        // The Velocity Gate: Increased from 0.2 to 0.4cm. 
-        // This demands a much faster physical movement to show the twist.
-        let speedFade = 1.0;
-        if (segmentLength < 0.4) { 
-            speedFade = Math.max(0, segmentLength / 0.4); 
-}
-
-        // Apply BOTH fades to strangle the noise, and lock to your new sensor offset
-        let totalLateralExposure = vNormal.dot(vLeft) * (activeOffsetZ * 2.0) * twistMagnifier * edgeFade * speedFade;
-        // -----------------------------
-        
-        let pRoot = faceCenter.clone();
-        let pEdge = faceCenter.clone();
-        let cRoot = { r: 1.0, g: 1.0, b: 1.0 }; 
-        let cEdge = { r: 1.0, g: 1.0, b: 1.0 };
-
-        if (totalLateralExposure > 0.1) { 
-            // Twisting Closed
-            pEdge.sub(vLeft.clone().multiplyScalar(totalLateralExposure));
-            cEdge = { r: 1.0, g: 0.2, b: 0.2 };
-        } else if (totalLateralExposure < -0.1) { 
-            // Twisting Open
-            pEdge.sub(vLeft.clone().multiplyScalar(totalLateralExposure));
-            cEdge = { r: 0.0, g: 0.5, b: 1.0 };
-        }
-
-        tLeftPts.push({ pos: pRoot, color: cRoot });
-        tRightPts.push({ pos: pEdge, color: cEdge });
     }
     
     trailGeometry.attributes.position.needsUpdate = true; 

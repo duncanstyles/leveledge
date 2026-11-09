@@ -1,5 +1,5 @@
 import { initAudio, audioCtx, playBeep, playDoubleBeep, playTick, isAudioInitialized, isSoundEnabled, toggleSoundState, playSuccessSound } from './audio.js';
-import { difficultyMatrix, getStarRating, getShaftTwist, calcAccuracyData, calculateImpactForce, calculateMomentum, calculateEstimatedDistance, calculatePendulumDelta, calculateCollisionDeflection, calculateTrueDwell, calculateOffCenterImpact } from './kinematics.js';
+import { difficultyMatrix, getStarRating, getShaftTwist, calcAccuracyData, calculateImpactForce, calculateMomentum, calculateEstimatedDistance, calculatePendulumDelta, calculateCollisionDeflection, calculateTrueDwell, calculateOffCenterImpact, anchorSwingToImpact } from './kinematics.js';
 import { showToast, formatOffset, buildCastRowHTML } from './utils.js';
 import { supabaseClient, currentUser, setCurrentUser, loadCloudProfile, saveCloudProfile, fetchCloudMatches, fetchCloudStrikes, savePracticeCastsToCloud, fetchCloudTraining, deleteCloudSession, getAiCoachFeedback } from './cloud.js';
 import { 
@@ -32,7 +32,8 @@ const AppConfig = {
     ledGuidance: true,
     singleSwing: false,
     radiusInput: 127,
-    isSubscribed: true
+    isSubscribed: true,
+    hideBackswing: true
 };
 
 const DisplayElements = {
@@ -106,6 +107,9 @@ function syncAppConfig() {
 
     let subCheck = document.getElementById('subscribedCheck');
     AppConfig.isSubscribed = subCheck ? subCheck.checked : true;
+
+    let backswingCheck = document.getElementById('hideBackswingCheck');
+    AppConfig.hideBackswing = backswingCheck ? backswingCheck.checked : true;
 }
 
 document.getElementById('floorGridToggle').addEventListener('change', (e) => {
@@ -403,7 +407,7 @@ const settingsElements = [
     'trainerDistSetup', 'trainerTwistSetup', 'singleSwingCheck', 
     'matchLedToggle', 'matchAudioToggle', 'matchDistSetup', 'matchTwistSetup', 'matchLawnSetup',
     'experimentalCheck', 'showCloudDataCheck','darkThemeCheck', 'soundCheck', 'flipViewCheck', 'floorGridToggle', 'verticalGridToggle',
-    'playerNameInput', 'playerCountryInput', 'optimumArcToggle', 'subscribedCheck'
+    'playerNameInput', 'playerCountryInput', 'optimumArcToggle', 'subscribedCheck', 'hideBackswingCheck'
 ];
 
 document.getElementById('openDisplayBtn').onclick = () => { document.getElementById('display-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
@@ -1055,6 +1059,11 @@ document.getElementById('optimumArcToggle').addEventListener('change', (e) => {
     if(typeof ghostRail !== 'undefined') ghostRail.visible = e.target.checked;
 });
 
+document.getElementById('hideBackswingCheck').addEventListener('change', (e) => {
+    syncAppConfig();
+    if (rawTracePoints.length > 0) updateSmoothTrail(); // Instantly redraws the line
+});
+
 document.getElementById('launchWizardBtn').onclick = () => {
     if (!window.bleManager.device || !window.bleManager.device.gatt.connected) { showToast("Connect sensor first before calibrating!"); return; }
     document.getElementById('mallet-modal').close(); document.getElementById('wizard-modal').showModal();
@@ -1184,7 +1193,13 @@ document.getElementById('endGameModeBtn').onclick = async () => {
     }
 };
 
-document.getElementById('pauseBtn').onclick = () => { if (!playbackMode) return; isPaused = !isPaused; document.getElementById('pauseBtn').innerText = isPaused ? "▶ PLAY" : "⏸ PAUSE"; };
+document.getElementById('pauseBtn').onclick = () => { 
+    if (!playbackMode) return; 
+    // Auto-rewind if they hit play while parked at the end of the swing
+    if (isPaused && playbackIndex >= recordedFrames.length - 1) playbackIndex = 0; 
+    isPaused = !isPaused; 
+    document.getElementById('pauseBtn').innerText = isPaused ? "▶ PLAY" : "⏸ PAUSE"; 
+};
 document.getElementById('slowMoBtn').onclick = () => { isSlowMo = !isSlowMo; document.getElementById('slowMoBtn').innerText = isSlowMo ? "🐌 SLOW: ON" : "🐌 SLOW: OFF"; };
 
 document.getElementById('exitReplayBtn').onclick = () => {
@@ -1193,6 +1208,15 @@ document.getElementById('exitReplayBtn').onclick = () => {
     if (recordedFrames.length > 0) updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
     if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
     masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
+    
+    // Bring the history panel back into view
+    const panel = document.getElementById('history-panel');
+    if (window.innerWidth <= 768) {
+        panel.classList.add('mobile-open');
+        document.getElementById('control-panel')?.classList.add('hidden');
+    } else {
+        panel.classList.remove('desktop-closed');
+    }
 };
 
 window.currentReviewSwingIdx = -1;
@@ -1238,6 +1262,16 @@ window.stopSwingReview = function() {
     if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
     clearImpactLasers();
     masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
+
+    // Bring the history panel back into view
+    const panel = document.getElementById('history-panel');
+    if (window.innerWidth <= 768) {
+        panel.classList.add('mobile-open');
+        document.getElementById('control-panel')?.classList.add('hidden');
+    } else {
+        panel.classList.remove('desktop-closed');
+    }
+
 };
 
 document.getElementById('toggleBase').onclick = (e) => { visBase = !visBase; e.currentTarget.classList.toggle('active'); window.updateMeshVisibility(); };
@@ -1365,11 +1399,10 @@ function animate() {
             
             playbackIndex++;
             if (playbackIndex >= recordedFrames.length) {
-                playbackMode = false; isPaused = false; document.getElementById('playback-panel').classList.add('hidden');
-                updateSmoothTrail(recordedFrames[recordedFrames.length-1].rawPtIndex); 
-                let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = "SWING REVIEW. DRAG CAMERA."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
-                if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
-                masterPivot.quaternion.copy(finalReviewPivotQuat); masterPivot.position.copy(finalReviewPivotPos); masterBlock.position.set(0, -(loadedRadius + finalReviewExtension), 0); headJoint.quaternion.identity();
+                // Pause at the end instead of closing the panel automatically
+                playbackIndex = recordedFrames.length - 1;
+                isPaused = true;
+                document.getElementById('pauseBtn').innerText = "▶ PLAY";
             }
         }
     }
@@ -1406,7 +1439,9 @@ function renderLiveCasts() {
 function triggerReplay(index) {
     if (!swingDatabase[index]) return;
     let data = swingDatabase[index]; recordedFrames = data.frames; finalReviewPivotQuat.copy(data.finalReviewPivotQuat); finalReviewPivotPos.copy(data.finalReviewPivotPos); finalReviewExtension = data.finalReviewExtension;
-    rawTracePoints.length = 0; rawTracePoints.push(...data.rawTracePoints); updateSmoothTrail();
+    rawTracePoints.length = 0; 
+    rawTracePoints.push(...data.rawTracePoints); 
+    updateSmoothTrail();
     playbackMode = true; isPaused = false; playbackIndex = 0; isReviewingLog = true; ghostMalletMesh.visible = isGhostEnabled; lastPlaybackTime = Date.now(); 
     
     if (isBallEnabled) { 
@@ -1439,40 +1474,40 @@ function triggerReplay(index) {
 }
 
 function highlightPass(swingIdx, castIdx) {
-    if (!swingDatabase[swingIdx]) return; let swing = swingDatabase[swingIdx]; let cast = swing.casts[castIdx];
+    if (!swingDatabase[swingIdx]) return; 
+    let swing = swingDatabase[swingIdx]; 
+    let cast = swing.casts[castIdx];
+    
     window.currentlyViewedCast = cast;
     window.currentReviewSwingIdx = swingIdx;
     window.currentReviewCastIdx = castIdx;
     
     playbackMode = false; isPaused = false; isReviewingLog = true; 
-    document.getElementById('playback-panel').classList.add('hidden');
+    let pbPanel = document.getElementById('playback-panel');
+    if (pbPanel) pbPanel.classList.add('hidden');
     
-    // Highlight UI logic
+    // Collapse all rows
     document.querySelectorAll('.active-cast-row').forEach(el => el.classList.remove('active-cast-row'));
-    
-    // NEW: Collapse all details globally
     document.querySelectorAll('.cast-details').forEach(el => {
         el.style.display = 'none';
-        el.classList.remove('flex-col'); // Temporarily strip the flex class to force hide
+        el.classList.remove('flex-col');
     });
     document.querySelectorAll('.expand-icon').forEach(el => el.innerText = '▼');
     
+    // Expand the clicked row
     let activeRow = document.querySelector(`.cast-row[data-swing-index="${swingIdx}"][data-cast-index="${castIdx}"]`);
     if (activeRow) {
         activeRow.classList.add('active-cast-row');
-        
-        // NEW: Expand the target cast details to reveal mechanics
         let activeDetails = activeRow.querySelector('.cast-details');
         if (activeDetails) {
             activeDetails.style.display = 'flex';
-            activeDetails.classList.add('flex-col'); // Re-apply flex-col for proper vertical stacking
+            activeDetails.classList.add('flex-col'); 
         }
-        
         let activeIcon = activeRow.querySelector('.expand-icon');
         if (activeIcon) activeIcon.innerText = '▲';
     }
 
-    // Show the toggles and attach them to the bottom of the casting list
+    // Attach the toggle panel (for your Wobble/Twist/Base buttons)
     let togglePanel = document.getElementById('trace-toggles-panel');
     if (togglePanel) {
         togglePanel.classList.remove('hidden');
@@ -1484,18 +1519,46 @@ function highlightPass(swingIdx, castIdx) {
     
     window.fullSwingTraceBuffer = swing.rawTracePoints;
     let centerFrame = cast.trailIndex; 
-    let startFrame = Math.max(0, centerFrame - 15); 
-    let endFrame = Math.min(swing.rawTracePoints.length - 1, centerFrame + 15);
     
+    // 1. SMART SCAN BACKWARD: Find the start of THIS specific backswing
+    let startFrame = centerFrame;
+    let inBackswing = false;
+    for (let i = centerFrame; i >= 0; i--) {
+        startFrame = i;
+        if (!swing.rawTracePoints[i].isForward) {
+            inBackswing = true; // We are in the backswing
+        } else if (inBackswing && swing.rawTracePoints[i].isForward) {
+            // We bumped into the forward motion of the PREVIOUS waggle. Cut it here!
+            startFrame = i + 1;
+            break;
+        }
+    }
+    
+    // 2. SMART SCAN FORWARD: Find the end of THIS follow-through
+    let endFrame = centerFrame;
+    for (let i = centerFrame; i < swing.rawTracePoints.length; i++) {
+        endFrame = i;
+        // If we are past impact, and the mallet starts rebounding backward
+        if (i > centerFrame + 4 && !swing.rawTracePoints[i].isForward) {
+            endFrame = Math.max(centerFrame, i - 1); // Crop right before the rebound
+            break; 
+        }
+    }
+    
+    // 3. DRAW THE PERFECTLY CROPPED SWING
     rawTracePoints.length = 0;
     rawTracePoints.push(...swing.rawTracePoints.slice(startFrame, endFrame + 1));
-    updateSmoothTrail(); 
+    updateSmoothTrail();
     
     masterPivot.quaternion.copy(cast.pivotQuat); masterPivot.position.copy(cast.pivotPos); masterBlock.position.set(0, -(loadedRadius + cast.extension), 0);
     headJoint.quaternion.identity(); ghostMalletMesh.visible = isGhostEnabled; if (mainMalletMesh) mainMalletMesh.visible = true; drawStrikeLaser(cast);
     
-    let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `VIEWING PASS #${castIdx + 1}. DRAG CAMERA.`; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
-};
+    let swingStateTxt = document.getElementById('swing-state'); 
+    if (swingStateTxt) { 
+        swingStateTxt.innerText = `VIEWING PASS #${castIdx + 1}. DRAG CAMERA.`; 
+        swingStateTxt.className = "text-warning text-center font-bold mb-4"; 
+    }
+}
 
 document.getElementById('cancelArmBtn').onclick = () => resetSystemState(false, false);
 document.getElementById('resetMaxBtn').onclick = async () => await resetSystemState(false, true);
@@ -1543,7 +1606,7 @@ function handleHistoricalStrike(s) {
 }
 
 function handleLiveStrike(s) {
-    s.dwell = calculateTrueDwell(s.zVel, s.peakG, AppConfig.massKg);
+    s.dwell = (s.dwell !== undefined && s.dwell !== null && s.dwell > 0) ? s.dwell : calculateTrueDwell(s.zVel, s.peakG, AppConfig.massKg);
     s.dwell = parseFloat(s.dwell.toFixed(2)); 
 
     currentSwingMaxG = s.peakG; maxTwist = s.peakTwist; currentSwingDwell = s.dwell;
@@ -1567,7 +1630,8 @@ function handleLiveStrike(s) {
     impactRawQuat.setFromEuler(impactEulerNode, 'YZX');
 
     let iQuat = baseQuatInverse.clone().multiply(impactRawQuat);
-    let locTwist = getShaftTwist(iQuat);
+    // --- FIX: Trust the high-res hardware face angle! Fall back to the Quat if missing. ---
+    let locTwist = (s.faceAngle !== undefined && s.faceAngle !== null) ? s.faceAngle : getShaftTwist(iQuat);
 
     window.lastEdgeData = { zVel: pristineVel, appliedForce: appliedF, downwardSwingTime: downTime, decelFactor: decelFact, impactTwist: locTwist, backArc: s.backArc, backswingTime: s.backswingTime };
 
@@ -1590,7 +1654,7 @@ function handleLiveStrike(s) {
         impactDetected = true; 
         clearTimeout(goTimeout); 
         // Give the 3D telemetry exactly 500ms to cross the line and absorb the packet!
-        setTimeout(() => { finalizeSwingData(globalHwTime); }, 500); 
+        setTimeout(() => { finalizeSwingData(globalHwTime); }, 1000); 
     }
 }
 
@@ -1805,7 +1869,10 @@ function handleParsedTelemetry(t) {
         physicsTrackingNode.updateMatrixWorld(true);
     }
     
-    let centerPosition = new THREE.Vector3(); physicsTrackingNode.getWorldPosition(centerPosition);
+    // THE FIX: Make the trace line perfectly track the visual center of the physical mallet mesh
+    let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
+    let centerOffset = new THREE.Vector3(0, -currentDynamicRadius, meshShiftZ).applyQuaternion(targetQuaternion);
+    let centerPosition = masterPivot.position.clone().add(centerOffset);
     let facePosition = new THREE.Vector3(); faceTrackerNode.getWorldPosition(facePosition);
     let currentZ = centerPosition.z; let deltaZ = currentZ - prevZ;
     if (deltaZ > 0.05) isForwardSwing = true; else if (deltaZ < -0.05) isForwardSwing = false;
@@ -1849,7 +1916,7 @@ function handleParsedTelemetry(t) {
                     else {
                         if (idealPlane) {
                             let ballWorldPos = virtualBall.position.clone(); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
-                            let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let t = Math.min(Math.abs(localBall.x) / 6.0, 1.0); 
+                            let localBall = ballWorldPos.applyMatrix4(trackingInvMat); let t = Math.min(Math.abs(localBall.x) / (AppConfig.malletWidthCm || 6.0), 1.0);
                             if(isNaN(t)) t = 0; r = t; g = 1.0 - t; b = 0.0;
                         } else { r = 0.0; g = 1.0; b = 0.8; }
                     }
@@ -1894,7 +1961,7 @@ function handleParsedTelemetry(t) {
                 strikeX = strikeX > 0 ? halfWidth : -halfWidth;
             }
 
-            let devCM = Math.abs(strikeX); if (devCM < 0.25) devCM = 0.0;
+            let devCM = Math.abs(strikeX); if (devCM < (AppConfig.sweetSpot * 0.15)) devCM = 0.0;
             let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C'); 
 
             // Calculate the path using safe positions from BEFORE the impact shockwave hits
@@ -1941,6 +2008,7 @@ function handleParsedTelemetry(t) {
             // --- THE MASTER FIX: MAP THE EARLY PACKET TO THE 3D CAST ---
             if (window.pendingStrikePacket) {
                 isTrueStrike = true;
+                window.strikeCastGenerated = true; // <--- THIS LOCKS OUT GHOST SWINGS
                 locTwist = window.pendingStrikePacket.locTwist;
                 
                 appliedF = window.pendingStrikePacket.appliedForce;
@@ -1966,15 +2034,22 @@ function handleParsedTelemetry(t) {
             }
 
             // Calculate accuracy AFTER mapping the hardware twist!
-            let accData = calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwist, currentSwingDwell); 
+            // THE FIX: Use pure pendulum math for ALL casts (practice and real) to evaluate the sweet spot, 
+            // completely bypassing the visual 3D positional drift!
+            let rawMm = calculateOffCenterImpact(Math.abs(locTwist), passSpeed);
+            let liveTargetX_cm = locTwist > 0 ? (rawMm / 10.0) : -(rawMm / 10.0);
+
+            let accData = calcAccuracyData(liveTargetX_cm, locTwist, 0, maxTwist, currentSwingDwell); 
             if (isTrueStrike) accData.isWhiff = false;
-            let passRating = getStarRating(strikeX, accData.trueLaunchDeg);
+            let passRating = getStarRating(liveTargetX_cm, accData.trueLaunchDeg);
 
             let isHit = false;
             let currentTwistTol = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
             let targetDist = inGameMode ? (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : (parseFloat(document.getElementById('trainerDistSetup').value) || 10.0);
-            isHit = !accData.isWhiff && (Math.abs(strikeX) <= AppConfig.sweetSpot) && (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && (estDist >= targetDist);
+            
+            isHit = !accData.isWhiff && (Math.abs(liveTargetX_cm) <= AppConfig.sweetSpot) && (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && (estDist >= targetDist);
 
+            // Instant audio gratification based purely on your mechanics, not the visual drift!
             if (isHit && !inGameMode && AppConfig.ledGuidance) {
                 playSuccessSound();
             }
@@ -2052,75 +2127,159 @@ async function finalizeSwingData(nowTime) {
     if (impactDetected) { displayPass = castData.find(c => c.isStrike) || castData[castData.length - 1]; } 
     else if (castData.length > 0) { displayPass = castData[castData.length - 1]; }
 
-    // 2. --- PRISTINE PATH LOCK (WIGGLE CURE) ---
-    if (displayPass && window.pristineImpactQuat) {
-        let impactIdx = displayPass.trailIndex;
-        let pristineEuler = new THREE.Euler().setFromQuaternion(window.pristineImpactQuat, 'YXZ');
+    // 2. --- SIMPLE IMPACT PINNING (YAW DRIFT + TRANSLATION) ---
+    if (impactDetected && displayPass) {
+        let hardwareTwist = window.lastEdgeData.impactTwist || maxTwist || 0;
+        let hardwareSpeed = window.lastEdgeData.zVel || displayPass.passSpeed || 0;
 
-        for (let i = impactIdx; i < rawTracePoints.length; i++) {
-            let corruptedEuler = new THREE.Euler().setFromQuaternion(recordedFrames[i].rotation, 'YXZ');
-            corruptedEuler.y = pristineEuler.y;
-            corruptedEuler.z = pristineEuler.z;
-            let lockedQuat = new THREE.Quaternion().setFromEuler(corruptedEuler, 'YXZ');
+        // A. FIX #3: FRACTIONAL YAW DRIFT CORRECTION
+        let driftedTwist = getShaftTwist(displayPass.pivotQuat);
+        let totalYawDriftDeg = driftedTwist - hardwareTwist; 
+        let totalYawDriftRads = THREE.MathUtils.degToRad(totalYawDriftDeg);
+        let pivotCenter = new THREE.Vector3(0, pivotBaseY, 0);
+
+        let totalPts = rawTracePoints.length;
+        let impactIdx = displayPass.trailIndex; 
+
+        // Smoothly unwind the accumulated drift over the duration of the trace
+        for (let i = 0; i < totalPts; i++) {
+            let timeFraction = Math.min(i / (impactIdx || 1), 1.0);
+            let correctiveYawRads = -totalYawDriftRads * timeFraction;
+            let correctiveQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), correctiveYawRads);
             
-            rawTracePoints[i].rot.copy(lockedQuat);
-            recordedFrames[i].rotation.copy(lockedQuat);
+            rawTracePoints[i].rot.premultiply(correctiveQuat);
+            if (recordedFrames[i]) recordedFrames[i].rotation.premultiply(correctiveQuat);
             
-            let headOffset = new THREE.Vector3(0, -loadedRadius - recordedFrames[i].extension, 0).applyQuaternion(lockedQuat);
-            rawTracePoints[i].pos.copy(recordedFrames[i].pivotPos).add(headOffset);
+            // Orbit the mallet position around the top pivot
+            let offsetPos = rawTracePoints[i].pos.clone().sub(pivotCenter);
+            offsetPos.applyQuaternion(correctiveQuat);
+            rawTracePoints[i].pos.copy(pivotCenter).add(offsetPos);
             
-            // --- FIX: Sync the mallet's target object to the freshly locked trace ---
-            if (i === impactIdx) {
-                displayPass.pivotQuat.copy(lockedQuat);
-                displayPass.pos.copy(rawTracePoints[i].pos);
+            if (recordedFrames[i]) {
+                let pOffset = recordedFrames[i].pivotPos.clone().sub(pivotCenter);
+                pOffset.applyQuaternion(correctiveQuat);
+                recordedFrames[i].pivotPos.copy(pivotCenter).add(pOffset);
             }
         }
         
-        // --- FIX: Recalculate raw deviation now that the wiggle is cured ---
-        ghostBlock.updateMatrixWorld(true);
-        let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
-        let localFaceAtImpact = displayPass.pos.clone().applyMatrix4(ghostInvMat);
-        displayPass.rawDev = localFaceAtImpact.x;
-    }
+        castData.forEach(c => {
+            let timeFraction = Math.min(c.trailIndex / (impactIdx || 1), 1.0);
+            let correctiveYawRads = -totalYawDriftRads * timeFraction;
+            let correctiveQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), correctiveYawRads);
+            
+            c.pivotQuat.premultiply(correctiveQuat);
+            
+            let offsetPos = c.pos.clone().sub(pivotCenter);
+            offsetPos.applyQuaternion(correctiveQuat);
+            c.pos.copy(pivotCenter).add(offsetPos);
+            
+            let pOffset = c.pivotPos.clone().sub(pivotCenter);
+            pOffset.applyQuaternion(correctiveQuat);
+            c.pivotPos.copy(pivotCenter).add(pOffset);
+        });
 
-    // 3. --- HARDWARE-ANCHORED RIGID SHIFT ---
-    if (impactDetected && displayPass) {
-        let hardwareTwist = maxTwist || 0;
-        let hardwareSpeed = window.lastEdgeData.zVel || displayPass.passSpeed || 0;
-        
+        // B. OFF-CENTER TRANSLATION
         let rawMm = calculateOffCenterImpact(Math.abs(hardwareTwist), hardwareSpeed);
         displayPass.offCenterMm = Math.abs(rawMm);
+
         displayPass.offCenterLabel = "Center";
-        if (displayPass.offCenterMm > 2.0) {
-            displayPass.offCenterLabel = hardwareTwist > 0 ? "R" : "L";
+        let sweetSpotMm = AppConfig.sweetSpot * 10.0;
+        if (displayPass.offCenterMm > sweetSpotMm) {
+            displayPass.offCenterLabel = rawMm > 0 ? "R" : "L";
         }
         
         let hwTargetX_cm = displayPass.offCenterMm / 10.0;
         if (displayPass.offCenterLabel === 'L') hwTargetX_cm = -hwTargetX_cm;
         else if (displayPass.offCenterLabel === 'Center') hwTargetX_cm = 0;
 
-        let shiftAmountCm = hwTargetX_cm - displayPass.rawDev;
-        let localShift = new THREE.Vector3(shiftAmountCm, 0, 0);
-        let worldShift = localShift.clone().applyQuaternion(ghostPivot.quaternion);
+        // Measure how far off the Face is from the calculated physical impact
+        ghostBlock.updateMatrixWorld(true);
+        let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
+        
+        // THE FIX: Measure the deviation of the Face (displayPass.pos), not the trace line!
+        let correctedImpactPos = displayPass.pos.clone().applyMatrix4(ghostInvMat);
+        let newlyCorrectedDev = correctedImpactPos.x;
 
-        for (let i = 0; i < rawTracePoints.length; i++) {
-            rawTracePoints[i].pos.add(worldShift);
-            recordedFrames[i].pivotPos.add(worldShift);
+        let totalDriftCm = hwTargetX_cm - newlyCorrectedDev;
+        let totalDriftVec = new THREE.Vector3(totalDriftCm, 0, 0).applyQuaternion(ghostPivot.quaternion);
+
+        // Gently slide the trace to touch the ball, fading in the shift so it doesn't jerk
+        for (let i = 0; i < totalPts; i++) {
+            let timeFraction = Math.min(i / (impactIdx || 1), 1.0); 
+            let proportionalShift = totalDriftVec.clone().multiplyScalar(timeFraction);
+            
+            rawTracePoints[i].pos.add(proportionalShift);
+            if (recordedFrames[i]) recordedFrames[i].pivotPos.add(proportionalShift);
         }
         
-        displayPass.pos.add(worldShift);
-        displayPass.pivotPos.add(worldShift);
-        displayPass.rawDev = hwTargetX_cm; 
+        castData.forEach(c => {
+            let timeFraction = Math.min(c.trailIndex / (impactIdx || 1), 1.0);
+            let proportionalShift = totalDriftVec.clone().multiplyScalar(timeFraction);
+            c.pos.add(proportionalShift);
+            c.pivotPos.add(proportionalShift);
+        });
+
+        // C. METRICS RECALCULATION
+        displayPass.rawDev = hwTargetX_cm;
         displayPass.dev = Math.abs(hwTargetX_cm);
         displayPass.dir = hwTargetX_cm > 0.1 ? 'R' : (hwTargetX_cm < -0.1 ? 'L' : 'C');
+        displayPass.estDist = calculateEstimatedDistance(hardwareSpeed, AppConfig.massKg, AppConfig.lawnSpeed);
+
+        // Calculate final accuracy (Hardcoding Approach to 0)
+        let accData = calcAccuracyData(hwTargetX_cm, hardwareTwist, 0, hardwareTwist, currentSwingDwell);
+        let passRating = getStarRating(hwTargetX_cm, accData.trueLaunchDeg);
         
-        let ballSpeedMPS = hardwareSpeed * (AppConfig.massKg * 1.8) / (AppConfig.massKg + 0.454);
-        let lawnMult = 0.50 + (AppConfig.lawnSpeed - 10) * 0.075;
-        displayPass.estDist = (ballSpeedMPS * ballSpeedMPS) * lawnMult;
+        displayPass.trueLaunchDeg = accData.trueLaunchDeg;
+        displayPass.trueLaunchRads = accData.trueLaunchRads;
+        displayPass.estAccRange = accData.estAccRange;
+        displayPass.trueAccRange = accData.trueAccRange;
+        displayPass.isWhiff = accData.isWhiff;
+        displayPass.stars = passRating.string;
+        displayPass.starColor = passRating.color;
+
+        let currentTwistTol = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
+        let targetDist = inGameMode ? (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : (parseFloat(document.getElementById('trainerDistSetup').value) || 10.0);
+        
+        displayPass.isHit = !accData.isWhiff && (Math.abs(hwTargetX_cm) <= AppConfig.sweetSpot) && (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && (displayPass.estDist >= targetDist);
+    }
+
+    // 3. --- PRISTINE PATH LOCK (WIGGLE CURE) ---
+    // Freeze the follow-through to ignore the physical shockwave.
+    if (displayPass && window.pristineImpactQuat) {
+        let impactIdx = displayPass.trailIndex;
+        let pristineEuler = new THREE.Euler().setFromQuaternion(window.pristineImpactQuat, 'YXZ');
+
+        for (let i = impactIdx; i < rawTracePoints.length; i++) {
+            let corruptedEuler = new THREE.Euler().setFromQuaternion(recordedFrames[i].rotation, 'YXZ');
+            
+            corruptedEuler.y = pristineEuler.y;
+            corruptedEuler.z = pristineEuler.z;
+            
+            let lockedQuat = new THREE.Quaternion().setFromEuler(corruptedEuler, 'YXZ');
+            
+            rawTracePoints[i].rot.copy(lockedQuat);
+            recordedFrames[i].rotation.copy(lockedQuat);
+            
+            // THE FIX: Rebuild the trace line using the physical center of the mallet mesh
+            let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
+            let headOffset = new THREE.Vector3(0, -loadedRadius - recordedFrames[i].extension, meshShiftZ).applyQuaternion(lockedQuat);
+            rawTracePoints[i].pos.copy(recordedFrames[i].pivotPos).add(headOffset);
+            
+            if (i === impactIdx) {
+                let perfectEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
+                perfectEuler.y = pristineEuler.y;
+                perfectEuler.z = pristineEuler.z;
+                displayPass.pivotQuat.setFromEuler(perfectEuler, 'YXZ');
+                
+                // THE FIX: Correctly recalculate the Face position without overwriting it with the trace line!
+                let faceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, getDynamicFaceZ()).applyQuaternion(lockedQuat);
+                displayPass.pos.copy(displayPass.pivotPos).add(faceOffset);
+            }
+        }
     }
 
     // 4. --- FINALIZE AND DRAW ---
-    updateSmoothTrail(); 
+    updateSmoothTrail();
     
     visBase = true; visWobble = false; visTwist = false; window.updateMeshVisibility();
     
@@ -2155,6 +2314,7 @@ async function finalizeSwingData(nowTime) {
 
     swingDatabase.push({ frames: [...recordedFrames], rawTracePoints: [...rawTracePoints], casts: [...castData], finalReviewPivotQuat: finalReviewPivotQuat.clone(), finalReviewPivotPos: finalReviewPivotPos.clone(), finalReviewExtension: finalReviewExtension, setupQuat: ghostPivot.quaternion.clone() });
 
+    
     let swingIndex = swingCount; swingCount++;
     
     // --- NEW: Upload practice casts to the cloud! ---
@@ -2163,8 +2323,13 @@ async function finalizeSwingData(nowTime) {
     }
     
     let ssRad = AppConfig.sweetSpot; let devColor = 'var(--danger)';
-    if (impactDetected || displayPass) { if (currentSwingDeviation <= 0.75) devColor = 'var(--success)'; else if (currentSwingDeviation <= ssRad) devColor = 'var(--warning)'; } else { devColor = 'var(--text-muted)'; }
-    
+    if (impactDetected || displayPass) { 
+        if (currentSwingDeviation <= (ssRad / 2.0)) devColor = 'var(--success)'; 
+        else if (currentSwingDeviation <= ssRad) devColor = 'var(--warning)'; 
+    } else { 
+        devColor = 'var(--text-muted)'; 
+    }
+
     let hwBackArc = window.lastEdgeData.backArc || 0;
     let backArcHtml = impactDetected ? `${hwBackArc.toFixed(1)} cm` : `N/A`;
     let hwBackswingTime = window.lastEdgeData.backswingTime || 0;
@@ -2264,32 +2429,29 @@ async function finalizeSwingData(nowTime) {
             </div>
             
             <div class="card-basic-stats">
-                <div class="stat-block"><span class="stat-lbl">Est. Velocity</span><span class="stat-val">${velHtml}</span></div>
-                <!-- <div class="stat-block"><span class="stat-lbl">Path Dev</span><span class="stat-val">${devHtml}</span></div>-->
-                <div class="stat-block"><span class="stat-lbl">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Plane Twist</span><span class="stat-val">${planeTwistHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Approach Angle</span><span class="stat-val text-accent">${impactTwistHtml}</span></div>
+                <!-- <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Est. Velocity</span><span class="stat-val">${velHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Plane Twist</span><span class="stat-val">${planeTwistHtml}</span></div>
+                <!-- <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The horizontal trajectory of the mallet head leading into the ball.">Approach Angle</span><span class="stat-val text-accent">${impactTwistHtml}</span></div> -->
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${offCenterHtml}</span></div>
+                    
             </div>
 
             <details class="advanced-metrics">
                 <summary>Advanced Kinematics</summary>
                 <div class="mt-4">
-                    <div class="adv-row"><span>Impact Location</span><span class="adv-val text-warning">${offCenterHtml}</span></div>
-                    <div class="adv-row"><span>Impact Velocity</span><span class="adv-val">${edgeVelHtml}</span></div>
-                    <div class="adv-row"><span>Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div>
-                    <div class="adv-row"><span>Impact Dwell</span><span class="adv-val">${dwellHtml}</span></div>
-                    <!-- <div class="adv-row"><span>Impact Force</span><span class="adv-val">${forceHtml}</span></div> -->
-                    <div class="adv-row"><span>Momentum</span><span class="adv-val text-accent">${momentumHtml}</span></div>
-                    <!-- <div class="adv-row"><span>Backswing Arc</span><span class="adv-val">${backArcHtml}</span></div> -->
-                    <!-- <div class="adv-row"><span>Backswing Time</span><span class="adv-val">${backswingTimeHtml}</span></div> -->
-                    <!-- <div class="adv-row"><span>Downswing Time</span><span class="adv-val">${downTimeHtml}</span></div> -->
-                    <!-- <div class="adv-row"><span>Strike PΔ</span><span class="adv-val">${dsPDeltaHtml}</span></div> -->
-                    <div class="adv-row"><span>Swing PΔ</span><span class="adv-val">${pDeltaHtml}</span></div>
-                    <div class="adv-row"><span>Swing Tempo</span><span class="adv-val">${tempoHtml}</span></div>
-                    <div class="adv-row"><span>Angle of Attack</span><span class="adv-val">${aoaHtml}</span></div>
-                    <div class="adv-row"><span>Extension</span><span class="adv-val">${extHtml}</span></div>
-                    <div class="adv-row"><span>Estimated Dist</span><span class="adv-val">${distHtml}</span></div>
-                    <div class="adv-row"><span>Accuracy</span><span class="adv-val">${trueAccHtml}</span></div>
+                    <!-- <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${offCenterHtml}</span></div> -->
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The pristine, unclipped speed of the mallet head captured at impact.">Impact Velocity</span><span class="adv-val">${edgeVelHtml}</span></div>
+                    <!-- <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div> -->
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The exact time (ms) the ball remained physically compressed against the face.">Impact Dwell</span><span class="adv-val">${dwellHtml}</span></div>
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The raw physical power transferred to the ball (kg·m/s).">Momentum</span><span class="adv-val text-accent">${momentumHtml}</span></div>
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="adv-val">${pDeltaHtml}</span></div>
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Swing Tempo</span><span class="adv-val">${tempoHtml}</span></div>
+                    <!--<div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The vertical angle of the mallet head as it strikes the ball.">Angle of Attack</span><span class="adv-val">${aoaHtml}</span></div> -->
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The physical pushing force (N) applied through the shaft during and after the strike.">Extension</span><span class="adv-val">${extHtml}</span></div>
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The theoretical distance the ball will roll based on momentum and Lawn Speed.">Estimated Dist</span><span class="adv-val">${distHtml}</span></div>
+                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The maximum guaranteed distance you could place a target ball and still hit it.">Accuracy</span><span class="adv-val">${trueAccHtml}</span></div>
                     ${advMsgHtml}
                 </div>
             </details>            ${castsHtml}
@@ -2665,14 +2827,29 @@ window.bleManager.onTraceData = (traceArray) => {
         });
     });
 
-    if (rawTracePoints.length >= 5) {
-        let pastPos = rawTracePoints[rawTracePoints.length - 5].pos;
-        let impactPos = rawTracePoints[rawTracePoints.length - 1].pos;
+    // --- SHOCKWAVE-PROOF APPROACH ANGLE ---
+    let totalPts = rawTracePoints.length;
+    // 1. Back away from the final frame to avoid the physical collision twist
+    let preImpactIdx = totalPts - 3; 
+    // 2. Go back far enough to get a clean, straight 10-frame baseline
+    let pastIdx = totalPts - 13; 
+    
+    if (pastIdx >= 0 && preImpactIdx > pastIdx) {
+        let pastPos = rawTracePoints[pastIdx].pos;
+        let preImpactPos = rawTracePoints[preImpactIdx].pos;
         
-        let dx = impactPos.x - pastPos.x; 
-        let dz = impactPos.z - pastPos.z; 
+        // Convert world positions into your local Tare alignment before doing the math!
+        ghostBlock.updateMatrixWorld(true);
+        let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
         
-        if (dz !== 0) {
+        let localPast = pastPos.clone().applyMatrix4(ghostInvMat);
+        let localImpact = preImpactPos.clone().applyMatrix4(ghostInvMat);
+        
+        let dx = localImpact.x - localPast.x; 
+        let dz = localImpact.z - localPast.z; 
+        
+        // Only calculate if the mallet physically traveled forward enough to form a stable vector
+        if (Math.abs(dz) > 0.01) {
             window.pristinePathAngleRads = Math.atan2(dx, Math.abs(dz));
         }
     }
