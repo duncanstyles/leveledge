@@ -887,7 +887,7 @@ function updateSystemGeometry() {
         if(typeof targetArrow !== 'undefined') targetArrow.position.y = -loadedRadius + 0.1;
         
         // Offset by +50 so the bottom edge of the 100-unit grid touches the floor (-loadedRadius)
-        if(typeof verticalGrid !== 'undefined') verticalGrid.position.y = -loadedRadius + 50;
+        if(typeof verticalGrid !== 'undefined') verticalGrid.position.y = -loadedRadius+50;
     }
 }
 
@@ -1515,12 +1515,12 @@ function highlightPass(swingIdx, castIdx) {
             let tempoStr = cast.tempo > 0 ? `${Math.round(cast.tempo)} BPM` : `--`;
             
             headerDiv.innerHTML = `
-                <div class="stat-block"><span class="stat-lbl">Velocity</span><span class="stat-val">${velStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Lean</span><span class="stat-val text-warning">${leanStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Face Angle</span><span class="stat-val">${twistStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Impact Location</span><span class="adv-val text-warning">${locStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Swing PΔ</span><span class="stat-val">${pDeltaStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val">${tempoStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Velocity</span><span class="stat-val">${defaultVel}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${pDeltaHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${tempoHtml}</span></div>
             `;
         }
     }
@@ -1614,8 +1614,15 @@ function handleHistoricalStrike(s) {
 }
 
 function handleLiveStrike(s) {
-    s.dwell = (s.dwell !== undefined && s.dwell !== null && s.dwell > 0) ? s.dwell : calculateTrueDwell(s.zVel, s.peakG, AppConfig.massKg);
-    s.dwell = parseFloat(s.dwell.toFixed(2)); 
+    let rawDwell = (s.dwell !== undefined && s.dwell !== null && s.dwell > 0) ? s.dwell : calculateTrueDwell(s.zVel, s.peakG, AppConfig.massKg);
+    
+    // PHYSICS FIX: Sensor clipping on hard strikes artificially inflates the math.
+    // We cap it dynamically: faster swings create harder compression and shorter dwell times.
+    if (rawDwell > 3.0) {
+        rawDwell = Math.max(1.2, 2.5 - (s.zVel * 0.15));
+    }
+    
+    s.dwell = parseFloat(rawDwell.toFixed(2)); 
 
     currentSwingMaxG = s.peakG; maxTwist = s.peakTwist; currentSwingDwell = s.dwell;
     let pristineVel = s.zVel; let appliedF = s.appliedForce;
@@ -2057,15 +2064,19 @@ function handleParsedTelemetry(t) {
             }
 
             // Calculate accuracy AFTER mapping the hardware twist!
-            // THE FIX: Use pure pendulum math for ALL casts (practice and real) to evaluate the sweet spot, 
-            // completely bypassing the visual 3D positional drift!
-            let rawMm = calculateOffCenterImpact(Math.abs(maxTwist), passSpeed);
-            let liveTargetX_cm = maxTwist > 0 ? (rawMm / 10.0) : -(rawMm / 10.0);
+            let liveTargetX_cm = 0;
+            if (isTrueStrike) {
+                // Real strike uses physical recoil math
+                let rawMm = calculateOffCenterImpact(Math.abs(maxTwist), passSpeed);
+                liveTargetX_cm = maxTwist > 0 ? (rawMm / 10.0) : -(rawMm / 10.0);
+            } else {
+                // Virtual cast uses visual 3D math
+                liveTargetX_cm = strikeX;
+            }
 
             // Simulate Twist Penalty for Virtual Casts
             let simulatedRecoil = maxTwist;
             if (!isTrueStrike) {
-                // If they miss the sweet spot, simulate 1 degree of twist per cm of error
                 let errorCm = Math.abs(liveTargetX_cm);
                 if (errorCm > AppConfig.sweetSpot) {
                     let twistPenalty = (errorCm - AppConfig.sweetSpot) * 1.0; 
@@ -2075,6 +2086,12 @@ function handleParsedTelemetry(t) {
 
             let accData = calcAccuracyData(liveTargetX_cm, locTwist, 0, simulatedRecoil, currentSwingDwell); 
             if (isTrueStrike) accData.isWhiff = false;
+            
+            // If they miss the sweet spot on a virtual cast, force a complete whiff!
+            if (!isTrueStrike && Math.abs(strikeX) > AppConfig.sweetSpot) {
+                accData.isWhiff = true;
+            }
+
             let passRating = getStarRating(liveTargetX_cm, accData.trueLaunchDeg);
 
             let isHit = false;
@@ -2471,13 +2488,10 @@ async function finalizeSwingData(nowTime) {
         <details class="advanced-metrics mt-4">
             <summary>Advanced Strike Kinematics</summary>
             <div class="mt-4">
-                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The pristine, unclipped speed of the mallet head captured at impact.">Impact Velocity</span><span class="adv-val">${edgeVelHtml}</span></div>
                 <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div>
                 <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The exact time (ms) the ball remained physically compressed against the face.">Impact Dwell</span><span class="adv-val">${dwellHtml}</span></div>
                 <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The raw physical power transferred to the ball (kg·m/s).">Momentum</span><span class="adv-val text-accent">${momentumHtml}</span></div>
                 <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The physical pushing force (N) applied through the shaft during and after the strike.">Extension</span><span class="adv-val">${extHtml}</span></div>
-                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The theoretical distance the ball will roll based on momentum and Lawn Speed.">Estimated Dist</span><span class="adv-val">${distHtml}</span></div>
-                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The maximum guaranteed distance you could place a target ball and still hit it.">Accuracy</span><span class="adv-val">${trueAccHtml}</span></div>
                 ${advMsgHtml}
             </div>
         </details>`;
@@ -2544,12 +2558,12 @@ async function finalizeSwingData(nowTime) {
             </div>
             
             <div id="swing-header-${swingIndex}" class="card-basic-stats">
-                <div class="stat-block"><span class="stat-lbl">Velocity</span><span class="stat-val">${defaultVel}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Impact Location</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Swing PΔ</span><span class="stat-val">${pDeltaHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val">${tempoHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Velocity</span><span class="stat-val">${defaultVel}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${pDeltaHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${tempoHtml}</span></div>
             </div>
             
             ${castsHtml}

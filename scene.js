@@ -28,6 +28,8 @@ export let floorGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
 export let verticalGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
 // Rotate 90 degrees on the Z-axis to stand it up perfectly along the swing path
 verticalGrid.rotation.z = Math.PI / 2;
+// Stretch it to be twice as long (200 units) without changing the 100-unit height
+verticalGrid.scale.z = 2;
 // Hide it by default
 verticalGrid.visible = false;
 
