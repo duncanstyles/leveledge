@@ -46,6 +46,8 @@ const DisplayElements = {
     liveTempo: document.getElementById('live-tempo')
 };
 
+const scrubberLabelEl = document.getElementById('scrubberLabel');
+
 const LastRendered = {
     countdownText: "",
     countdownClass: ""
@@ -1450,8 +1452,7 @@ function triggerReplay(index) {
         virtualBall.visible = true; 
     }
     
-    if(scrubberInput) { scrubberInput.max = recordedFrames.length - 1; scrubberInput.value = 0; }
-    let sLabel = document.getElementById('scrubberLabel'); if(sLabel) sLabel.innerText = `Frame: 1 / ${recordedFrames.length}`;
+    if (scrubberLabelEl) scrubberLabelEl.innerText = `Frame: ${playbackIndex + 1} / ${recordedFrames.length}`;
     if(data.casts && data.casts.length > 0) drawStrikeLaser(data.casts[data.casts.length - 1]); else { clearImpactLasers(); }
     document.getElementById('pauseBtn').innerText = "⏸ PAUSE"; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `REPLAYING SWING #${index + 1}...`; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
     document.getElementById('playback-panel').classList.remove('hidden');
@@ -1486,34 +1487,41 @@ function highlightPass(swingIdx, castIdx) {
     let pbPanel = document.getElementById('playback-panel');
     if (pbPanel) pbPanel.classList.add('hidden');
     
-    // Collapse all rows
+    // Collapse any old details just in case, and remove highlight from all rows
     document.querySelectorAll('.active-cast-row').forEach(el => el.classList.remove('active-cast-row'));
     document.querySelectorAll('.cast-details').forEach(el => {
         el.style.display = 'none';
         el.classList.remove('flex-col');
     });
-    document.querySelectorAll('.expand-icon').forEach(el => el.innerText = '▼');
+    // Hide the arrow icons completely so it just looks like a clickable button
+    document.querySelectorAll('.expand-icon').forEach(el => el.style.display = 'none');
     
-    // Expand the clicked row
+    // Highlight the clicked row, but DO NOT expand it
     let activeRow = document.querySelector(`.cast-row[data-swing-index="${swingIdx}"][data-cast-index="${castIdx}"]`);
     if (activeRow) {
         activeRow.classList.add('active-cast-row');
-        let activeDetails = activeRow.querySelector('.cast-details');
-        if (activeDetails) {
-            activeDetails.style.display = 'flex';
-            activeDetails.classList.add('flex-col'); 
-        }
-        let activeIcon = activeRow.querySelector('.expand-icon');
-        if (activeIcon) activeIcon.innerText = '▲';
-    }
-
-    // Attach the toggle panel (for your Wobble/Twist/Base buttons)
-    let togglePanel = document.getElementById('trace-toggles-panel');
-    if (togglePanel) {
-        togglePanel.classList.remove('hidden');
-        let container = document.getElementById('cast-container-' + swingIdx);
-        if (container) {
-            container.appendChild(togglePanel);
+        
+        // NEW: Update the header block dynamically for this specific cast
+        let headerDiv = document.getElementById(`swing-header-${swingIdx}`);
+        if (headerDiv) {
+            let leanStr = cast.lean !== undefined ? `${cast.lean.toFixed(1)}° ${cast.leanDir}`.trim() : `N/A`;
+            let twistStr = cast.planeTwist !== undefined ? `${(cast.planeTwist > 0 ? '+' : '')}${cast.planeTwist.toFixed(1)}°` : `N/A`;
+            let locStr = cast.isStrike ? 
+                (cast.dev < 0.2 ? `Center` : `${(cast.dev * 10).toFixed(0)}mm ${cast.dir}`) : 
+                `${cast.dev.toFixed(1)}cm ${cast.dir}`;
+            let velStr = cast.passSpeed ? `${cast.passSpeed.toFixed(1)} m/s` : `--`;
+            
+            let pDeltaStr = cast.pDelta !== null && cast.pDelta !== undefined ? formatOffset(cast.pDelta) : `N/A`;
+            let tempoStr = cast.tempo > 0 ? `${Math.round(cast.tempo)} BPM` : `--`;
+            
+            headerDiv.innerHTML = `
+                <div class="stat-block"><span class="stat-lbl">Velocity</span><span class="stat-val">${velStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Lean</span><span class="stat-val text-warning">${leanStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Face Angle</span><span class="stat-val">${twistStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Impact Location</span><span class="adv-val text-warning">${locStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Swing PΔ</span><span class="stat-val">${pDeltaStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val">${tempoStr}</span></div>
+            `;
         }
     }
     
@@ -1630,9 +1638,10 @@ function handleLiveStrike(s) {
     impactRawQuat.setFromEuler(impactEulerNode, 'YZX');
 
     let iQuat = baseQuatInverse.clone().multiply(impactRawQuat);
-    // --- FIX: Trust the high-res hardware face angle! Fall back to the Quat if missing. ---
-    let locTwist = (s.faceAngle !== undefined && s.faceAngle !== null) ? s.faceAngle : getShaftTwist(iQuat);
 
+    // THE FIX: Ignore the raw firmware faceAngle to prevent sign-mismatch explosions. 
+    // Always use the pristine, properly-inverted iQuat.
+    let locTwist = getShaftTwist(iQuat);
     window.lastEdgeData = { zVel: pristineVel, appliedForce: appliedF, downwardSwingTime: downTime, decelFactor: decelFact, impactTwist: locTwist, backArc: s.backArc, backswingTime: s.backswingTime };
 
     // --- NEW: Save the pristine hardware quaternion to override the visual recoil ---
@@ -1760,10 +1769,9 @@ function handleParsedTelemetry(t) {
                 // Use the safe Gimbal-Proof YZX order
                 let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YZX');
                 
-                // --- THE FIX: Tare BOTH the Yaw (Heading) AND the Roll (Lateral Tilt) ---
-                // By extracting finalEuler.z, we permanently mathematically delete the 
-                // physical mounting error every time you lock the target!
-                let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, finalEuler.z, 'YZX'));
+                // THE FIX: ONLY Tare the Yaw (Heading). 
+                // Let the accelerometer use true gravity for Pitch and Roll!
+                let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YZX'));
                 baseQuatInverse.copy(finalHeading).invert();
                 document.getElementById('calibration-container').classList.add('hidden');
 
@@ -1828,7 +1836,7 @@ function handleParsedTelemetry(t) {
 
     if (isLive && !isReviewingLog && !isWizardActive) { 
         
-        // --- REVISED LIFT-OFF DETECTION ---
+        /// --- REVISED LIFT-OFF DETECTION ---
         // We must calculate speed using raw rotation, because the 3D head is currently pinned!
         let angleChange = targetQuaternion.angleTo(prevTargetQuaternion);
         // Angle (rad) / 0.04s (Bluetooth tick) * Handle Radius = m/s
@@ -1858,8 +1866,23 @@ function handleParsedTelemetry(t) {
             
             masterPivot.position.copy(idealHeadPos).sub(rotatedOffset);
         } else {
-            // Top Pivot restores instantly upon takeaway
+            // Top Pivot restores instantly upon takeaway, preserving your exact p delta height
             masterPivot.position.set(0, pivotBaseY + currentPivotLift, 0); 
+            
+            // THE PURE PHYSICS FIX: Decouple the axes using the correct config variable + Grip Offset
+            let handleLen = AppConfig.handleLengthCm || 91.4; 
+            let trueWristPivot = handleLen - 6.0; 
+            
+            let excessRadius = currentDynamicRadius - trueWristPivot;
+            
+            if (excessRadius > 0) {
+                // Pure Vector Math: "Which way is the mallet pointing right now?"
+                // shaftDirection.x extracts the exact lateral lean perfectly, immune to Euler tangles.
+                let shaftDirection = new THREE.Vector3(0, -1, 0).applyQuaternion(masterPivot.quaternion);
+                
+                // Neutralize the excess shoulder swing by shifting the pivot opposite to the lean.
+                masterPivot.position.x = -excessRadius * shaftDirection.x;
+            }
         }
         // ------------------------------------------------------
 
@@ -2036,10 +2059,21 @@ function handleParsedTelemetry(t) {
             // Calculate accuracy AFTER mapping the hardware twist!
             // THE FIX: Use pure pendulum math for ALL casts (practice and real) to evaluate the sweet spot, 
             // completely bypassing the visual 3D positional drift!
-            let rawMm = calculateOffCenterImpact(Math.abs(locTwist), passSpeed);
-            let liveTargetX_cm = locTwist > 0 ? (rawMm / 10.0) : -(rawMm / 10.0);
+            let rawMm = calculateOffCenterImpact(Math.abs(maxTwist), passSpeed);
+            let liveTargetX_cm = maxTwist > 0 ? (rawMm / 10.0) : -(rawMm / 10.0);
 
-            let accData = calcAccuracyData(liveTargetX_cm, locTwist, 0, maxTwist, currentSwingDwell); 
+            // Simulate Twist Penalty for Virtual Casts
+            let simulatedRecoil = maxTwist;
+            if (!isTrueStrike) {
+                // If they miss the sweet spot, simulate 1 degree of twist per cm of error
+                let errorCm = Math.abs(liveTargetX_cm);
+                if (errorCm > AppConfig.sweetSpot) {
+                    let twistPenalty = (errorCm - AppConfig.sweetSpot) * 1.0; 
+                    simulatedRecoil = liveTargetX_cm > 0 ? twistPenalty : -twistPenalty;
+                }
+            }
+
+            let accData = calcAccuracyData(liveTargetX_cm, locTwist, 0, simulatedRecoil, currentSwingDwell); 
             if (isTrueStrike) accData.isWhiff = false;
             let passRating = getStarRating(liveTargetX_cm, accData.trueLaunchDeg);
 
@@ -2061,7 +2095,7 @@ function handleParsedTelemetry(t) {
                 stars: passRating.string, starColor: passRating.color, trailIndex: rawTracePoints.length, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime,
                 isWhiff: accData.isWhiff, estAccRange: accData.estAccRange, trueAccRange: accData.trueAccRange, trueLaunchDeg: accData.trueLaunchDeg, 
                 estLaunchRads: accData.estLaunchRads, trueLaunchRads: accData.trueLaunchRads, maxAccRange: accData.trueAccRange, estDist: estDist, pDelta: p_delta,
-                rawBLE: iRawBLE, isHit: isHit, backArc: backArc, backswingTime: backswingTime
+                rawBLE: iRawBLE, isHit: isHit, backArc: backArc, backswingTime: backswingTime, tempo: lastComputedTempo
             };
 
             castData.push(strikeCast);
@@ -2122,8 +2156,17 @@ async function finalizeSwingData(nowTime) {
     playDoubleBeep();
     await sendBleCommand([79]); // 'O'
 
+    // THE NEW FIX: Hide incomplete final swings caused by the timer decapitation
+    if (!impactDetected && castData.length > 1) {
+        let lastCast = castData[castData.length - 1];
+        // If the final cast has fewer than 5 frames of follow-through, it was chopped off by the timer. Delete it.
+        if (rawTracePoints.length - lastCast.trailIndex < 5) {
+            castData.pop(); 
+        }
+    }
+
     // 1. Identify the target cast data to anchor the edits
-    let displayPass = null; 
+    let displayPass = null;
     if (impactDetected) { displayPass = castData.find(c => c.isStrike) || castData[castData.length - 1]; } 
     else if (castData.length > 0) { displayPass = castData[castData.length - 1]; }
 
@@ -2179,17 +2222,20 @@ async function finalizeSwingData(nowTime) {
         });
 
         // B. OFF-CENTER TRANSLATION
-        let rawMm = calculateOffCenterImpact(Math.abs(hardwareTwist), hardwareSpeed);
+        // THE FIX: Use maxTwist (recoil torque) for deviation, NOT hardwareTwist (face angle)!
+        let rawMm = calculateOffCenterImpact(Math.abs(maxTwist), hardwareSpeed);
         displayPass.offCenterMm = Math.abs(rawMm);
 
         displayPass.offCenterLabel = "Center";
         let sweetSpotMm = AppConfig.sweetSpot * 10.0;
         if (displayPass.offCenterMm > sweetSpotMm) {
-            displayPass.offCenterLabel = rawMm > 0 ? "R" : "L";
+            // THE FIX: Evaluate maxTwist for direction, because rawMm is forced absolute!
+            displayPass.offCenterLabel = maxTwist > 0 ? "R" : "L";
         }
         
         let hwTargetX_cm = displayPass.offCenterMm / 10.0;
-        if (displayPass.offCenterLabel === 'L') hwTargetX_cm = -hwTargetX_cm;
+        // THE FIX: If the ball hit the Right side (Toe), shift the Mallet to the LEFT (-X)
+        if (displayPass.offCenterLabel === 'R') hwTargetX_cm = -hwTargetX_cm;
         else if (displayPass.offCenterLabel === 'Center') hwTargetX_cm = 0;
 
         // Measure how far off the Face is from the calculated physical impact
@@ -2226,7 +2272,8 @@ async function finalizeSwingData(nowTime) {
         displayPass.estDist = calculateEstimatedDistance(hardwareSpeed, AppConfig.massKg, AppConfig.lawnSpeed);
 
         // Calculate final accuracy (Hardcoding Approach to 0)
-        let accData = calcAccuracyData(hwTargetX_cm, hardwareTwist, 0, hardwareTwist, currentSwingDwell);
+        // THE FIX: The 4th parameter must be maxTwist (Recoil Torque), not hardwareTwist (Face Angle)!
+        let accData = calcAccuracyData(hwTargetX_cm, hardwareTwist, 0, maxTwist, currentSwingDwell);
         let passRating = getStarRating(hwTargetX_cm, accData.trueLaunchDeg);
         
         displayPass.trueLaunchDeg = accData.trueLaunchDeg;
@@ -2241,7 +2288,7 @@ async function finalizeSwingData(nowTime) {
         let targetDist = inGameMode ? (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : (parseFloat(document.getElementById('trainerDistSetup').value) || 10.0);
         
         displayPass.isHit = !accData.isWhiff && (Math.abs(hwTargetX_cm) <= AppConfig.sweetSpot) && (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && (displayPass.estDist >= targetDist);
-    }
+    }    
 
     // 3. --- PRISTINE PATH LOCK (WIGGLE CURE) ---
     // Freeze the follow-through to ignore the physical shockwave.
@@ -2344,6 +2391,10 @@ async function finalizeSwingData(nowTime) {
     let forceHtml = impactDetected ? `${forceN.toFixed(0)} N` : `N/A`;
 
     let devHtml   = (impactDetected || castData.length > 0) && displayPass ? `${currentSwingDeviation.toFixed(1)}cm ${displayPass.dir}` : `N/A`;
+    
+    // THE FIX: Dynamically interchange the Impact Location display!
+    let impactLocationHtml = impactDetected ? offCenterHtml : devHtml;
+
     let leanHtml  = (impactDetected || castData.length > 0) && displayPass && displayPass.lean !== undefined ? `${displayPass.lean.toFixed(1)}° ${displayPass.leanDir}`.trim() : `N/A`;
     let velHtml   = displayPass ? `${displayPass.passSpeed.toFixed(1)} m/s` : `--`;
     let tempoHtml = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
@@ -2400,76 +2451,131 @@ async function finalizeSwingData(nowTime) {
         advMsgHtml = `<div class="mt-3 text-center" style="color: var(--danger); font-size: 0.85rem; font-weight: bold;">Please subscribe to see Advanced Metrics</div>`;
     }
 
+    // 1. Render the Casts directly into the card body (No Dropdown)
     let castsHtml = '';
-    
     if (castData.length > 0) {
         let listItems = castData.map((c, i) => {
             return buildCastRowHTML(c, i, swingCount - 1, false);
         }).join('');
         
         castsHtml = `
+        <div id="cast-container-${swingIndex}" class="mt-3">
+            ${listItems}
+        </div>`;
+    }
+
+    // 2. ONLY build the Advanced Dropdown if there was a physical strike
+    let advancedKinematicsHtml = '';
+    if (impactDetected) {
+        advancedKinematicsHtml = `
         <details class="advanced-metrics mt-4">
-            <summary>View Casting Traces</summary>
-            <div id="cast-container-${swingIndex}">
-                ${listItems}
+            <summary>Advanced Strike Kinematics</summary>
+            <div class="mt-4">
+                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The pristine, unclipped speed of the mallet head captured at impact.">Impact Velocity</span><span class="adv-val">${edgeVelHtml}</span></div>
+                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div>
+                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The exact time (ms) the ball remained physically compressed against the face.">Impact Dwell</span><span class="adv-val">${dwellHtml}</span></div>
+                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The raw physical power transferred to the ball (kg·m/s).">Momentum</span><span class="adv-val text-accent">${momentumHtml}</span></div>
+                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The physical pushing force (N) applied through the shaft during and after the strike.">Extension</span><span class="adv-val">${extHtml}</span></div>
+                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The theoretical distance the ball will roll based on momentum and Lawn Speed.">Estimated Dist</span><span class="adv-val">${distHtml}</span></div>
+                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The maximum guaranteed distance you could place a target ball and still hit it.">Accuracy</span><span class="adv-val">${trueAccHtml}</span></div>
+                ${advMsgHtml}
             </div>
         </details>`;
     }
 
+    // 3. Assemble the perfectly clean History Card with the new permanent toolbar
+    let defaultVel = displayPass ? `${displayPass.passSpeed.toFixed(1)} m/s` : `--`;
+    
+    // HELPER: Safely trigger the hidden master toggles from the generated HTML
+    if (!window.clickMasterToggle) {
+        window.clickMasterToggle = function(type) {
+            let master = document.getElementById(type);
+            if (master) {
+                master.click(); // Fires the original logic and updates the variables
+                let isActive = master.classList.contains('active');
+                // Keep all generated toolbar buttons in sync
+                document.querySelectorAll('.' + type + '-clone').forEach(el => {
+                    isActive ? el.classList.add('active') : el.classList.remove('active');
+                });
+            }
+        };
+    }
+
+    // Capture the current visual state for the new buttons so they spawn correctly
+    let baseActive = document.getElementById('toggleBase')?.classList.contains('active') ? 'active' : '';
+    let wobbleActive = document.getElementById('toggleWobble')?.classList.contains('active') ? 'active' : '';
+    let twistActive = document.getElementById('toggleTwist')?.classList.contains('active') ? 'active' : '';
+
     let logHtml = `
         <div class="history-card">
-            <div class="card-header">
-                <div><span class="swing-title">SWING #${swingCount}</span> &nbsp;${starHtml}</div>
+            <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+                <div class="flex items-center gap-3">
+                    <!-- Clickable Title to Show All Casts -->
+                    <span class="swing-title" style="cursor: pointer; text-decoration: underline; text-underline-offset: 4px;" onclick="window.stopSwingReview()" title="Click to view all casts">SWING ${swingCount}</span>
+                    
+                    <!-- Permanent Icon Toolbar beside the Swing Number -->
+                    <div class="trace-toolbar flex items-center gap-1" style="background: var(--bg-secondary); padding: 2px 4px; border-radius: 6px; border: 1px solid var(--border-color);">
+                        <!-- Base Trace Icon -->
+                        <button class="trace-toggle toggleBase-clone icon-btn ${baseActive}" onclick="window.clickMasterToggle('toggleBase')" title="Toggle Base Trace" style="padding: 4px; border: none; background: transparent; cursor: pointer;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="12" x2="20" y2="12"></line></svg>
+                        </button>
+                        <!-- Wobble Ribbon Icon -->
+                        <button class="trace-toggle toggleWobble-clone icon-btn ${wobbleActive}" onclick="window.clickMasterToggle('toggleWobble')" title="Toggle Wobble Ribbon" style="padding: 4px; border: none; background: transparent; cursor: pointer;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                        </button>
+                        <!-- Twist Ribbon Icon -->
+                        <button class="trace-toggle toggleTwist-clone icon-btn ${twistActive}" onclick="window.clickMasterToggle('toggleTwist')" title="Toggle Twist Ribbon" style="padding: 4px; border: none; background: transparent; cursor: pointer;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
+                        </button>
+                        
+                        <div style="width: 1px; height: 16px; background: var(--border-color); margin: 0 4px;"></div>
+                        
+                        <!-- Play Button -->
+                        <button class="icon-btn replay-btn" data-swing-index="${swingIndex}" title="Replay Trace" style="color: var(--accent-primary); padding: 4px; border: none; background: transparent; cursor: pointer;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Timestamp restored to the top line -->
                 <div class="flex items-center gap-2">
-                    <span class="swing-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
-                    <button class="icon-btn replay-btn" data-swing-index="${swingIndex}" title="Replay Trace" style="color: var(--accent-primary); border: 1px solid var(--border-color); border-radius: 4px; padding: 4px;">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                    </button>
+                    <span class="swing-time" style="white-space: nowrap;">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                 </div>
             </div>
             
-            <div class="card-basic-stats">
-                <!-- <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Est. Velocity</span><span class="stat-val">${velHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Plane Twist</span><span class="stat-val">${planeTwistHtml}</span></div>
-                <!-- <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The horizontal trajectory of the mallet head leading into the ball.">Approach Angle</span><span class="stat-val text-accent">${impactTwistHtml}</span></div> -->
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${offCenterHtml}</span></div>
-                    
+            <div id="swing-header-${swingIndex}" class="card-basic-stats">
+                <div class="stat-block"><span class="stat-lbl">Velocity</span><span class="stat-val">${defaultVel}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Impact Location</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Swing PΔ</span><span class="stat-val">${pDeltaHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val">${tempoHtml}</span></div>
             </div>
-
-            <details class="advanced-metrics">
-                <summary>Advanced Kinematics</summary>
-                <div class="mt-4">
-                    <!-- <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${offCenterHtml}</span></div> -->
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The pristine, unclipped speed of the mallet head captured at impact.">Impact Velocity</span><span class="adv-val">${edgeVelHtml}</span></div>
-                    <!-- <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div> -->
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The exact time (ms) the ball remained physically compressed against the face.">Impact Dwell</span><span class="adv-val">${dwellHtml}</span></div>
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The raw physical power transferred to the ball (kg·m/s).">Momentum</span><span class="adv-val text-accent">${momentumHtml}</span></div>
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="adv-val">${pDeltaHtml}</span></div>
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Swing Tempo</span><span class="adv-val">${tempoHtml}</span></div>
-                    <!--<div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The vertical angle of the mallet head as it strikes the ball.">Angle of Attack</span><span class="adv-val">${aoaHtml}</span></div> -->
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The physical pushing force (N) applied through the shaft during and after the strike.">Extension</span><span class="adv-val">${extHtml}</span></div>
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The theoretical distance the ball will roll based on momentum and Lawn Speed.">Estimated Dist</span><span class="adv-val">${distHtml}</span></div>
-                    <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The maximum guaranteed distance you could place a target ball and still hit it.">Accuracy</span><span class="adv-val">${trueAccHtml}</span></div>
-                    ${advMsgHtml}
-                </div>
-            </details>            ${castsHtml}
+            
+            ${castsHtml}
+            ${advancedKinematicsHtml}
         </div>
     `;
 
+    // 4. OVERWRITE THE DOM ONCE
     let listDiv = document.getElementById('history-list');
-    if (listDiv) { if (swingCount === 1) listDiv.innerHTML = ''; listDiv.insertAdjacentHTML('afterbegin', logHtml); }
+    if (listDiv) { 
+        if (swingCount === 1) listDiv.innerHTML = ''; 
+        listDiv.insertAdjacentHTML('afterbegin', logHtml); 
+    }
 
     if (window.innerWidth <= 768) { 
         document.getElementById('history-panel').classList.add('mobile-open'); 
-        document.getElementById('control-panel')?.classList.add('hidden'); // Hide the controls!
+        document.getElementById('control-panel')?.classList.add('hidden');
     } else { 
         document.getElementById('history-panel').classList.remove('desktop-closed'); 
     }
     
     let swingStateTxt = document.getElementById('swing-state');
-    if(swingStateTxt) { swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
+    if(swingStateTxt) { 
+        swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Select an activity to begin.</span>"; 
+        swingStateTxt.className = "text-accent text-center font-bold mb-4"; 
+    }
 }    
 
 window.bleManager.onStateChange = (isConnected, name) => {
@@ -2806,7 +2912,9 @@ window.bleManager.onTraceData = (traceArray) => {
         
         let finalQuat = baseQuatInverse.clone().multiply(orientedQ);
         
-        let headOffset = new THREE.Vector3(0, -loadedRadius, 0).applyQuaternion(finalQuat);
+        // THE FIX: Track the center of the physical mallet mesh, not the shaft!
+        let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
+        let headOffset = new THREE.Vector3(0, -loadedRadius, meshShiftZ).applyQuaternion(finalQuat);
         let trueHeadPos = new THREE.Vector3(0, pivotBaseY, 0).add(headOffset);
         
         rawTracePoints.push({
@@ -2826,6 +2934,22 @@ window.bleManager.onTraceData = (traceArray) => {
             rawBLE: pureQ
         });
     });
+
+    // THE FIX: Sync the recorded strike cast to the newly injected pristine trace!
+    if (castData.length > 0) {
+        let strikeCast = castData.find(c => c.isStrike) || castData[castData.length - 1];
+        if (strikeCast) {
+            // 1. Shift the math index to the new end of the array
+            strikeCast.trailIndex = rawTracePoints.length - 1;
+            
+            // 2. Sync the 3D Face Position to the pristine hardware frame so the Sweet Spot Slide is perfectly calculated
+            let finalRecord = recordedFrames[recordedFrames.length - 1];
+            strikeCast.pivotQuat.copy(finalRecord.rotation);
+            
+            let faceOffset = new THREE.Vector3(0, -loadedRadius - strikeCast.extension, getDynamicFaceZ()).applyQuaternion(strikeCast.pivotQuat);
+            strikeCast.pos.copy(strikeCast.pivotPos).add(faceOffset);
+        }
+    }
 
     // --- SHOCKWAVE-PROOF APPROACH ANGLE ---
     let totalPts = rawTracePoints.length;

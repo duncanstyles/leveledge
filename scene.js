@@ -247,20 +247,16 @@ export function drawStrikeLaser(cast) {
     clearImpactLasers();
     if (!cast) return;
 
-    // 1. Start at the physical center of the visual mallet face
-    let startPos = cast.pos.clone();
+    // 1. Anchor the laser directly to the center of the virtual ball
+    let startPos = virtualBall.position.clone();
     
-    // 2. Adjust origin ONLY for actual physical strikes
-    // For practice casts (no collision), it assumes a dead-center hit and originates perfectly from the mallet.
-    if (cast.isStrike && cast.rawDev !== undefined) {
-        let offsetMeters = cast.rawDev / 100.0; // rawDev is in centimeters
-        
-        // Extract the local "Left/Right" axis directly from the mallet face's 3D rotation
-        let faceRightVector = new THREE.Vector3(1, 0, 0).applyQuaternion(cast.rot);
-        
-        // THE FIX: SUBTRACT the offset. (If mallet center is +2cm to the right, the ball is -2cm to the left)
-        startPos.sub(faceRightVector.multiplyScalar(offsetMeters));
+    // 2. Shift the start point to the back edge of the ball (radius is 4.6cm)
+    // This perfectly represents the exact point of impact between the flat face and the sphere.
+    let backEdgeOffset = new THREE.Vector3(0, 0, -4.6);
+    if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+        backEdgeOffset.applyQuaternion(ghostPivot.quaternion);
     }
+    startPos.add(backEdgeOffset);
     
     // 3. Grab the true physical trajectory of the ball
     let launchRads = cast.trueLaunchRads || 0;
@@ -272,8 +268,8 @@ export function drawStrikeLaser(cast) {
         direction.applyQuaternion(ghostPivot.quaternion);
     }
     
-    // 4. Extend the line forward 10 meters, and slightly backward so it passes through the ball
-    let distance = 10.0; 
+    // 4. Extend the line forward 10 meters, and slightly backward into the mallet
+    let distance = 100.0; 
     let endPos = startPos.clone().add(direction.clone().multiplyScalar(distance));
     let backPos = startPos.clone().add(direction.clone().multiplyScalar(-0.25)); 
 
@@ -281,9 +277,9 @@ export function drawStrikeLaser(cast) {
     let laserGeo = new THREE.BufferGeometry().setFromPoints([backPos, endPos]);
     let laserMat = new THREE.LineDashedMaterial({
         color: 0xff0000,
-        linewidth: 2,
-        dashSize: 0.1,
-        gapSize: 0.1,
+        linewidth: 5,
+        dashSize: 1,
+        gapSize: 0.5,
         transparent: true,
         opacity: 0.8
     });
@@ -291,7 +287,8 @@ export function drawStrikeLaser(cast) {
     let laserMesh = new THREE.Line(laserGeo, laserMat);
     laserMesh.computeLineDistances(); 
 
-    impactLasers.add(laserMesh);
+    scene.add(laserMesh);         
+    impactLasers.push(laserMesh); 
 }
 
 export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
@@ -311,6 +308,15 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
     let leftPts = [], rightPts = [];
     let tLeftPts = [], tRightPts = []; 
     let interpColors = [];
+
+    // THE FIX: If drawing a new trace, clear any NaN gaps from the GPU buffers
+    // by instantly resetting the draw range and forcing a clean attribute update.
+    trailGeometry.setDrawRange(0, 0);
+    ribbonGeometry.setDrawRange(0, 0);
+    twistRibbonGeometry.setDrawRange(0, 0);
+    
+    trailPositions.fill(0);
+    trailColors.fill(0);
     
     // PERFORMANCE FIX: Check the UI toggle ONCE before the loop, not 5000 times!
     let hideBackswingToggle = document.getElementById('hideBackswingCheck');
@@ -460,7 +466,12 @@ export function rebuildArcPts(radius) {
 }
 
 export function clearImpactLasers() {
-    impactLasers.forEach(m => scene.remove(m)); 
+    impactLasers.forEach(m => {
+        scene.remove(m);
+        // THE FIX: Explicitly destroy the geometry and material to prevent GPU memory leaks
+        if (m.geometry) m.geometry.dispose();
+        if (m.material) m.material.dispose();
+    }); 
     impactLasers.length = 0;
 }
 
