@@ -36,6 +36,18 @@ verticalGrid.visible = false;
 export let targetArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -20), 40, 0xef4444, 4, 3);
 export let virtualBall = new THREE.Mesh(new THREE.SphereGeometry(4.6, 8, 6), new THREE.MeshBasicMaterial({ color: 0x0284c7, wireframe: true, transparent: true, opacity: 0.6 }));
 
+
+// Add to your exports near virtualBall
+export let rollingBall = new THREE.Mesh(
+    new THREE.SphereGeometry(4.6, 16, 16), 
+    new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 })
+);
+
+export let targetMarker = new THREE.Mesh(
+    new THREE.RingGeometry(10, 15, 32), 
+    new THREE.MeshBasicMaterial({ color: 0x10b981, side: THREE.DoubleSide, transparent: true, opacity: 0.6 })
+);
+
 export const wizardTableGroup = new THREE.Group();
 export const tableMesh = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshBasicMaterial({color: 0x94a3b8, transparent: true, opacity: 0.2, side: THREE.DoubleSide}));
 export const headingArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, pivotBaseY - defaultRad - 1, 25), 50, 0xef4444, 5, 4);
@@ -185,6 +197,13 @@ export function initScene() {
     floorGrid.material.opacity = 0.5;
     floorGrid.visible = false; 
     targetEnvironmentGroup.add(floorGrid);
+
+    targetMarker.rotation.x = Math.PI / 2; // Lay flat on the floor
+    targetMarker.visible = false;
+    rollingBall.visible = false;
+
+    scene.add(targetMarker);
+    scene.add(rollingBall);
 
     // Add the new vertical grid
     verticalGrid.material.transparent = true;

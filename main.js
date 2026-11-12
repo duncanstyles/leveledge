@@ -13,7 +13,7 @@ import {
     MAX_TRAIL_POINTS, trailPositions, trailColors, rawTracePoints, trailGeometry, trailLine,
     initScene, drawStrikeLaser, updateSmoothTrail, rebuildArcPts, hemiLight,
     ribbonMesh, setMalletHalfWidth, twistRibbonMesh, setMalletDimensions, setTwistMagnifier,
-    setActiveOffsetZ
+    setActiveOffsetZ, rollingBall, targetMarker
 } from './scene.js';
 
 // --- CACHED APP CONFIG & DOM ELEMENTS FOR PERFORMANCE ---
@@ -400,6 +400,13 @@ let downloadedHistory = [];
 let isGhostEnabled = true;
 let isBallEnabled = true;
 let isViewFlipped = false;
+
+// --- ANIMATION STATE ---
+let isBallRolling = false;
+let rollStartTime = 0;
+let rollStartPos = new THREE.Vector3();
+let rollEndPos = new THREE.Vector3();
+let rollDuration = 0;
 
 const settingsElements = [
     'malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 
@@ -1295,6 +1302,29 @@ resetSystemState = async (silent = false, wipeHistory = false) => {
 
 function animate() {
     requestAnimationFrame(animate); controls.update();
+
+    // --- BALL ROLL ANIMATION ---
+    if (isBallRolling && rollDuration > 0) {
+        let elapsed = Date.now() - rollStartTime;
+        let t = Math.max(0, Math.min(elapsed / rollDuration, 1.0)); 
+        
+        if (t >= 1.0) {
+            isBallRolling = false;
+            setTimeout(() => {
+                rollingBall.visible = false;
+                targetMarker.visible = false;
+            }, 4000);
+        }
+        
+        // Safe ease-out cubic deceleration
+        let easeOut = 1 - Math.pow(1 - t, 3);
+        rollingBall.position.lerpVectors(rollStartPos, rollEndPos, easeOut);
+        
+        // Spin the ball
+        let distanceRolled = rollStartPos.distanceTo(rollingBall.position);
+        rollingBall.rotation.x = (distanceRolled / 28.9) * Math.PI * 2; 
+    }
+    // ---------------------------
     
     let metronomeCheck = document.getElementById('metronomeCheck');
     if (isAudioInitialized && metronomeCheck && metronomeCheck.checked && (appState === 3 || appState === 4)) {
@@ -1515,12 +1545,12 @@ function highlightPass(swingIdx, castIdx) {
             let tempoStr = cast.tempo > 0 ? `${Math.round(cast.tempo)} BPM` : `--`;
             
             headerDiv.innerHTML = `
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Velocity</span><span class="stat-val">${defaultVel}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${pDeltaHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${tempoHtml}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Velocity</span><span class="stat-val">${velStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${twistStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${locStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${pDeltaStr}</span></div>
+                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${tempoStr}</span></div>
             `;
         }
     }
@@ -2360,6 +2390,53 @@ async function finalizeSwingData(nowTime) {
     if (lastFrame) { rewindStartQuat.copy(lastFrame.rotation); rewindStartPos.copy(lastFrame.pivotPos); rewindStartExt = lastFrame.extension; } else { rewindStartQuat.copy(masterPivot.quaternion); rewindStartPos.copy(masterPivot.position); rewindStartExt = 0; }
 
     if (displayPass) drawStrikeLaser(displayPass);
+    
+    // --- ANIMATION TRIGGER ---
+    if (displayPass && !displayPass.isWhiff) {
+        let animTargetDist = inGameMode ? 
+            (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : 
+            (parseFloat(document.getElementById('trainerDistSetup').value) || 10.0);
+
+        let actualDist = displayPass.estDist > 0.5 ? displayPass.estDist : 0.5;
+
+        // 1. Calculate Launch Trajectory
+        let launchRads = displayPass.trueLaunchRads || 0;
+        let direction = new THREE.Vector3(0, 0, 1);
+        direction.applyAxisAngle(new THREE.Vector3(0, 1, 0), launchRads);
+        
+        let straightAhead = new THREE.Vector3(0, 0, 1);
+        if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+            direction.applyQuaternion(ghostPivot.quaternion);
+            straightAhead.applyQuaternion(ghostPivot.quaternion);
+        }
+
+        // 2. Place the Target Ring strictly on the floor
+        let floorY = pivotBaseY - loadedRadius;
+        targetMarker.position.copy(virtualBall.position).add(straightAhead.multiplyScalar(animTargetDist * 100));
+        targetMarker.position.y = floorY + 0.5; 
+        targetMarker.material.color.setHex(displayPass.isHit ? 0x10b981 : 0xef4444); 
+        targetMarker.visible = true;
+
+        // 3. Setup the Rolling Ball strictly on the floor
+        rollStartPos.copy(virtualBall.position);
+        rollStartPos.y = floorY + 4.6; 
+        rollEndPos.copy(rollStartPos).add(direction.multiplyScalar(actualDist * 100));
+        rollEndPos.y = floorY + 4.6;
+
+        // 4. Bulletproof Pacing
+        let safeSpeed = displayPass.passSpeed > 0.5 ? displayPass.passSpeed : 0.5;
+        rollDuration = (actualDist / safeSpeed) * 1000;
+        if (rollDuration < 500) rollDuration = 500;
+        if (rollDuration > 4500) rollDuration = 4500; 
+
+        rollStartTime = Date.now();
+        isBallRolling = true;
+        rollingBall.visible = true;
+        
+        console.log("Animation Triggered: ", { start: rollStartPos, end: rollEndPos, duration: rollDuration });
+    }
+    // -------------------------
+
     if (displayPass) { finalReviewPivotQuat.copy(displayPass.pivotQuat); finalReviewPivotPos.copy(displayPass.pivotPos); finalReviewExtension = displayPass.extension; currentSwingDeviation = displayPass.dev; } 
     else if (lastFrame) { finalReviewPivotQuat.copy(lastFrame.rotation); finalReviewPivotPos.copy(lastFrame.pivotPos); finalReviewExtension = lastFrame.extension; }
 
