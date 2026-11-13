@@ -373,7 +373,7 @@ let devHudEnabled = false;
 
 let hasLiftedOff = false; // <-- NEW: Tracks the start of the backswing
 
-let wizardBuffer = []; const WIZARD_BUFFER_SIZE = 20; const WIZARD_VARIANCE_THRESH = 0.02; let vectors = { top: null, bottom: null, front: null, back: null, left: null, right: null };
+let wizardBuffer = []; const WIZARD_BUFFER_SIZE = 15; const WIZARD_VARIANCE_THRESH = 0.02; let vectors = { top: null, bottom: null, front: null, back: null, left: null, right: null };
 let lastBatteryCheckTime = 0; let lastBatteryVal = -1; let chargeRatePerMs = 0;
 
 let savedBleName = "Unknown Mallet";
@@ -1066,56 +1066,150 @@ document.getElementById('hideBackswingCheck').addEventListener('change', (e) => 
     if (rawTracePoints.length > 0) updateSmoothTrail(); // Instantly redraws the line
 });
 
-document.getElementById('launchWizardBtn').onclick = () => {
-    if (!window.bleManager.device || !window.bleManager.device.gatt.connected) { showToast("Connect sensor first before calibrating!"); return; }
-    document.getElementById('mallet-modal').close(); document.getElementById('wizard-modal').showModal();
-    isWizardActive = true; wizardStep = 0; updateWizardUI();
-};
-
-document.getElementById('closeWizardBtn').onclick = () => { 
-    isWizardActive = false; 
-    capturing = false; 
-    document.getElementById('wizard-modal').close(); 
-    if (wizardTableGroup) wizardTableGroup.visible = false;
-    masterBlock.position.set(0, -loadedRadius, 0); 
-    masterPivot.position.set(0, pivotBaseY, 0);
-    
-    let traceCheck = document.getElementById('showTraceCheck');
-    trailLine.visible = traceCheck ? traceCheck.checked : true;
-};
-
-const wizardInstructions = [
-    { title: "Step 1: Preparation", desc: "Remove the mallet shaft. You will need a perfectly flat table. Set a physical 'Heading Line' (like a table edge) and note 'True North'. Use two identical books if the sensor bulge prevents the head from sitting flat.", btn: "NEXT" },
-    { title: "Step 2: Top Face", desc: "Place the TOP face flat on the table. Align the Front striking face so it points exactly at 'True North' along your Heading Line.", btn: "CAPTURE TOP" },
-    { title: "Step 3: Bottom Face", desc: "Roll the head 180° over. Place the BOTTOM face flat. Ensure the Front striking face STILL points exactly at 'True North'.", btn: "CAPTURE BOTTOM" },
-    { title: "Step 4: Front Face", desc: "Stand the head up on its FRONT striking face. Point the Top face (shaft hole) directly at 'True North' along your Heading Line.", btn: "CAPTURE FRONT" },
-    { title: "Step 5: Back Face", desc: "Flip the head 180° to stand on its BACK striking face. The Top face (shaft hole) STILL points directly at 'True North'.", btn: "CAPTURE BACK" },
-    { title: "Step 6: Left Side", desc: "Lay the head resting flat on its LEFT side. Align the Front striking face so it points exactly at 'True North'.", btn: "CAPTURE LEFT" },
-    { title: "Step 7: Right Side", desc: "Roll it 180°. Place the head resting flat on its RIGHT side. The Front striking face STILL points exactly at 'True North'.", btn: "CAPTURE RIGHT" }
-];
-
-function updateWizardUI() {
-    let config = wizardInstructions[wizardStep]; document.getElementById('wizard-step-title').innerText = config.title; document.getElementById('wizard-instruction').innerText = config.desc;
-    document.getElementById('wizard-progress').innerText = `Step ${wizardStep + 1} of 7`; let btn = document.getElementById('wizardCaptureBtn'); btn.innerText = config.btn; btn.disabled = false;
+function resetCameraToSwingView() {
+    let camX = isViewFlipped ? -100 : 100;
+    camera.position.set(camX, pivotBaseY - loadedRadius, 0);
+    controls.target.set(0, pivotBaseY - loadedRadius, 0);
+    controls.update();
 }
 
-document.getElementById('wizardCaptureBtn').onclick = () => {
-    if (wizardStep === 0) { wizardStep++; updateWizardUI(); } 
-    else { let btn = document.getElementById('wizardCaptureBtn'); btn.innerText = "WAITING FOR SETTLE... (HANDS OFF)"; btn.disabled = true; wizardBuffer = []; capturing = true; }
-};
+function exitWizardUI() {
+    isWizardActive = false;
+    capturing = false;
+    sendBleCommand([79]); // Return firmware from full-speed calibration to 1 Hz IDLE
+    document.getElementById('wizard-modal').close();
+    document.getElementById('control-panel')?.classList.remove('hidden');
 
-function calculateRotationMatrix() {
-    let zAxis = new THREE.Vector3().subVectors(vectors.top, vectors.bottom).normalize(); let xAxis = new THREE.Vector3().subVectors(vectors.front, vectors.back).normalize();
-    let yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize(); xAxis.crossVectors(yAxis, zAxis).normalize();
-    let basisMat = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis); hardwareMountOffset.setFromRotationMatrix(basisMat).invert(); 
-    saveSettings(); isWizardActive = false; document.getElementById('wizard-modal').close(); 
-    
+    if (handleMesh) handleMesh.scale.y = 1.0;
+    if (tableMesh) tableMesh.material.opacity = 0.2;
     if (wizardTableGroup) wizardTableGroup.visible = false;
     masterBlock.position.set(0, -loadedRadius, 0);
     masterPivot.position.set(0, pivotBaseY, 0);
 
     let traceCheck = document.getElementById('showTraceCheck');
     trailLine.visible = traceCheck ? traceCheck.checked : true;
+    resetCameraToSwingView();
+}
+
+document.getElementById('launchWizardBtn').onclick = async () => {
+    if (!window.bleManager.device || !window.bleManager.device.gatt.connected) {
+        showToast("Connect sensor first before calibrating!");
+        return;
+    }
+    await sendBleCommand([90]); // Tell firmware to enter STATE_CALIBRATING (40ms / 25Hz full speed)
+    document.getElementById('mallet-modal').close();
+    document.getElementById('control-panel')?.classList.add('hidden');
+    document.getElementById('menu-drawer')?.classList.remove('open');
+
+    const historyPanel = document.getElementById('history-panel');
+    if (historyPanel) {
+        historyPanel.classList.remove('mobile-open');
+        historyPanel.classList.add('desktop-closed');
+    }
+
+    const wizardModal = document.getElementById('wizard-modal');
+    const isMobile = window.innerWidth <= 768;
+
+    wizardModal.style.position = 'fixed';
+    wizardModal.style.margin = '0';
+    wizardModal.style.padding = '0';
+    wizardModal.style.border = 'none';
+    wizardModal.style.background = 'transparent';
+    wizardModal.style.zIndex = '100';
+    if (isMobile) {
+        wizardModal.style.top = 'auto';
+        wizardModal.style.bottom = '12px';
+        wizardModal.style.left = '50%';
+        wizardModal.style.right = 'auto';
+        wizardModal.style.transform = 'translateX(-50%)';
+        wizardModal.style.width = 'calc(100% - 24px)';
+        wizardModal.style.maxWidth = '420px';
+    } else {
+        wizardModal.style.top = '80px';
+        wizardModal.style.right = '20px';
+        wizardModal.style.left = 'auto';
+        wizardModal.style.bottom = 'auto';
+        wizardModal.style.transform = 'none';
+        wizardModal.style.width = '320px';
+    }
+
+    if (!wizardModal.open) wizardModal.show();
+
+    isWizardActive = true;
+    wizardStep = 0;
+    updateWizardUI();
+
+    if (wizardTableGroup) wizardTableGroup.visible = true;
+    if (tableMesh) tableMesh.material.opacity = 0.45;
+
+    let tableY = pivotBaseY - loadedRadius - 1.5;
+    let targetOffsetY = isMobile ? -5 : 3;
+    let targetOffsetX = isMobile ? 0 : 4;
+    controls.target.set(targetOffsetX, tableY + targetOffsetY, 0);
+    camera.position.set(24, tableY + 22, 26);
+    controls.update();
+};
+
+document.getElementById('closeWizardBtn').onclick = () => {
+    exitWizardUI();
+};
+
+const wizardInstructions = [
+    { title: "Step 1: Bottom Face & Setup", desc: "Remove the mallet shaft and set a 'True North' heading line on a flat table. Place the BOTTOM sole flat on the table with the Front striking face pointing at 'True North' and shaft hole pointing UP.", btn: "CAPTURE BOTTOM" },
+    { title: "Step 2: Top Face", desc: "Flip the head upside down onto its TOP face (rest on two equal books so the sensor clears the table). Keep the Front striking face pointing at 'True North'.", btn: "CAPTURE TOP" },
+    { title: "Step 3: Front Face", desc: "Stand the head vertically on its FRONT striking face. Point the Top face (shaft hole) directly at 'True North' along your Heading Line.", btn: "CAPTURE FRONT" },
+    { title: "Step 4: Back Face", desc: "Flip the head 180° to stand vertically on its BACK striking face. The Top face (shaft hole) STILL points directly at 'True North'.", btn: "CAPTURE BACK" },
+    { title: "Step 5: Left Side", desc: "Lay the head on its LEFT side: Front striking face pointing at 'True North', and shaft hole (Top face) pointing to your RIGHT (matching the 3D view).", btn: "CAPTURE LEFT" },
+    { title: "Step 6: Right Side", desc: "Roll it 180° onto its RIGHT side: Front striking face pointing at 'True North', and shaft hole (Top face) pointing to your LEFT (matching the 3D view).", btn: "CAPTURE RIGHT" }
+];
+
+function updateWizardUI() {
+    let config = wizardInstructions[wizardStep];
+    document.getElementById('wizard-step-title').innerText = config.title;
+    document.getElementById('wizard-instruction').innerText = config.desc;
+    document.getElementById('wizard-progress').innerText = `Step ${wizardStep + 1} of 6`;
+    let btn = document.getElementById('wizardCaptureBtn');
+    btn.innerText = config.btn;
+    btn.disabled = false;
+}
+
+document.getElementById('wizardCaptureBtn').onclick = () => {
+    let btn = document.getElementById('wizardCaptureBtn');
+    btn.innerText = "WAITING FOR SETTLE... (HANDS OFF)";
+    btn.disabled = true;
+    wizardBuffer = [];
+    capturing = true;
+};
+
+function calculateRotationMatrix() {
+    // Anchor vertical Z axis directly to the playing sole (Step 1: Bottom face flat on level table)
+    // so Pitch and Roll read exact 0.00° at address regardless of book height or curved sides.
+    let zAxis = vectors.bottom.clone().negate().normalize();
+
+    // Project Front/Back and Left/Right captures onto the horizontal plane perpendicular to zAxis
+    let xRaw = new THREE.Vector3().subVectors(vectors.front, vectors.back);
+    xRaw.addScaledVector(zAxis, -xRaw.dot(zAxis)).normalize();
+
+    let yRaw = new THREE.Vector3().subVectors(vectors.left, vectors.right);
+    yRaw.addScaledVector(zAxis, -yRaw.dot(zAxis)).normalize();
+
+    let handedness = new THREE.Vector3().crossVectors(xRaw, yRaw).dot(zAxis);
+    if (isNaN(handedness) || handedness < 0.80 || vectors.top.dot(vectors.bottom) > -0.80) {
+        console.error("Calibration vectors:", vectors, "handedness:", handedness);
+        exitWizardUI();
+        showToast("Calibration rejected: check face orientation and retry.");
+        return;
+    }
+
+    // Jointly average Front/Back and Left/Right headings in the horizontal plane
+    let xAxis = xRaw.clone().add(new THREE.Vector3().crossVectors(yRaw, zAxis)).normalize();
+    let yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+
+    let basisMat = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+    hardwareMountOffset.setFromRotationMatrix(basisMat); // Do NOT invert
+    saveSettings();
+    exitWizardUI();
+    showToast("Lab Calibration Complete! Matrix Saved.");
 }
 
 window.addEventListener('modelLoaded', () => {
@@ -1345,13 +1439,12 @@ function animate() {
 
             let tx = 0, ty = 0, tz = 0;
             switch(wizardStep) {
-                case 0: tx = 0; ty = 0; tz = 0; break;
-                case 1: tx = Math.PI; ty = 0; tz = 0; break;
-                case 2: tx = 0; ty = Math.PI; tz = 0; break;
-                case 3: tx = Math.PI / 2; ty = Math.PI; tz = 0; break;
-                case 4: tx = -Math.PI / 2; ty = 0; tz = 0; break;
-                case 5: tx = 0; ty = Math.PI; tz = -Math.PI / 2; break;
-                case 6: tx = 0; ty = Math.PI; tz = Math.PI / 2; break;
+                case 0: tx = 0; ty = Math.PI; tz = 0; break;              // Step 1: Bottom Face (upright)
+                case 1: tx = Math.PI; ty = 0; tz = 0; break;              // Step 2: Top Face (upside down)
+                case 2: tx = Math.PI / 2; ty = Math.PI; tz = 0; break;    // Step 3: Front Face
+                case 3: tx = -Math.PI / 2; ty = 0; tz = 0; break;         // Step 4: Back Face
+                case 4: tx = 0; ty = Math.PI; tz = Math.PI / 2; break;    // Step 5: Left Side
+                case 5: tx = 0; ty = Math.PI; tz = -Math.PI / 2; break;   // Step 6: Right Side
             }
 
             let qTarget = new THREE.Quaternion().setFromEuler(new THREE.Euler(tx, ty, tz, 'YXZ'));
@@ -1361,11 +1454,9 @@ function animate() {
             let wid = AppConfig.malletWidthCm;
             let offsetZ = AppConfig.offsetZCm;
 
-            // --- REPLACE THE OLD yOffset LINE WITH THIS ---
-            let yOffset = (wid / 2.0); // Default for side/top/bottom
-            if (wizardStep === 3) yOffset = offsetZ; // Front face (Step 4)
-            if (wizardStep === 4) yOffset = len - offsetZ; // Back face (Step 5)
-            // ----------------------------------------------
+            let yOffset = (wid / 2.0); // Default for bottom/top/left/right
+            if (wizardStep === 2) yOffset = offsetZ; // Front face (Step 3)
+            if (wizardStep === 3) yOffset = len - offsetZ; // Back face (Step 4)
             let tableY = pivotBaseY - loadedRadius - 1.5; 
             
             masterPivot.position.set(0, tableY + yOffset, 0); 
@@ -1409,12 +1500,16 @@ function animate() {
         }
     }
 
-    // --- FORCE HANDLES TO SYNC WITH MALLET VISIBILITY ---
-    if (handleMesh) handleMesh.visible = mainMalletMesh.visible;
-    if (ghostHandleMesh) ghostHandleMesh.visible = ghostMalletMesh.visible;
-
+    // --- FORCE HANDLES TO SYNC WITH MALLET VISIBILITY (SHORT STUB IN WIZARD) ---
+    if (handleMesh) {
+        handleMesh.visible = mainMalletMesh.visible;
+        handleMesh.scale.y = isWizardActive ? 0.25 : 1.0;
+    }
+    if (ghostHandleMesh) ghostHandleMesh.visible = ghostMalletMesh.visible && !isWizardActive;
     renderer.render(scene, camera);
 }
+
+
 animate();
 
 function renderLiveCasts() {
@@ -1637,6 +1732,10 @@ function handleLiveStrike(s) {
     }
 
     let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0);
+
+    // THE FIX: Apply the hardware calibration matrix to the pristine strike packet!
+    pureImpactSensor.multiply(hardwareMountOffset);
+
     let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
     impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
 
@@ -1680,6 +1779,9 @@ function handleParsedTelemetry(t) {
     prevRawBLEQuat.copy(currentRawBLEQuat);
     currentRawBLEQuat.set(t.q1, t.q2, t.q3, t.q0);
 
+    // THE FIX: Apply the hardware calibration matrix to the raw sensor data!
+    currentRawBLEQuat.multiply(hardwareMountOffset);
+
     // 1. Restore the perfectly stable Back-to-Front axis mapping
     lastRawQuat = new THREE.Quaternion(currentRawBLEQuat.y, -currentRawBLEQuat.z, -currentRawBLEQuat.x, currentRawBLEQuat.w).normalize();
     lastRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
@@ -1695,15 +1797,34 @@ function handleParsedTelemetry(t) {
     let rawForce = new THREE.Vector3(t.ax, t.ay, t.az); let magnitude = rawForce.length(); let deltaG = Math.abs(magnitude - prevMagnitude);
     
     if (isWizardActive && capturing) {
-        wizardBuffer.push(rawForce.clone()); if (wizardBuffer.length > WIZARD_BUFFER_SIZE) wizardBuffer.shift();
+        wizardBuffer.push(rawForce.clone());
+        if (wizardBuffer.length > WIZARD_BUFFER_SIZE) wizardBuffer.shift();
         if (wizardBuffer.length === WIZARD_BUFFER_SIZE) {
-            let minMag = 999, maxMag = -999; wizardBuffer.forEach(v => { let m = v.length(); if (m < minMag) minMag = m; if (m > maxMag) maxMag = m; });
-            if ((maxMag - minMag) < WIZARD_VARIANCE_THRESH) {
-                capturing = false; let avgX = 0, avgY = 0, avgZ = 0; wizardBuffer.forEach(v => { avgX += v.x; avgY += v.y; avgZ += v.z; });
-                avgX /= WIZARD_BUFFER_SIZE; avgY /= WIZARD_BUFFER_SIZE; avgZ /= WIZARD_BUFFER_SIZE; let avgVec = new THREE.Vector3(avgX, avgY, avgZ).normalize();
-                if (wizardStep === 1) vectors.top = avgVec; else if (wizardStep === 2) vectors.bottom = avgVec; else if (wizardStep === 3) vectors.front = avgVec;
-                else if (wizardStep === 4) vectors.back = avgVec; else if (wizardStep === 5) vectors.left = avgVec; else if (wizardStep === 6) vectors.right = avgVec;
-                wizardStep++; if (wizardStep < 7) { updateWizardUI(); } else { calculateRotationMatrix(); }
+            let minX = 999, maxX = -999, minY = 999, maxY = -999, minZ = 999, maxZ = -999;
+            wizardBuffer.forEach(v => {
+                if (v.x < minX) minX = v.x; if (v.x > maxX) maxX = v.x;
+                if (v.y < minY) minY = v.y; if (v.y > maxY) maxY = v.y;
+                if (v.z < minZ) minZ = v.z; if (v.z > maxZ) maxZ = v.z;
+            });
+            let maxAxisSpread = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
+            if (maxAxisSpread < WIZARD_VARIANCE_THRESH) {
+                capturing = false;
+                let avgX = 0, avgY = 0, avgZ = 0;
+                wizardBuffer.forEach(v => { avgX += v.x; avgY += v.y; avgZ += v.z; });
+                let avgVec = new THREE.Vector3(avgX / WIZARD_BUFFER_SIZE, avgY / WIZARD_BUFFER_SIZE, avgZ / WIZARD_BUFFER_SIZE).normalize();
+                if (wizardStep === 0) vectors.bottom = avgVec;
+                else if (wizardStep === 1) vectors.top = avgVec;
+                else if (wizardStep === 2) vectors.front = avgVec;
+                else if (wizardStep === 3) vectors.back = avgVec;
+                else if (wizardStep === 4) vectors.left = avgVec;
+                else if (wizardStep === 5) vectors.right = avgVec;
+                wizardStep++;
+                if (wizardStep < 6) {
+                    showToast("Face captured! Position next face.");
+                    updateWizardUI();
+                } else {
+                    calculateRotationMatrix();
+                }
             }
         }
     }
@@ -1973,8 +2094,18 @@ function handleParsedTelemetry(t) {
             
             let iRawBLE = prevRawBLEQuat.clone().slerp(currentRawBLEQuat, tm);
             
+            // THE FIX: Calculate the dynamic inward shift for the interpolated impact frame
+            let handleLen = AppConfig.handleLengthCm || 91.4; 
+            let trueWristPivot = handleLen - 6.0; 
+            let excessRadius = currentDynamicRadius - trueWristPivot;
+            let impactShiftX = 0;
+            if (excessRadius > 0) {
+                let shaftDirection = new THREE.Vector3(0, -1, 0).applyQuaternion(iQuat);
+                impactShiftX = -excessRadius * shaftDirection.x;
+            }
+            
             let tempPivot = new THREE.Group(); let tempBlock = new THREE.Group(); let tempFace = new THREE.Group();
-            tempPivot.position.set(0, pivotBaseY + currentPivotLift, 0); tempBlock.position.set(0, -currentDynamicRadius, 0); tempFace.position.set(0, 0, dynamicFaceZ); 
+            tempPivot.position.set(impactShiftX, pivotBaseY + currentPivotLift, 0); tempBlock.position.set(0, -currentDynamicRadius, 0); tempFace.position.set(0, 0, dynamicFaceZ); 
             tempPivot.add(tempBlock); tempBlock.add(tempFace); tempPivot.quaternion.copy(iQuat); scene.add(tempPivot); tempPivot.updateMatrixWorld(true);
             let exactFacePos = new THREE.Vector3(); tempFace.getWorldPosition(exactFacePos); scene.remove(tempPivot);
 
@@ -2020,7 +2151,7 @@ function handleParsedTelemetry(t) {
 
             let locTwist = getShaftTwist(iQuat); 
             let passForce = calculateImpactForce(currentAbsoluteSpeed);
-            let snapshotPos = new THREE.Vector3(0, pivotBaseY + currentPivotLift, 0);
+            let snapshotPos = new THREE.Vector3(impactShiftX, pivotBaseY + currentPivotLift, 0);
 
             let estDist = calculateEstimatedDistance(currentAbsoluteSpeed, AppConfig.massKg, AppConfig.lawnSpeed);
             
@@ -2917,6 +3048,10 @@ window.bleManager.onTraceData = (traceArray) => {
         if (!q) return;
         
         let pureQ = new THREE.Quaternion(q.q1, q.q2, q.q3, q.q0);
+
+        // THE FIX: Apply the hardware calibration matrix to the high-speed trace frames!
+        pureQ.multiply(hardwareMountOffset);
+
         let orientedQ = new THREE.Quaternion(pureQ.y, -pureQ.z, -pureQ.x, pureQ.w).normalize();
         orientedQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
         

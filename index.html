@@ -630,16 +630,18 @@
     </dialog>
 
 
-    <dialog id="wizard-modal" class="modal">
+    <dialog id="wizard-modal" class="wizard-overlay">
         <div class="settings-container text-center">
-            <div class="modal-header">
-                <h2>LAB CALIBRATION</h2>
+            <div class="modal-header" style="padding-bottom: 10px; margin-bottom: 12px;">
+                <h2 style="font-size: 1rem;">LAB CALIBRATION</h2>
                 <button id="closeWizardBtn" class="btn-primary btn-danger btn-small">CANCEL</button>
             </div>
-            <div id="wizard-step-title" class="text-accent font-800 mb-2" style="font-size: 1.2rem;">Step 1: Preparation</div>
-            <div id="wizard-instruction" class="text-muted mb-5" style="font-size: 0.95rem; line-height: 1.5;">Remove the mallet shaft. You will need a perfectly flat table. Set a physical 'Heading Line' (like a table edge) and note 'True North'.</div>
-            <div id="wizard-progress" class="font-mono font-bold mb-4">Step 1 of 7</div>
-            <button id="wizardCaptureBtn" class="btn-primary">BEGIN CALIBRATION</button>
+            
+            <div id="wizard-step-title" class="text-accent font-800 mb-2" style="font-size: 1.05rem;">Step 1: Bottom Face & Setup</div>
+            <div id="wizard-instruction" class="text-muted mb-4" style="font-size: 0.85rem; line-height: 1.4;">Remove the mallet shaft and set a 'True North' heading line on a flat table. Place the BOTTOM face flat on the table with the Front striking face pointing at 'True North'.</div>
+            <div id="wizard-progress" class="font-mono font-bold mb-2" style="font-size: 0.8rem;">Step 1 of 6</div>
+            <div class="text-muted mb-4" style="font-size: 0.72rem;">Drag 3D view to inspect required orientation</div>
+            <button id="wizardCaptureBtn" class="btn-primary" style="padding: 10px 16px; font-size: 0.9rem;">CAPTURE BOTTOM</button>
         </div>
     </dialog>
 

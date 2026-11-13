@@ -149,6 +149,36 @@ button { font-family: var(--font-sans); cursor: pointer; outline: none; }
 
 /* --- HISTORY-BASED DYNAMIC TUNING OVERLAY --- */
 #alignment-panel { display: none; position: fixed; top: 80px; right: 20px; background: var(--bg-panel); padding: 20px; z-index: 100; border-radius: var(--radius-lg); border: 2px solid var(--accent-primary); width: 280px; box-shadow: var(--shadow-lg); }
+
+/* --- CALIBRATION WIZARD FLOATING HUD --- */
+dialog.wizard-overlay {
+    position: fixed;
+    top: 80px;
+    right: 20px;
+    left: auto;
+    bottom: auto;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    width: 320px;
+    max-width: 92vw;
+    z-index: 100;
+    color: var(--text-main);
+    font-family: var(--font-sans);
+}
+dialog.wizard-overlay::backdrop {
+    display: none;
+}
+dialog.wizard-overlay .settings-container {
+    min-width: 0;
+    width: 100%;
+    padding: 18px;
+    background: var(--bg-overlay);
+    backdrop-filter: blur(8px);
+    border: 2px solid var(--accent-primary);
+}
+
 .tune-val-box { font-family: var(--font-mono); font-weight: bold; width: 100%; box-sizing: border-box; border-radius: 4px; border: 1px solid var(--border-color); background: var(--bg-base); color: var(--text-main); text-align: center; padding: 8px; font-size: 1rem; }
 
 /* --- HISTORY PANEL STYLES --- */
@@ -247,7 +277,15 @@ input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cur
     #history-panel.mobile-open { right: 0; }
     .setting-item.span-2 { grid-column: span 1 !important; }
     #alignment-panel { width: 90%; right: 5%; left: 5%; top: 120px; }
-
+    dialog.wizard-overlay {
+        top: auto;
+        bottom: 16px;
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+        width: calc(100% - 24px);
+        max-width: 420px;
+    }
     .brand-text { display: none; }
     #device-name-display { display: none !important; }
 }
@@ -315,3 +353,4 @@ input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; cur
     right: 0;
     transform: none;
 }
+
