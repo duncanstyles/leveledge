@@ -1,7 +1,17 @@
 import { initAudio, audioCtx, playBeep, playDoubleBeep, playTick, isAudioInitialized, isSoundEnabled, toggleSoundState, playSuccessSound } from './audio.js';
 import { difficultyMatrix, getStarRating, getShaftTwist, calcAccuracyData, calculateImpactForce, calculateMomentum, calculateEstimatedDistance, calculatePendulumDelta, calculateCollisionDeflection, calculateTrueDwell, calculateOffCenterImpact, anchorSwingToImpact } from './kinematics.js';
 import { showToast, formatOffset, buildCastRowHTML } from './utils.js';
-import { supabaseClient, currentUser, setCurrentUser, loadCloudProfile, saveCloudProfile, fetchCloudMatches, fetchCloudStrikes, savePracticeCastsToCloud, fetchCloudTraining, deleteCloudSession, getAiCoachFeedback } from './cloud.js';
+import {
+    supabaseClient, currentUser, setCurrentUser,
+    playerProfile, playerMallets, activeMallet, setActiveMalletLocal,
+    loadPlayerProfile, savePlayerProfile, fetchPlayerMallets,
+    loadOfflineMalletFallback, syncConnectedMallet,
+    saveActiveMalletSpecs, saveActiveMalletCalibration,
+    selectMalletFromBag, removeMalletFromBag,
+    fetchCloudMatches, fetchCloudStrikes, savePracticeCastsToCloud,
+    fetchCloudTraining, deleteCloudSession, getAiCoachFeedback
+} from './cloud.js';
+
 import { 
     scene, camera, renderer, controls, defaultRad, pivotBaseY, loadedRadius, setLoadedRadius,
     masterPivot, masterBlock, faceTrackerNode, physicsTrackingNode, headJoint,
@@ -64,11 +74,10 @@ function syncAppConfig() {
         } else {
             bpmContainer.classList.add('hidden');
         }
+    }
 
     let offZInp = document.getElementById('offsetZInput');
     AppConfig.offsetZCm = offZInp ? (parseFloat(offZInp.value) || 10.0) : 10.0;
-
-    }
 
     let hlInp = document.getElementById('handleLengthInput');
     AppConfig.handleLengthCm = hlInp ? (parseFloat(hlInp.value) || 91.4) : 91.4;
@@ -114,22 +123,8 @@ function syncAppConfig() {
     AppConfig.hideBackswing = backswingCheck ? backswingCheck.checked : true;
 }
 
-document.getElementById('floorGridToggle').addEventListener('change', (e) => {
-    floorGrid.visible = e.target.checked;
-});
-
-document.getElementById('verticalGridToggle').addEventListener('change', (e) => {
-    verticalGrid.visible = e.target.checked;
-});
-
 document.body.addEventListener('input', syncAppConfig);
 document.body.addEventListener('change', syncAppConfig);
-
-window.syncHardwareOffsetFromCloud = function(x, y, z, w) {
-    hardwareMountOffset.set(x, y, z, w);
-    updateMalletScale();
-    saveSettings();
-};
 
 window.pristinePathAngleRads = 0
 
@@ -220,6 +215,11 @@ document.getElementById('confirmStartMatchBtn').onclick = async () => {
 
 async function startTrainerSequence() {
     if (appState === 2 || appState === 3 || appState === 4 || appState === 4.5) return; 
+    clearTimeout(window.finalizeTimerId);
+    window.finalizeTimerId = null;
+    window.peakFollowThroughTheta = -Infinity;
+    window.peakFollowThroughIdx = -1;
+    window.followThroughLastMoveTime = 0;
     let success = await sendBleCommand([90]); // 'Z'
     if (!success) { showToast("BLE Error."); return; }
     
@@ -292,7 +292,21 @@ function setPanelContent(mode) {
         // Fetch fresh cloud data if applicable
         if (currentUser) {
             fetchCloudMatches();
-            if (AppConfig.isSubscribed) fetchCloudTraining();
+            if (AppConfig.isSubscribed) {
+                fetchCloudTraining();
+            } else {
+                document.getElementById('performance-dashboard')?.classList.add('hidden');
+                const container = document.getElementById('cloud-training-container');
+                if (container) {
+                    container.innerHTML = '<div class="text-muted text-center p-5">Upgrade to <span class="text-accent font-bold">PRO</span> to view Cloud Sessions &amp; Analytics.</div>';
+                }
+            }
+        } else {
+            document.getElementById('performance-dashboard')?.classList.add('hidden');
+            const container = document.getElementById('cloud-training-container');
+            if (container) {
+                container.innerHTML = '<div class="text-muted text-center p-5">Please log in to view Cloud Sessions.</div>';
+            }
         }
     }
 }
@@ -354,6 +368,26 @@ function getDynamicFaceZ() {
 
 function getDynamicBallZ() { return getDynamicFaceZ() + 4.6; }
 
+function getFrontFaceBackswingHeightCm(trailIndex) {
+    if (!rawTracePoints || rawTracePoints.length === 0) return 0;
+    let centerIdx = Math.min(Math.max(0, trailIndex || 0), rawTracePoints.length - 1);
+    let groundY = pivotBaseY - loadedRadius;
+    let meshShiftZ = AppConfig.offsetZCm - ((AppConfig.malletLengthCm || 27.6) / 2.0);
+    let inBackswing = false;
+    let maxSensorY = groundY;
+
+    for (let i = centerIdx; i >= 0; i--) {
+        let pt = rawTracePoints[i];
+        if (!pt) continue;
+        if (!pt.isForward) inBackswing = true;
+        else if (inBackswing) break;
+        let forward = new THREE.Vector3(0, 0, 1).applyQuaternion(pt.rot);
+        let sensorY = pt.pos.y - (forward.y * meshShiftZ);
+        if (sensorY > maxSensorY) maxSensorY = sensorY;
+    }
+    return Math.max(0, maxSensorY - groundY);
+}
+
 let globalHwTime = 0;
 
 let appState = 0; let armedUiStartTime = 0; let state4UiStartTime = 0; let state4StartTime = 0; let goTimeout; let ignoreSpeedUntilTime = 0; let isReviewingLog = false; 
@@ -364,7 +398,7 @@ let targetQuaternion = new THREE.Quaternion(); let prevTargetQuaternion = new TH
 let finalReviewPivotQuat = new THREE.Quaternion(); let finalReviewPivotPos = new THREE.Vector3(); let finalReviewExtension = 0; 
 
 let hardwareMountOffset = new THREE.Quaternion(); let isWizardActive = false; let wizardStep = 0; let capturing = false;
-let tuneBaseOffset = new THREE.Quaternion(); window.currentlyViewedCast = null;
+window.currentlyViewedCast = null;
 let currentRawBLEQuat = new THREE.Quaternion(); let prevRawBLEQuat = new THREE.Quaternion();
 let zeroRawBLEQuat = new THREE.Quaternion(); window.tuningFrozenFrame = null;
 let isDynamicCalibrationActive = false; let dynamicCalibrationBuffer = [];
@@ -374,9 +408,6 @@ let devHudEnabled = false;
 let hasLiftedOff = false; // <-- NEW: Tracks the start of the backswing
 
 let wizardBuffer = []; const WIZARD_BUFFER_SIZE = 15; const WIZARD_VARIANCE_THRESH = 0.02; let vectors = { top: null, bottom: null, front: null, back: null, left: null, right: null };
-let lastBatteryCheckTime = 0; let lastBatteryVal = -1; let chargeRatePerMs = 0;
-
-let savedBleName = "Unknown Mallet";
 
 let preRollBuffer = []; let prevMagnitude = 1.0; let posHistory = []; let currentAbsoluteSpeed = 0; 
 let prevFaceZ = 0; let prevZ = 0; let isForwardSwing = true; let lastForwardPassTime = 0; 
@@ -387,7 +418,7 @@ let lastComputedTempo = 0; let maxTwist = 0; let currentSwingDwell = 0; let curr
 window.lastEdgeData = { zVel: 0, pushForce: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; 
 
 let castData = []; let idealPlane = null;
-let impactDetected = false; let impactThreshold = 4.0; let audioThreshold = 2.0; let nextMetronomeTime = 0;
+let impactDetected = false; let impactThreshold = 1.5; let audioThreshold = 2.0; let nextMetronomeTime = 0;
 let isLive = true; let recordedFrames = []; let swingDatabase = []; let playbackMode = false; let playbackIndex = 0;
 let isPaused = false; let isSlowMo = false; let lastPlaybackTime = 0;
 
@@ -401,15 +432,20 @@ let isGhostEnabled = true;
 let isBallEnabled = true;
 let isViewFlipped = false;
 
-const settingsElements = [
-    'malletNameInput', 'malletLengthInput', 'malletWidthInput', 'radiusInput', 'massInput', 
-    'sweetSpotInput', 'lawnSpeedInput', 'impactInput', 'metronomeCheck', 'metronomeBpm', 
-    'audioThreshInput', 'durationInput', 'practiceInput', 'showTraceCheck', 'offsetYInput', 'offsetZInput',
-    'timeoutInput', 'flatMagInput', 'ledGuidanceCheck', 'difficultySelect', 'allowRealtimeTuningCheck',
-    'trainerDistSetup', 'trainerTwistSetup', 'singleSwingCheck', 
+const playerSettingsElements = [
+    'playerNameInput', 'playerCountryInput', 'radiusInput', 'difficultySelect', 'subscribedCheck',
+    'lawnSpeedInput', 'impactInput', 'timeoutInput', 'durationInput', 'flatMagInput',
+    'ledGuidanceCheck', 'showTraceCheck', 'twistToleranceInput',
+    'darkThemeCheck', 'soundCheck', 'flipViewCheck', 'floorGridToggle', 'verticalGridToggle',
+    'optimumArcToggle', 'hideBackswingCheck', 'metronomeCheck', 'metronomeBpm',
+    'audioThreshInput', 'practiceInput', 'trainerDistSetup', 'trainerTwistSetup', 'singleSwingCheck',
     'matchLedToggle', 'matchAudioToggle', 'matchDistSetup', 'matchTwistSetup', 'matchLawnSetup',
-    'experimentalCheck', 'showCloudDataCheck','darkThemeCheck', 'soundCheck', 'flipViewCheck', 'floorGridToggle', 'verticalGridToggle',
-    'playerNameInput', 'playerCountryInput', 'optimumArcToggle', 'subscribedCheck', 'hideBackswingCheck'
+    'experimentalCheck', 'showCloudDataCheck'
+];
+
+const malletSpecElements = [
+    'malletNameInput', 'handleLengthInput', 'malletLengthInput', 'malletWidthInput',
+    'massInput', 'offsetYInput', 'offsetZInput', 'sweetSpotInput', 'allowSharingCheck'
 ];
 
 document.getElementById('openDisplayBtn').onclick = () => { document.getElementById('display-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
@@ -421,6 +457,8 @@ async function sendBleCommand(cmdArray, withResponse = false) {
 
 async function resetSystemState(silent = false, wipeHistory = false) {
     clearTimeout(goTimeout); 
+    clearTimeout(window.finalizeTimerId);
+    window.finalizeTimerId = null;
     appState = 1; 
     calibrationPhase = 'NONE'; 
     isReviewingLog = false;
@@ -430,9 +468,14 @@ async function resetSystemState(silent = false, wipeHistory = false) {
     recordedFrames = [];
     isDynamicCalibrationActive = false;
 
-    hasLiftedOff = false; // <-- NEW
-    lockedFaceZ = null;   // <-- NEW: Clear the posture memory on reset
-    window.pendingStrikePacket = null; // <-- NEW: Clear old strike packets!
+    hasLiftedOff = false;
+    lockedFaceZ = null;
+    window.pendingStrikePacket = null;
+    window.impactHwTime = 0;
+    window.followThroughComplete = false;
+    window.peakFollowThroughTheta = -Infinity;
+    window.peakFollowThroughIdx = -1;
+    window.followThroughLastMoveTime = 0;
 
 
     window.matchAligned = false;
@@ -445,7 +488,6 @@ async function resetSystemState(silent = false, wipeHistory = false) {
     document.getElementById('calibration-container').classList.add('hidden');
     document.getElementById('live-tracking-card').classList.add('hidden');
     document.getElementById('playback-panel').classList.add('hidden');
-    document.getElementById('alignment-panel').style.display = 'none';
     
     let swingStateTxt = document.getElementById('swing-state'); 
     if(swingStateTxt) { 
@@ -478,6 +520,7 @@ async function resetSystemState(silent = false, wipeHistory = false) {
         posHistory = []; 
         currentSwingDeviation = 0; 
         swingDatabase = []; 
+        window.fullSwingTraceBuffer = [];
         document.getElementById('history-list').innerHTML = '<div class="text-muted italic text-center mt-5" style="font-size: 0.85rem;">No swings recorded yet. Arm and swing!</div>';
         document.getElementById('menu-drawer').classList.remove('open');
     }
@@ -581,22 +624,30 @@ supabaseClient.auth.onAuthStateChange((event, session) => {
         document.getElementById('openAuthBtn').onclick = async () => { 
             await supabaseClient.auth.signOut(); 
             
-            // --- NEW: Wipe the local browser memory ---
-            localStorage.removeItem('LVE_Settings'); 
+            // Wipe cached LVE settings & mallet profiles on sign-out
+            Object.keys(localStorage).forEach(k => {
+                if (k.startsWith('LVE_')) localStorage.removeItem(k);
+            });
             
             showToast("Signed out. Clearing local settings..."); 
             
-            // Reload the page after a brief delay to completely reset the UI
             setTimeout(() => {
                 window.location.reload();
             }, 1000);
         };
         
-        
         if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
             if (!hasLoadedCloudProfile) {
-                loadCloudProfile();
                 hasLoadedCloudProfile = true;
+                loadPlayerProfile().then(async () => {
+                    if (window.bleManager?.isConnected() && window.bleManager.deviceMac) {
+                        await syncConnectedMallet(
+                            window.bleManager.deviceMac,
+                            window.bleManager.deviceName,
+                            window.bleManager.hardwareProfile
+                        );
+                    }
+                });
             }
         }
     } else {
@@ -699,11 +750,11 @@ document.getElementById('btnDeleteMatch').onclick = async () => {
 
 document.getElementById('toggleDiagnosticHudBtn').addEventListener('click', toggleDeveloperHUD);
 
-document.getElementById('devResetCalibrationBtn').onclick = () => {
+document.getElementById('devResetCalibrationBtn').onclick = async () => {
     if (confirm("Reset calibration matrix to perfect zero (Identity)?")) {
         hardwareMountOffset.set(0, 0, 0, 1);
-        saveSettings();
-        showToast("Calibration wiped locally.");
+        await saveActiveMalletCalibration(hardwareMountOffset, false);
+        showToast("Calibration wiped on mallet & cloud.");
         document.getElementById('dev-options-modal').close();
     }
 };
@@ -722,83 +773,6 @@ document.getElementById('closeSystemBtn').onclick = () => { document.getElementB
 
 document.getElementById('closeDevOptionsBtn').onclick = () => { document.getElementById('dev-options-modal').close(); };
 
-document.getElementById('enterTuningBtn').onclick = () => {
-    if (!window.currentlyViewedCast) return;
-    document.getElementById('alignment-panel').style.display = 'block';
-    tuneBaseOffset.copy(hardwareMountOffset);
-    
-    document.getElementById('spinY').value = 0.0;
-    document.getElementById('spinYValue').innerText = "0.0°";
-    
-    let c = window.currentlyViewedCast;
-    
-    masterPivot.quaternion.copy(c.pivotQuat);
-    masterPivot.position.copy(c.pivotPos);
-    masterBlock.position.set(0, -(loadedRadius + c.extension), 0);
-    
-    ghostPivot.quaternion.copy(c.pivotQuat);
-    ghostPivot.position.copy(c.pivotPos);
-    ghostBlock.position.set(0, -(loadedRadius + c.extension), 0);
-    
-    if (mainMalletMesh) { mainMalletMesh.visible = true; ghostMalletMesh.visible = isGhostEnabled; }
-    virtualBall.visible = false;
-    clearImpactLasers();
-
-    if (typeof targetEnvironmentGroup !== 'undefined') {
-        targetEnvironmentGroup.rotation.y = 0; 
-        if (typeof floorGrid !== 'undefined') floorGrid.visible = true;
-        if (typeof targetArrow !== 'undefined') targetArrow.visible = true;
-        if (typeof ghostRail !== 'undefined') ghostRail.visible = true;
-    }
-};
-
-document.getElementById('spinY').addEventListener('input', (e) => { 
-    let val = parseFloat(e.target.value) || 0;
-    document.getElementById('spinYValue').innerText = val.toFixed(1) + "°";
-    if (typeof targetEnvironmentGroup !== 'undefined') {
-        targetEnvironmentGroup.rotation.y = THREE.MathUtils.degToRad(val); 
-    }
-});
-
-document.getElementById('snapYawBtn').onclick = () => {
-    if (!window.currentlyViewedCast) return;
-    let pathRads = window.currentlyViewedCast.pathAngleRads;
-    let pathDeg = THREE.MathUtils.radToDeg(pathRads);
-    document.getElementById('spinY').value = pathDeg.toFixed(1);
-    document.getElementById('spinYValue').innerText = pathDeg.toFixed(1) + "°";
-    if (typeof targetEnvironmentGroup !== 'undefined') {
-        targetEnvironmentGroup.rotation.y = pathRads;
-    }
-};
-
-document.getElementById('cancelTuneBtn').onclick = () => {
-    document.getElementById('alignment-panel').style.display = 'none';
-    hardwareMountOffset.copy(tuneBaseOffset); 
-    if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
-    if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
-    document.getElementById('exitPassViewBtn').click();
-    showToast("Tuning Cancelled. Matrix restored.");
-};
-
-document.getElementById('saveTuneBtn').addEventListener('click', () => {
-    let yawCorrectionDeg = -parseFloat(document.getElementById('spinY').value) || 0;
-    let yawRads = yawCorrectionDeg * (Math.PI / 180);
-
-    let baseQuat = new THREE.Quaternion(hardwareMountOffset.x, hardwareMountOffset.y, hardwareMountOffset.z, hardwareMountOffset.w);
-    let tuningEuler = new THREE.Euler(0, yawRads, 0, 'YXZ'); 
-    let tuningQuat = new THREE.Quaternion().setFromEuler(tuningEuler);
-
-    let unifiedQuat = new THREE.Quaternion();
-    unifiedQuat.multiplyQuaternions(tuningQuat, baseQuat).normalize(); 
-
-    // --- RESTORED LOGIC TO SAVE LOCALLY ---
-    hardwareMountOffset.copy(unifiedQuat);
-    document.getElementById('alignment-panel').style.display = 'none';
-    if (typeof floorGrid !== 'undefined') floorGrid.visible = false;
-    if (typeof targetArrow !== 'undefined') targetArrow.visible = false;
-    saveSettings();
-    showToast("Target Line Offset Saved.");
-});
 
 let versionTapCount = 0;
 let versionTapTimer;
@@ -851,16 +825,6 @@ if (trainerDistInput) trainerDistInput.addEventListener('input', (e) => {
 });
 
 window.addEventListener('beforeunload', () => { window.bleManager.disconnect(); });
-
-function saveSettings() {
-    try {
-        const settings = {};
-        settingsElements.forEach(id => { const el = document.getElementById(id); if(el) settings[id] = (el.type === 'checkbox') ? el.checked : el.value; });
-        settings['hwMatrixX'] = hardwareMountOffset.x; settings['hwMatrixY'] = hardwareMountOffset.y; settings['hwMatrixZ'] = hardwareMountOffset.z; settings['hwMatrixW'] = hardwareMountOffset.w;
-        settings['bleName'] = savedBleName; localStorage.setItem('LVE_Settings', JSON.stringify(settings));
-    } catch (e) {}
-    if (currentUser) { saveCloudProfile(hardwareMountOffset); }
-}
 
 function updateSystemGeometry() {
     let bZ = getDynamicBallZ(); 
@@ -924,68 +888,197 @@ function updateMalletScale() {
     rebuildArcPts(loadedRadius);
 }
 
-function loadSettings() {
-    try {
-        const saved = localStorage.getItem('LVE_Settings');
-        if (saved) {
-            const settings = JSON.parse(saved);
-            settingsElements.forEach(id => { 
-                if (settings[id] !== undefined) { 
-                    const el = document.getElementById(id); 
-                    if (el) { 
-                        if (el.type === 'checkbox') el.checked = settings[id]; 
-                        else {
-                            if (id === 'lawnSpeedInput' || id === 'matchLawnSetup') { 
-                                let val = parseFloat(settings[id]); 
-                                if (val < 4.0) val = 10 + (val - 0.50) / 0.075; 
-                                el.value = val.toFixed(1); 
-                            } 
-                            else el.value = settings[id]; 
-                        }
-                    } 
-                } 
-            });
-            if (settings['hwMatrixW'] !== undefined) hardwareMountOffset.set(settings['hwMatrixX'], settings['hwMatrixY'], settings['hwMatrixZ'], settings['hwMatrixW']);
-            if (settings['bleName'] !== undefined) savedBleName = settings['bleName'];
-            let audioEl = document.getElementById('audioThreshInput'); let impactEl = document.getElementById('impactInput');
-            if(audioEl) audioThreshold = parseFloat(audioEl.value); if(impactEl) impactThreshold = parseFloat(impactEl.value);
+window.applyMalletToUI = function(mallet, isConnectedToThisMallet = false) {
+    if (!mallet) return;
+    document.getElementById('malletNameInput').value = mallet.name || 'Primary Mallet';
+    document.getElementById('handleLengthInput').value = mallet.handle_length_cm ?? 91.4;
+    document.getElementById('malletLengthInput').value = mallet.head_length_cm ?? 27.6;
+    document.getElementById('malletWidthInput').value = mallet.face_width_cm ?? 6.0;
+    document.getElementById('massInput').value = mallet.mass_g ?? 1000;
+    document.getElementById('offsetYInput').value = mallet.offset_y_cm ?? 5.5;
+    document.getElementById('offsetZInput').value = mallet.offset_z_cm ?? 10.0;
+    document.getElementById('sweetSpotInput').value = mallet.sweet_spot_cm ?? 1.5;
+
+    const shareCheck = document.getElementById('allowSharingCheck');
+    if (shareCheck) {
+        shareCheck.checked = mallet.allow_sharing ?? true;
+        const isOwner = !currentUser || !mallet.owner_id || mallet.owner_id === currentUser.id;
+        shareCheck.disabled = !isOwner;
+    }
+
+    hardwareMountOffset.set(
+        mallet.matrix_x ?? 0.0,
+        mallet.matrix_y ?? 0.0,
+        mallet.matrix_z ?? 0.0,
+        mallet.matrix_w ?? 1.0
+    );
+
+    const macDisp = document.getElementById('malletMacDisplay');
+    if (macDisp) {
+        const macLabel = mallet.ble_mac && !mallet.ble_mac.startsWith('LEGACY-') && mallet.ble_mac !== 'OFFLINE-DEFAULT'
+            ? mallet.ble_mac : 'Unbound / Offline';
+        macDisp.innerText = `HW ID: ${macLabel}${isConnectedToThisMallet ? ' (Connected)' : ''}`;
+    }
+
+    const badge = document.getElementById('malletCalibBadge');
+    if (badge) {
+        if (mallet.is_calibrated) {
+            badge.innerText = '● CALIBRATED';
+            badge.className = 'font-mono font-bold text-success';
+        } else {
+            badge.innerText = '● UNCALIBRATED';
+            badge.className = 'font-mono font-bold text-warning';
         }
-    } catch (e) {} 
-    
-    updateLawnSpeedLabel(); 
+    }
+
+    const sharedBox = document.getElementById('sharedMalletActions');
+    if (sharedBox) {
+        const isShared = currentUser && mallet.owner_id && mallet.owner_id !== currentUser.id;
+        sharedBox.classList.toggle('hidden', !isShared);
+    }
+
+    syncAppConfig();
     updateMalletScale();
-    
+    if (window.renderMalletSelector) window.renderMalletSelector();
+};
+
+window.renderMalletSelector = function() {
+    const sel = document.getElementById('activeMalletSelect');
+    if (!sel) return;
+    sel.innerHTML = '';
+
+    const connectedMac = window.bleManager?.isConnected() ? window.bleManager.deviceMac : null;
+
+    if (!playerMallets || playerMallets.length === 0) {
+        const opt = document.createElement('option');
+        opt.value = activeMallet?.id || '';
+        opt.textContent = activeMallet
+            ? `${activeMallet.name}${connectedMac ? ' • Connected' : ''}`
+            : '-- Connect Mallet or Log In --';
+        sel.appendChild(opt);
+        return;
+    }
+
+    playerMallets.forEach(entry => {
+        const m = entry.mallet;
+        if (!m) return;
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        const isConn = connectedMac && m.ble_mac === connectedMac;
+        const roleTag = entry.role === 'shared' ? ' [Shared]' : '';
+        const calTag = m.is_calibrated ? ' ✓' : ' (Uncalibrated)';
+        opt.textContent = `${m.name}${roleTag}${calTag}${isConn ? ' • Connected' : ''}`;
+        if (activeMallet && activeMallet.id === m.id) opt.selected = true;
+        sel.appendChild(opt);
+    });
+};
+
+window.onPlayerPreferencesApplied = function() {
+    let audioEl = document.getElementById('audioThreshInput');
+    let impactEl = document.getElementById('impactInput');
+    if (audioEl) audioThreshold = parseFloat(audioEl.value);
+    if (impactEl) impactThreshold = parseFloat(impactEl.value);
+
+    updateLawnSpeedLabel();
     if (typeof updateMatchLawnSpeedLabel === 'function') updateMatchLawnSpeedLabel();
-    
+
     let matchDistEl = document.getElementById('matchDistSetup');
     let matchDistLbl = document.getElementById('matchDistLabel');
-    if (matchDistEl && matchDistLbl) {
-        matchDistLbl.innerText = parseFloat(matchDistEl.value).toFixed(1);
-    }
+    if (matchDistEl && matchDistLbl) matchDistLbl.innerText = parseFloat(matchDistEl.value).toFixed(1);
 
     let trainerDistEl = document.getElementById('trainerDistSetup');
     let trainerDistLbl = document.getElementById('trainerDistLabel');
-    if (trainerDistEl && trainerDistLbl) {
-        trainerDistLbl.innerText = parseFloat(trainerDistEl.value).toFixed(1);
-    }    
-    
+    if (trainerDistEl && trainerDistLbl) trainerDistLbl.innerText = parseFloat(trainerDistEl.value).toFixed(1);
+
     syncAppConfig();
     updateExperimentalFeatures();
 
-    ['darkThemeCheck', 'soundCheck', 'flipViewCheck', 'floorGridToggle', 'verticalGridToggle', 'optimumArcToggle'].forEach(id => {
+    ['darkThemeCheck', 'soundCheck', 'flipViewCheck', 'floorGridToggle', 'verticalGridToggle', 'optimumArcToggle', 'hideBackswingCheck'].forEach(id => {
         let el = document.getElementById(id);
-        if(el) el.dispatchEvent(new Event('change'));
+        if (el) el.dispatchEvent(new Event('change'));
     });
+};
 
+function saveLocalPlayerPrefs() {
+    try {
+        const prefs = {};
+        playerSettingsElements.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) prefs[id] = (el.type === 'checkbox') ? el.checked : el.value;
+        });
+        localStorage.setItem('LVE_PlayerPrefs', JSON.stringify(prefs));
+    } catch (e) {}
+    if (currentUser) savePlayerProfile();
 }
 
-settingsElements.forEach(id => { let el = document.getElementById(id); if(el) el.addEventListener('change', () => { saveSettings(); updateMalletScale(); if (id === 'lawnSpeedInput') updateLawnSpeedLabel(); }); });
+function loadLocalPlayerPrefs() {
+    try {
+        const saved = localStorage.getItem('LVE_PlayerPrefs');
+        if (saved) {
+            const prefs = JSON.parse(saved);
+            playerSettingsElements.forEach(id => {
+                if (prefs[id] !== undefined) {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        if (el.type === 'checkbox') el.checked = prefs[id];
+                        else {
+                            if (id === 'lawnSpeedInput' || id === 'matchLawnSetup') {
+                                let val = parseFloat(prefs[id]);
+                                if (val < 4.0) val = 10 + (val - 0.50) / 0.075;
+                                el.value = val.toFixed(1);
+                            } else el.value = prefs[id];
+                        }
+                    }
+                }
+            });
+        }
+    } catch (e) {}
+    loadOfflineMalletFallback();
+    window.onPlayerPreferencesApplied();
+    updateMalletScale();
+}
+
+playerSettingsElements.forEach(id => {
+    let el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => {
+        saveLocalPlayerPrefs();
+        if (id === 'lawnSpeedInput') updateLawnSpeedLabel();
+        if (id === 'subscribedCheck' && activePanelMode === 'analytics') setPanelContent('analytics');
+    });
+});
+
+malletSpecElements.forEach(id => {
+    let el = document.getElementById(id);
+    if (el) el.addEventListener('change', () => {
+        syncAppConfig();
+        updateMalletScale();
+        saveActiveMalletSpecs();
+    });
+});
+
+document.getElementById('activeMalletSelect')?.addEventListener('change', async (e) => {
+    const chosenId = e.target.value;
+    if (!chosenId) return;
+    if (window.bleManager?.isConnected() && activeMallet && activeMallet.id !== chosenId) {
+        showToast("Disconnect current mallet before switching to another mallet.");
+        window.renderMalletSelector();
+        return;
+    }
+    await selectMalletFromBag(chosenId);
+});
+
+document.getElementById('removeMalletFromBagBtn')?.addEventListener('click', async () => {
+    if (!activeMallet?.id) return;
+    if (confirm(`Remove "${activeMallet.name}" from your mallet bag?`)) {
+        await removeMalletFromBag(activeMallet.id);
+    }
+});
+
 let expCheck = document.getElementById('experimentalCheck');
 if (expCheck) {
     expCheck.addEventListener('change', updateExperimentalFeatures);
 }
 
-// NEW: Refresh the cloud tab immediately when toggled
 let cloudDataCheck = document.getElementById('showCloudDataCheck');
 if (cloudDataCheck) {
     cloudDataCheck.addEventListener('change', () => {
@@ -997,7 +1090,10 @@ if (cloudDataCheck) {
 
 document.getElementById('exportProfileBtn').onclick = () => {
     let profile = { hwMatrixX: hardwareMountOffset.x, hwMatrixY: hardwareMountOffset.y, hwMatrixZ: hardwareMountOffset.z, hwMatrixW: hardwareMountOffset.w };
-    settingsElements.forEach(id => { let el = document.getElementById(id); if(el) profile[id] = el.type === 'checkbox' ? el.checked : el.value; });
+    [...playerSettingsElements, ...malletSpecElements].forEach(id => {
+        let el = document.getElementById(id);
+        if (el) profile[id] = el.type === 'checkbox' ? el.checked : el.value;
+    });
     let dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(profile));
     let dlAnchorElem = document.createElement('a'); dlAnchorElem.setAttribute("href", dataStr);
     let safeName = (profile.malletNameInput || "mallet").replace(/[^a-z0-9]/gi, '_').toLowerCase();
@@ -1008,14 +1104,14 @@ document.getElementById('exportProfileBtn').onclick = () => {
 document.getElementById('importProfileBtn').onclick = () => { document.getElementById('importFileInput').click(); };
 document.getElementById('importFileInput').addEventListener('change', (event) => {
     let file = event.target.files[0]; if (!file) return; let reader = new FileReader();
-    reader.onload = function(e) {
+    reader.onload = async function(e) {
         try {
             let profile = JSON.parse(e.target.result);
-            if(profile.hwMatrixW !== undefined) hardwareMountOffset.set(profile.hwMatrixX, profile.hwMatrixY, profile.hwMatrixZ, profile.hwMatrixW);
-            settingsElements.forEach(id => { 
+            if (profile.hwMatrixW !== undefined) hardwareMountOffset.set(profile.hwMatrixX, profile.hwMatrixY, profile.hwMatrixZ, profile.hwMatrixW);
+            [...playerSettingsElements, ...malletSpecElements].forEach(id => { 
                 if (profile[id] !== undefined) { 
                     let el = document.getElementById(id); 
-                    if(el) { 
+                    if (el) { 
                         if (el.type === 'checkbox') el.checked = profile[id]; 
                         else {
                             if (id === 'lawnSpeedInput') { let val = parseFloat(profile[id]); if (val < 4.0) val = 10 + (val - 0.50) / 0.075; el.value = val.toFixed(1); } 
@@ -1024,11 +1120,13 @@ document.getElementById('importFileInput').addEventListener('change', (event) =>
                     } 
                 } 
             });
-            saveSettings(); updateMalletScale(); updateLawnSpeedLabel(); syncAppConfig(); showToast("Hardware Profile Loaded Successfully."); document.getElementById('importFileInput').value = ''; 
+            saveLocalPlayerPrefs();
+            await saveActiveMalletSpecs();
+            await saveActiveMalletCalibration(hardwareMountOffset, profile.hwMatrixW !== undefined);
+            updateMalletScale(); updateLawnSpeedLabel(); syncAppConfig(); showToast("Hardware Profile Loaded Successfully."); document.getElementById('importFileInput').value = ''; 
         } catch(err) { showToast("Error parsing .LVE file."); }
     }; reader.readAsText(file);
 });
-
 document.getElementById('darkThemeCheck').addEventListener('change', (e) => {
     const newTheme = e.target.checked ? 'dark' : 'light';
     document.documentElement.setAttribute('data-theme', newTheme);
@@ -1207,16 +1305,16 @@ function calculateRotationMatrix() {
 
     let basisMat = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
     hardwareMountOffset.setFromRotationMatrix(basisMat); // Do NOT invert
-    saveSettings();
+    saveActiveMalletCalibration(hardwareMountOffset, true);
     exitWizardUI();
-    showToast("Lab Calibration Complete! Matrix Saved.");
+    showToast("Lab Calibration Complete! Saved to Mallet & Cloud.");
 }
 
 window.addEventListener('modelLoaded', () => {
     updateMalletScale();
 });
 
-loadSettings(); let rInput = document.getElementById('radiusInput'); if(rInput && rInput.value) { setLoadedRadius(parseFloat(rInput.value)); if (loadedRadius < 50) setLoadedRadius(50); }
+loadLocalPlayerPrefs(); let rInput = document.getElementById('radiusInput'); if(rInput && rInput.value) { setLoadedRadius(parseFloat(rInput.value)); if (loadedRadius < 50) setLoadedRadius(50); }
 
 if (localStorage.getItem('LVE_DevHudEnabled') === 'true') toggleDeveloperHUD(true);
 
@@ -1275,7 +1373,13 @@ document.getElementById('btnResetFW').addEventListener('click', async () => {
 document.getElementById('btnWipeData').addEventListener('click', async () => {
     if(confirm("Wipe ALL saved strikes and calibration matrix directly from the mallet memory?")) {
         let success = await sendBleCommand([87]); 
-        if (success) showToast("Mallet flash memory wiped."); else showToast("Bluetooth Error.");
+        if (success) {
+            hardwareMountOffset.set(0, 0, 0, 1);
+            await saveActiveMalletCalibration(hardwareMountOffset, false);
+            showToast("Mallet flash memory wiped.");
+        } else {
+            showToast("Bluetooth Error.");
+        }
     }
 });
 
@@ -1547,7 +1651,13 @@ function triggerReplay(index) {
         virtualBall.visible = true; 
     }
     
+    if (scrubberInput) {
+        scrubberInput.min = 0;
+        scrubberInput.max = Math.max(0, recordedFrames.length - 1);
+        scrubberInput.value = 0;
+    }
     if (scrubberLabelEl) scrubberLabelEl.innerText = `Frame: ${playbackIndex + 1} / ${recordedFrames.length}`;
+
     if(data.casts && data.casts.length > 0) drawStrikeLaser(data.casts[data.casts.length - 1]); else { clearImpactLasers(); }
     document.getElementById('pauseBtn').innerText = "⏸ PAUSE"; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt) { swingStateTxt.innerText = `REPLAYING SWING #${index + 1}...`; swingStateTxt.className = "text-accent text-center font-bold mb-4"; }
     document.getElementById('playback-panel').classList.remove('hidden');
@@ -1604,53 +1714,84 @@ function highlightPass(swingIdx, castIdx) {
             let locStr = cast.isStrike ? 
                 (cast.dev < 0.2 ? `Center` : `${(cast.dev * 10).toFixed(0)}mm ${cast.dir}`) : 
                 `${cast.dev.toFixed(1)}cm ${cast.dir}`;
-            let velStr = cast.passSpeed ? `${cast.passSpeed.toFixed(1)} m/s` : `--`;
+            let velStr = cast.passSpeed ? `${(cast.passSpeed * 3.6).toFixed(1)} kph` : `--`;
             
             let pDeltaStr = cast.pDelta !== null && cast.pDelta !== undefined ? formatOffset(cast.pDelta) : `N/A`;
             let tempoStr = cast.tempo > 0 ? `${Math.round(cast.tempo)} BPM` : `--`;
-            
+            let deflStr = (cast.deflectionDeg !== undefined && cast.deflectionDeg !== null) ? `${cast.deflectionDeg.toFixed(2)}°` : `N/A`;
+            let hasAoa = cast.aoaDeg !== undefined && cast.aoaDeg !== null;
+            let cAoa = hasAoa ? cast.aoaDeg : 0;
+            let cAoaDir = Math.abs(cAoa) < 0.2 ? 'Level' : (cAoa > 0 ? 'Up' : 'Dn');
+            let aoaStr = hasAoa ? `${Math.abs(cAoa).toFixed(1)}° ${cAoaDir}` : `N/A`;
+            let backHeightStr = (cast.backHeight !== undefined && cast.backHeight !== null) ? `${cast.backHeight.toFixed(1)} cm` : `--`;
+
+            let proBadge = `<span class="text-accent">PRO</span>`;
+            let dispTwist = AppConfig.isSubscribed ? twistStr : proBadge;
+            let dispAoa   = AppConfig.isSubscribed ? aoaStr   : proBadge;
+            let dispLean  = AppConfig.isSubscribed ? leanStr  : proBadge;
+            let dispDefl  = AppConfig.isSubscribed ? deflStr  : proBadge;
+            let dispPDel  = AppConfig.isSubscribed ? pDeltaStr: proBadge;
+            let dispTempo = AppConfig.isSubscribed ? tempoStr : proBadge;
+
+            let wasOpen = headerDiv.querySelector('details.more-metrics')?.open ? 'open' : '';
+
             headerDiv.innerHTML = `
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Velocity</span><span class="stat-val">${velStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${twistStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${locStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${pDeltaStr}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${tempoStr}</span></div>
+                <div class="card-basic-stats" style="margin-bottom: 4px;">
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (kph).">Speed</span><span class="stat-val">${velStr}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The maximum vertical height the front striking face lifted off the lawn during the backswing.">Backswing</span><span class="stat-val">${backHeightStr}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact</span><span class="adv-val text-warning">${locStr}</span></div>
+                </div>
+                <details class="more-metrics" ${wasOpen}>
+                    <summary>More</summary>
+                    <div class="card-basic-stats">
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${dispTwist}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The vertical approach angle of the mallet head into the ball (+ Up / - Down).">Strike Angle</span><span class="stat-val text-accent">${dispAoa}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean Angle</span><span class="stat-val text-warning">${dispLean}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Deflection</span><span class="stat-val text-warning">${dispDefl}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${dispPDel}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${dispTempo}</span></div>
+                    </div>
+                </details>
             `;
         }
     }
     
-    window.fullSwingTraceBuffer = swing.rawTracePoints;
-    let centerFrame = cast.trailIndex; 
-    
-    // 1. SMART SCAN BACKWARD: Find the start of THIS specific backswing
-    let startFrame = centerFrame;
-    let inBackswing = false;
-    for (let i = centerFrame; i >= 0; i--) {
-        startFrame = i;
-        if (!swing.rawTracePoints[i].isForward) {
-            inBackswing = true; // We are in the backswing
-        } else if (inBackswing && swing.rawTracePoints[i].isForward) {
-            // We bumped into the forward motion of the PREVIOUS waggle. Cut it here!
-            startFrame = i + 1;
-            break;
-        }
-    }
-    
-    // 2. SMART SCAN FORWARD: Find the end of THIS follow-through
-    let endFrame = centerFrame;
-    for (let i = centerFrame; i < swing.rawTracePoints.length; i++) {
-        endFrame = i;
-        // If we are past impact, and the mallet starts rebounding backward
-        if (i > centerFrame + 4 && !swing.rawTracePoints[i].isForward) {
-            endFrame = Math.max(centerFrame, i - 1); // Crop right before the rebound
-            break; 
-        }
-    }
-    
-    // 3. DRAW THE PERFECTLY CROPPED SWING
+    window.fullSwingTraceBuffer = swing.rawTracePoints || [];
     rawTracePoints.length = 0;
-    rawTracePoints.push(...swing.rawTracePoints.slice(startFrame, endFrame + 1));
+
+    if (swing.rawTracePoints && swing.rawTracePoints.length > 0) {
+        let centerFrame = Math.min(Math.max(0, cast.trailIndex || 0), swing.rawTracePoints.length - 1);
+        
+        // 1. SMART SCAN BACKWARD: Find the start of THIS specific backswing
+        let startFrame = centerFrame;
+        let inBackswing = false;
+        for (let i = centerFrame; i >= 0; i--) {
+            if (!swing.rawTracePoints[i]) continue;
+            startFrame = i;
+            if (!swing.rawTracePoints[i].isForward) {
+                inBackswing = true; // We are in the backswing
+            } else if (inBackswing && swing.rawTracePoints[i].isForward) {
+                // We bumped into the forward motion of the PREVIOUS waggle. Cut it here!
+                startFrame = i + 1;
+                break;
+            }
+        }
+        
+        // 2. SMART SCAN FORWARD: Find the end of THIS follow-through
+        let endFrame = centerFrame;
+        for (let i = centerFrame; i < swing.rawTracePoints.length; i++) {
+            if (!swing.rawTracePoints[i]) continue;
+            endFrame = i;
+            // If we are past impact, and the mallet starts rebounding backward
+            if (i > centerFrame + 4 && !swing.rawTracePoints[i].isForward) {
+                endFrame = Math.max(centerFrame, i - 1); // Crop right before the rebound
+                break; 
+            }
+        }
+        
+        // 3. DRAW THE PERFECTLY CROPPED SWING
+        rawTracePoints.push(...swing.rawTracePoints.slice(startFrame, endFrame + 1));
+    }
     updateSmoothTrail();
     
     masterPivot.quaternion.copy(cast.pivotQuat); masterPivot.position.copy(cast.pivotPos); masterBlock.position.set(0, -(loadedRadius + cast.extension), 0);
@@ -1727,14 +1868,10 @@ function handleLiveStrike(s) {
         gmStrokeCount++; document.getElementById('gm-stroke-count').innerText = gmStrokeCount;
         let estDist = calculateEstimatedDistance(pristineVel, AppConfig.massKg, AppConfig.lawnSpeed);
         let twistStr = (s.faceAngle > 0 ? '+' : '') + (s.faceAngle || 0).toFixed(1) + '°';
-        document.getElementById('gm-latest-stats').innerHTML = `<div class="text-muted mb-2 uppercase" style="font-size:0.85rem;">LATEST STRIKE</div><div>Speed: <span class="text-main font-800">${pristineVel.toFixed(1)}</span> m/s</div><div>Face: <span class="text-warning font-800">${twistStr}</span></div><div>Est Dist: <span class="text-accent font-800">${estDist.toFixed(0)}</span> m</div><div class="mt-2 text-muted" style="font-size:0.75rem;">Quickly twist clockwise to arm next shot.</div>`;
-        return; 
+        document.getElementById('gm-latest-stats').innerHTML = `<div class="text-muted mb-2 uppercase" style="font-size:0.85rem;">LATEST STRIKE</div><div>Speed: <span class="text-main font-800">${(pristineVel * 3.6).toFixed(1)}</span> kph</div><div>Face: <span class="text-warning font-800">${twistStr}</span></div><div>Est Dist: <span class="text-accent font-800">${estDist.toFixed(0)}</span> m</div><div class="mt-2 text-muted" style="font-size:0.75rem;">Quickly twist clockwise to arm next shot.</div>`;        return; 
     }
 
     let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0);
-
-    // THE FIX: Apply the hardware calibration matrix to the pristine strike packet!
-    pureImpactSensor.multiply(hardwareMountOffset);
 
     let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
     impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
@@ -1752,12 +1889,20 @@ function handleLiveStrike(s) {
 
     // --- NEW: Save the pristine hardware quaternion to override the visual recoil ---
     window.pristineImpactQuat = iQuat;
+    if (window.pristineStep8ms) {
+        window.pristineImpactQuat = window.pristineImpactQuat.clone().multiply(window.pristineStep8ms).normalize();
+    }
 
-    // --- FIX: Save the pristine data for the telemetry to map to the 3D Cast! ---
+    // --- FIX: Save the pristine data for the telemetry/burst to map to the 3D Cast! ---
     window.pendingStrikePacket = {
         zVel: pristineVel, appliedForce: appliedF, locTwist: locTwist, backArc: s.backArc, backswingTime: s.backswingTime,
-        downTime: downTime // <-- Added so we can calculate the true P-Delta!
+        downTime: downTime
     };
+
+    // If the 40-point trace burst already arrived before 'S', build the strike cast immediately
+    if (window.lastBurstFinalRecord && !window.strikeCastGenerated && window.createStrikeCastFromBurst) {
+        window.createStrikeCastFromBurst(window.lastBurstFinalRecord, window.pendingStrikePacket);
+    }
 
     let swingStateTxt = document.getElementById('swing-state');
     if (swingStateTxt) {
@@ -1767,9 +1912,16 @@ function handleLiveStrike(s) {
 
     if (appState === 4 || appState === 3 || (inGameMode && window.matchSwinging)) { 
         impactDetected = true; 
+        window.impactHwTime = globalHwTime;
+        window.followThroughComplete = false;
+        window.peakFollowThroughTheta = -Infinity;
+        window.peakFollowThroughIdx = -1;
+        window.followThroughLastMoveTime = globalHwTime;
         clearTimeout(goTimeout); 
-        // Give the 3D telemetry exactly 500ms to cross the line and absorb the packet!
-        setTimeout(() => { finalizeSwingData(globalHwTime); }, 1000); 
+        clearTimeout(window.finalizeTimerId);
+        let configuredMs = Math.round((parseFloat(document.getElementById('durationInput')?.value) || 1.0) * 1000);
+        let maxFollowThruMs = Math.max(2500, configuredMs * 2);
+        window.finalizeTimerId = setTimeout(() => { finalizeSwingData(globalHwTime); }, maxFollowThruMs); 
     }
 }
 
@@ -1778,9 +1930,6 @@ function handleParsedTelemetry(t) {
     
     prevRawBLEQuat.copy(currentRawBLEQuat);
     currentRawBLEQuat.set(t.q1, t.q2, t.q3, t.q0);
-
-    // THE FIX: Apply the hardware calibration matrix to the raw sensor data!
-    currentRawBLEQuat.multiply(hardwareMountOffset);
 
     // 1. Restore the perfectly stable Back-to-Front axis mapping
     lastRawQuat = new THREE.Quaternion(currentRawBLEQuat.y, -currentRawBLEQuat.z, -currentRawBLEQuat.x, currentRawBLEQuat.w).normalize();
@@ -1933,9 +2082,11 @@ function handleParsedTelemetry(t) {
                 playbackMode = false; posHistory = []; currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
                 
                 window.pristineImpactQuat = null; // --- NEW: Clear it for the next swing!
+                window.pristineStep8ms = null;
                 window.strikeCastGenerated = false;
                 
                 window.pristinePathAngleRads = null;
+                window.pristineAoARads = null;
 
                 window.lastEdgeData = { zVel: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; preRollBuffer = []; recordedFrames = []; rawTracePoints.length = 0; castData = [];
                 
@@ -1948,7 +2099,7 @@ function handleParsedTelemetry(t) {
                 document.getElementById('playback-panel').classList.add('hidden'); 
                 document.getElementById('live-tracking-card').classList.remove('hidden');
                 if (DisplayElements.liveTempo) DisplayElements.liveTempo.innerText = '-- BPM'; 
-                if (DisplayElements.liveSpeed) DisplayElements.liveSpeed.innerText = '0.0 m/s'; 
+                if (DisplayElements.liveSpeed) DisplayElements.liveSpeed.innerText = `${(currentAbsoluteSpeed * 3.6).toFixed(1)} kph`; 
                 if (DisplayElements.liveForce) DisplayElements.liveForce.innerText = '0 N'; 
                 if (DisplayElements.liveDev) DisplayElements.liveDev.innerText = '-- cm'; 
                 if (DisplayElements.liveApplied) DisplayElements.liveApplied.innerText = '-- N';
@@ -1999,7 +2150,7 @@ function handleParsedTelemetry(t) {
             
             // THE PURE PHYSICS FIX: Decouple the axes using the correct config variable + Grip Offset
             let handleLen = AppConfig.handleLengthCm || 91.4; 
-            let trueWristPivot = handleLen - 6.0; 
+            let trueWristPivot = handleLen * 0.60; 
             
             let excessRadius = currentDynamicRadius - trueWristPivot;
             
@@ -2008,8 +2159,9 @@ function handleParsedTelemetry(t) {
                 // shaftDirection.x extracts the exact lateral lean perfectly, immune to Euler tangles.
                 let shaftDirection = new THREE.Vector3(0, -1, 0).applyQuaternion(masterPivot.quaternion);
                 
-                // Neutralize the excess shoulder swing by shifting the pivot opposite to the lean.
+                // Neutralize the excess shoulder swing by shifting the pivot opposite to the lean and pitch lift.
                 masterPivot.position.x = -excessRadius * shaftDirection.x;
+                masterPivot.position.y -= excessRadius * (1.0 + shaftDirection.y);
             }
         }
         // ------------------------------------------------------
@@ -2041,7 +2193,7 @@ function handleParsedTelemetry(t) {
     if (isArmedForTracking || isTrackingSwing) {
         let massKg = AppConfig.massKg;
         let liveForceN = magnitude * massKg * 9.81;
-        if (DisplayElements.liveSpeed) DisplayElements.liveSpeed.innerText = `${currentAbsoluteSpeed.toFixed(1)} m/s`; 
+        if (DisplayElements.liveSpeed) DisplayElements.liveSpeed.innerText = `${(currentAbsoluteSpeed * 3.6).toFixed(1)} kph`;
         if (DisplayElements.liveForce) DisplayElements.liveForce.innerText = `${liveForceN.toFixed(0)} N`; 
         if (DisplayElements.liveApplied) DisplayElements.liveApplied.innerText = `${t.appliedForce.toFixed(0)} N`; 
     }
@@ -2058,7 +2210,7 @@ function handleParsedTelemetry(t) {
             
             state4UiStartTime = Date.now(); clearTimeout(goTimeout);
             state4StartTime = nowTime; recordTicks = 0; impactDetected = false; postImpactTicks = 0; recordedFrames = []; 
-            currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0; window.lastEdgeData = { zVel: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; rawTracePoints.length = 0;            
+            currentSwingMaxSpeed = 0; currentSwingMaxG = 0; currentSwingDeviation = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0; window.lastEdgeData = { zVel: 0, appliedForce: 0, downwardSwingTime: 0, decelFactor: 0 }; window.lastBurstFinalRecord = null; rawTracePoints.length = 0;           
             let cutoffTime = nowTime - 2000;
             preRollBuffer.forEach(f => {
                 if (f.time >= cutoffTime && rawTracePoints.length < MAX_TRAIL_POINTS) {
@@ -2072,8 +2224,8 @@ function handleParsedTelemetry(t) {
                         } else { r = 0.0; g = 1.0; b = 0.8; }
                     }
                     if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
-                    rawTracePoints.push({ pos: f.pos.clone(), rot: f.rotation.clone(), color: {r: r, g: g, b: b}, isForward: f.isForward });
-                    recordedFrames.push({ rotation: f.rotation.clone(), forceMag: f.forceMag, rawPtIndex: rawTracePoints.length, pivotPos: f.pivotPos.clone(), extension: f.extension, rawBLE: f.rawBLE });
+                    rawTracePoints.push({ pos: f.pos.clone(), rot: f.rotation.clone(), color: {r: r, g: g, b: b}, isForward: f.isForward, time: f.time });
+                    recordedFrames.push({ rotation: f.rotation.clone(), forceMag: f.forceMag, rawPtIndex: rawTracePoints.length, pivotPos: f.pivotPos.clone(), extension: f.extension, rawBLE: f.rawBLE, time: f.time });
                 }
             });
             updateSmoothTrail();
@@ -2125,22 +2277,29 @@ function handleParsedTelemetry(t) {
             let devCM = Math.abs(strikeX); if (devCM < (AppConfig.sweetSpot * 0.15)) devCM = 0.0;
             let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C'); 
 
-            // Calculate the path using safe positions from BEFORE the impact shockwave hits
+            // Calculate horizontal path and vertical strike angle (AoA) from pre-impact positions
             let pathAngleRads = 0;
+            let aoaAngleRads = 0;
             if (preRollBuffer.length > 5) { 
                 let pastPos1 = preRollBuffer[preRollBuffer.length - 5].pos; 
                 let pastPos2 = preRollBuffer[preRollBuffer.length - 1].pos; 
                 let pastLocal1 = pastPos1.clone().applyMatrix4(ghostInvMat);
                 let pastLocal2 = pastPos2.clone().applyMatrix4(ghostInvMat);
                 let dx = pastLocal2.x - pastLocal1.x; 
+                let dy = pastLocal2.y - pastLocal1.y;
                 let dz = pastLocal2.z - pastLocal1.z; 
-                if (dz !== 0) pathAngleRads = Math.atan2(dx, Math.abs(dz)); 
+                if (dz !== 0) {
+                    pathAngleRads = Math.atan2(dx, Math.abs(dz)); 
+                    aoaAngleRads = Math.atan2(dy, Math.abs(dz));
+                }
             }
 
             // --- FIX: OVERRIDE WITH PRISTINE HARDWARE PATH IF AVAILABLE ---
             if (window.pristinePathAngleRads !== undefined && window.pristinePathAngleRads !== null) {
                 pathAngleRads = window.pristinePathAngleRads;
             }
+            let castEuler = new THREE.Euler().setFromQuaternion(iQuat, 'YXZ');
+            currentSwingAoA = -THREE.MathUtils.radToDeg(castEuler.x);
             // --------------------------------------------------------------
 
             let leanEulerNode = new THREE.Euler().setFromQuaternion(iQuat, 'YXZ');
@@ -2199,23 +2358,15 @@ function handleParsedTelemetry(t) {
             if (isTrueStrike) {
                 // Real strike uses physical recoil math
                 let rawMm = calculateOffCenterImpact(Math.abs(maxTwist), passSpeed);
-                liveTargetX_cm = maxTwist > 0 ? (rawMm / 10.0) : -(rawMm / 10.0);
+                liveTargetX_cm = maxTwist > 0 ? -(rawMm / 10.0) : (rawMm / 10.0);
             } else {
                 // Virtual cast uses visual 3D math
                 liveTargetX_cm = strikeX;
             }
 
-            // Simulate Twist Penalty for Virtual Casts
-            let simulatedRecoil = maxTwist;
-            if (!isTrueStrike) {
-                let errorCm = Math.abs(liveTargetX_cm);
-                if (errorCm > AppConfig.sweetSpot) {
-                    let twistPenalty = (errorCm - AppConfig.sweetSpot) * 1.0; 
-                    simulatedRecoil = liveTargetX_cm > 0 ? twistPenalty : -twistPenalty;
-                }
-            }
-
-            let accData = calcAccuracyData(liveTargetX_cm, locTwist, 0, simulatedRecoil, currentSwingDwell); 
+            // Calculate predicted collision recoil for virtual casts
+            let simulatedRecoil = isTrueStrike ? maxTwist : (passSpeed > 0.5 ? (Math.abs(liveTargetX_cm) * 10.0 * passSpeed) / 0.1125 : 0);
+            let accData = calcAccuracyData(liveTargetX_cm, locTwist, 0, simulatedRecoil, isTrueStrike ? currentSwingDwell : 2.0); 
             if (isTrueStrike) accData.isWhiff = false;
             
             // If they miss the sweet spot on a virtual cast, force a complete whiff!
@@ -2237,10 +2388,11 @@ function handleParsedTelemetry(t) {
             }
 
             let strikeCast = {
-                rawDev: strikeX, dev: devCM, dir: dir, lean: leanDeg, leanDir: leanDir,
-                isStrike: isTrueStrike, pos: exactFacePos.clone(), rot: tempFace.getWorldQuaternion(new THREE.Quaternion()), 
-                localX: strikeX, localY: strikeY, faceAngle: locTwist, planeTwist: locTwist, impactTwist: locTwist, pathAngleRads: pathAngleRads, passSpeed: passSpeed, passForce: passForce, appliedForce: appliedF, 
-                stars: passRating.string, starColor: passRating.color, trailIndex: rawTracePoints.length, pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime,
+                rawDev: strikeX, dev: devCM, dir: dir, lean: leanDeg, leanDir: leanDir, deflectionDeg: accData.collisionDeflection,
+                isStrike: isTrueStrike, pos: exactFacePos.clone(), rot: tempFace.getWorldQuaternion(new THREE.Quaternion()),
+                localX: strikeX, localY: strikeY, faceAngle: locTwist, planeTwist: locTwist, impactTwist: locTwist,
+                pathAngleRads: pathAngleRads, aoaDeg: isTrueStrike ? currentSwingAoA : null, passSpeed: passSpeed, passForce: passForce, appliedForce: appliedF,
+                stars: passRating.string, starColor: passRating.color, trailIndex: Math.max(0, rawTracePoints.length - 1), pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime,
                 isWhiff: accData.isWhiff, estAccRange: accData.estAccRange, trueAccRange: accData.trueAccRange, trueLaunchDeg: accData.trueLaunchDeg, 
                 estLaunchRads: accData.estLaunchRads, trueLaunchRads: accData.trueLaunchRads, maxAccRange: accData.trueAccRange, estDist: estDist, pDelta: p_delta,
                 rawBLE: iRawBLE, isHit: isHit, backArc: backArc, backswingTime: backswingTime, tempo: lastComputedTempo
@@ -2261,10 +2413,73 @@ function handleParsedTelemetry(t) {
             if (AppConfig.singleSwing && !impactDetected) { clearTimeout(goTimeout); setTimeout(() => { finalizeSwingData(globalHwTime); }, 800); }
         }
 
-        if (rawTracePoints.length < MAX_TRAIL_POINTS) {
+        let canRecordFrame = !impactDetected;
+        let frameIsForward = isForwardSwing;
+
+        if (impactDetected && !window.followThroughComplete && (window.strikeCastGenerated || (nowTime - (window.impactHwTime || nowTime)) > 160)) {
+            let strikeCast = castData.find(c => c.isStrike);
+            let postFrames = strikeCast ? (rawTracePoints.length - 1 - strikeCast.trailIndex) : 0;
+
+            let ghostInvQuat = ghostPivot.quaternion.clone().invert();
+            let localShaft = new THREE.Vector3(0, -1, 0).applyQuaternion(targetQuaternion).applyQuaternion(ghostInvQuat);
+            let thetaSwing = Math.atan2(localShaft.z, -localShaft.y);
+
+            if (window.peakFollowThroughTheta === -Infinity) {
+                let startQuat = strikeCast ? strikeCast.pivotQuat : targetQuaternion;
+                let startShaft = new THREE.Vector3(0, -1, 0).applyQuaternion(startQuat).applyQuaternion(ghostInvQuat);
+                window.peakFollowThroughTheta = Math.max(thetaSwing, Math.atan2(startShaft.z, -startShaft.y));
+                window.peakFollowThroughIdx = rawTracePoints.length - 1;
+                window.followThroughLastMoveTime = nowTime;
+            }
+
+            let dropFromPeakDeg = THREE.MathUtils.radToDeg(window.peakFollowThroughTheta - thetaSwing);
+            let idleAtApexMs = nowTime - (window.followThroughLastMoveTime || nowTime);
+
+            // Stop once the mallet passes its apex and starts falling backwards (>= 1.5° drop) or pauses at the top (> 350ms)
+            if (postFrames >= 2 && (dropFromPeakDeg >= 1.5 || idleAtApexMs > 350)) {
+                window.followThroughComplete = true;
+                if (window.peakFollowThroughIdx >= 0 && window.peakFollowThroughIdx < rawTracePoints.length - 1) {
+                    rawTracePoints.length = window.peakFollowThroughIdx + 1;
+                    recordedFrames.length = window.peakFollowThroughIdx + 1;
+                }
+                clearTimeout(window.finalizeTimerId);
+                setTimeout(() => { finalizeSwingData(nowTime); }, 0);
+            } else {
+                canRecordFrame = true;
+                frameIsForward = true; // Keep entire forward follow-through visible when Hide Backswing is enabled
+            }
+        }
+
+        if (canRecordFrame && rawTracePoints.length < MAX_TRAIL_POINTS) {
+            // Bridge the 150ms firmware impact gap with curved SLERP arc points
+            if (impactDetected && rawTracePoints.length > 0 && recordedFrames.length > 0) {
+                let prevPt = rawTracePoints[rawTracePoints.length - 1];
+                let prevFrame = recordedFrames[recordedFrames.length - 1];
+                let gapAngleDeg = THREE.MathUtils.radToDeg(prevPt.rot.angleTo(targetQuaternion));
+
+                if (gapAngleDeg > 6.0) {
+                    let bridgeSteps = Math.min(10, Math.floor(gapAngleDeg / 4.0));
+                    let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
+
+                    for (let s = 1; s < bridgeSteps; s++) {
+                        if (rawTracePoints.length >= MAX_TRAIL_POINTS - 1) break;
+                        let alpha = s / bridgeSteps;
+                        let qStep = prevPt.rot.clone().slerp(targetQuaternion, alpha);
+                        let pStep = prevFrame.pivotPos.clone().lerp(masterPivot.position, alpha);
+                        let extStep = prevFrame.extension + (extension - prevFrame.extension) * alpha;
+                        let headOffset = new THREE.Vector3(0, -(loadedRadius + extStep), meshShiftZ).applyQuaternion(qStep);
+                        let posStep = pStep.clone().add(headOffset);
+                        let tStep = (prevPt.time || nowTime) + ((nowTime - (prevPt.time || nowTime)) * alpha);
+
+                        rawTracePoints.push({ pos: posStep, rot: qStep, color: { r: 0.0, g: 1.0, b: 0.0 }, isForward: true, time: tStep });
+                        recordedFrames.push({ rotation: qStep, forceMag: magnitude, rawPtIndex: rawTracePoints.length, pivotPos: pStep, extension: extStep, rawBLE: currentRawBLEQuat.clone(), time: tStep });
+                    }
+                }
+            }
+
             if (magnitude > currentSwingMaxG) currentSwingMaxG = magnitude;
             let r = 0.0, g = 1.0, b = 0.0; 
-            if (!isForwardSwing) { r = 1.0; g = 1.0; b = 0.0; } 
+            if (!frameIsForward) { r = 1.0; g = 1.0; b = 0.0; } 
             else {
                 if (idealPlane) {
                     let ballWorldPos = virtualBall.position.clone(); let trackingInvMat = new THREE.Matrix4().copy(physicsTrackingNode.matrixWorld).invert();
@@ -2273,11 +2488,22 @@ function handleParsedTelemetry(t) {
                 } else { r = 0.0; g = 1.0; b = 0.8; }
             }
             if(isNaN(r)) r = 0; if(isNaN(g)) g = 1; if(isNaN(b)) b = 0;
-            rawTracePoints.push({ pos: centerPosition.clone(), rot: targetQuaternion.clone(), color: {r: r, g: g, b: b}, isForward: isForwardSwing });
-            recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, rawPtIndex: rawTracePoints.length, pivotPos: masterPivot.position.clone(), extension: extension, rawBLE: currentRawBLEQuat.clone() });
+            rawTracePoints.push({ pos: centerPosition.clone(), rot: targetQuaternion.clone(), color: {r: r, g: g, b: b}, isForward: frameIsForward, time: nowTime });
+            recordedFrames.push({ rotation: targetQuaternion.clone(), forceMag: magnitude, rawPtIndex: rawTracePoints.length, pivotPos: masterPivot.position.clone(), extension: extension, rawBLE: currentRawBLEQuat.clone(), time: nowTime });
+
+            if (impactDetected && !window.followThroughComplete) {
+                let ghostInvQuat = ghostPivot.quaternion.clone().invert();
+                let localShaft = new THREE.Vector3(0, -1, 0).applyQuaternion(targetQuaternion).applyQuaternion(ghostInvQuat);
+                let thetaSwing = Math.atan2(localShaft.z, -localShaft.y);
+                if (thetaSwing >= window.peakFollowThroughTheta) {
+                    window.peakFollowThroughTheta = thetaSwing;
+                    window.peakFollowThroughIdx = rawTracePoints.length - 1;
+                    window.followThroughLastMoveTime = nowTime;
+                }
+            }
         }
 
-        if (!impactDetected && deltaG > impactThreshold) { impactDetected = true; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive && !inGameMode) { swingStateTxt.innerText = "IMPACT DETECTED! WAITING FOR EDGE PACKET..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; } }
+        if (!impactDetected && deltaG > impactThreshold) { impactDetected = true; window.impactHwTime = nowTime; window.followThroughComplete = false; let swingStateTxt = document.getElementById('swing-state'); if(swingStateTxt && !isDynamicCalibrationActive && !inGameMode) { swingStateTxt.innerText = "IMPACT DETECTED! WAITING FOR EDGE PACKET..."; swingStateTxt.className = "text-danger text-center font-bold mb-4"; } }
         if (!impactDetected && (!AppConfig.singleSwing)) { let practiceTimeLimitMs = AppConfig.practiceLimitSec * 1000; if ((nowTime - state4StartTime) >= practiceTimeLimitMs) { finalizeSwingData(nowTime); } }
     }
 
@@ -2386,16 +2612,19 @@ async function finalizeSwingData(nowTime) {
         if (displayPass.offCenterLabel === 'R') hwTargetX_cm = -hwTargetX_cm;
         else if (displayPass.offCenterLabel === 'Center') hwTargetX_cm = 0;
 
-        // Measure how far off the Face is from the calculated physical impact
+        // Measure how far off the Face is from the calculated physical impact (lateral X, height Y, and forward Z to ball)
         ghostBlock.updateMatrixWorld(true);
         let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
         
-        // THE FIX: Measure the deviation of the Face (displayPass.pos), not the trace line!
         let correctedImpactPos = displayPass.pos.clone().applyMatrix4(ghostInvMat);
         let newlyCorrectedDev = correctedImpactPos.x;
 
         let totalDriftCm = hwTargetX_cm - newlyCorrectedDev;
-        let totalDriftVec = new THREE.Vector3(totalDriftCm, 0, 0).applyQuaternion(ghostPivot.quaternion);
+        let rawDriftY = -correctedImpactPos.y;
+        let totalDriftY = Math.max(-25.0, Math.min(25.0, rawDriftY));
+        let rawDriftZ = getDynamicFaceZ() - correctedImpactPos.z;
+        let totalDriftZ = Math.max(-150.0, Math.min(150.0, rawDriftZ));
+        let totalDriftVec = new THREE.Vector3(totalDriftCm, totalDriftY, totalDriftZ).applyQuaternion(ghostPivot.quaternion);
 
         // Gently slide the trace to touch the ball, fading in the shift so it doesn't jerk
         for (let i = 0; i < totalPts; i++) {
@@ -2424,6 +2653,7 @@ async function finalizeSwingData(nowTime) {
         let accData = calcAccuracyData(hwTargetX_cm, hardwareTwist, 0, maxTwist, currentSwingDwell);
         let passRating = getStarRating(hwTargetX_cm, accData.trueLaunchDeg);
         
+        displayPass.deflectionDeg = accData.collisionDeflection;
         displayPass.trueLaunchDeg = accData.trueLaunchDeg;
         displayPass.trueLaunchRads = accData.trueLaunchRads;
         displayPass.estAccRange = accData.estAccRange;
@@ -2439,39 +2669,86 @@ async function finalizeSwingData(nowTime) {
     }    
 
     // 3. --- PRISTINE PATH LOCK (WIGGLE CURE) ---
-    // Freeze the follow-through to ignore the physical shockwave.
+    // Freeze Yaw/Roll and smooth post-impact Pitch bounce to remove vertical collision wiggle.
     if (displayPass && window.pristineImpactQuat) {
         let impactIdx = displayPass.trailIndex;
         let pristineEuler = new THREE.Euler().setFromQuaternion(window.pristineImpactQuat, 'YXZ');
 
+        // Extract post-impact pitch curve anchored cleanly to pristineEuler.x at impact
+        let postCount = rawTracePoints.length - impactIdx;
+        let pitchSeries = [];
+        for (let k = 0; k < postCount; k++) {
+            if (k === 0) {
+                pitchSeries.push(pristineEuler.x);
+            } else {
+                let e = new THREE.Euler().setFromQuaternion(recordedFrames[impactIdx + k].rotation, 'YXZ');
+                pitchSeries.push(e.x);
+            }
+        }
+
+        // Two-pass 3-point smoothing filter to damp collision pitch ringing while keeping follow-through arc
+        for (let pass = 0; pass < 2; pass++) {
+            let smoothed = [...pitchSeries];
+            for (let k = 1; k < postCount - 1; k++) {
+                smoothed[k] = 0.25 * pitchSeries[k - 1] + 0.5 * pitchSeries[k] + 0.25 * pitchSeries[k + 1];
+            }
+            pitchSeries = smoothed;
+        }
+
+        let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
+
         for (let i = impactIdx; i < rawTracePoints.length; i++) {
-            let corruptedEuler = new THREE.Euler().setFromQuaternion(recordedFrames[i].rotation, 'YXZ');
-            
-            corruptedEuler.y = pristineEuler.y;
-            corruptedEuler.z = pristineEuler.z;
-            
-            let lockedQuat = new THREE.Quaternion().setFromEuler(corruptedEuler, 'YXZ');
+            let k = i - impactIdx;
+            let lockedEuler = new THREE.Euler(pitchSeries[k], pristineEuler.y, pristineEuler.z, 'YXZ');
+            let lockedQuat = new THREE.Quaternion().setFromEuler(lockedEuler, 'YXZ');
             
             rawTracePoints[i].rot.copy(lockedQuat);
             recordedFrames[i].rotation.copy(lockedQuat);
+            recordedFrames[i].extension = 0;
+            let excessRadLock = loadedRadius - ((AppConfig.handleLengthCm || 91.4) - 6.0);
+            let shaftDirLock = new THREE.Vector3(0, -1, 0).applyQuaternion(lockedQuat);
+            recordedFrames[i].pivotPos.y = pivotBaseY - (excessRadLock > 0 ? excessRadLock * (1.0 + shaftDirLock.y) : 0);
             
-            // THE FIX: Rebuild the trace line using the physical center of the mallet mesh
-            let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
-            let headOffset = new THREE.Vector3(0, -loadedRadius - recordedFrames[i].extension, meshShiftZ).applyQuaternion(lockedQuat);
+            let headOffset = new THREE.Vector3(0, -loadedRadius, meshShiftZ).applyQuaternion(lockedQuat);
             rawTracePoints[i].pos.copy(recordedFrames[i].pivotPos).add(headOffset);
             
             if (i === impactIdx) {
-                let perfectEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
-                perfectEuler.y = pristineEuler.y;
-                perfectEuler.z = pristineEuler.z;
-                displayPass.pivotQuat.setFromEuler(perfectEuler, 'YXZ');
+                displayPass.pivotQuat.copy(lockedQuat);
+                displayPass.extension = 0;
+                displayPass.pivotPos.y = pivotBaseY;
                 
-                // THE FIX: Correctly recalculate the Face position without overwriting it with the trace line!
-                let faceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, getDynamicFaceZ()).applyQuaternion(lockedQuat);
+                let faceOffset = new THREE.Vector3(0, -loadedRadius, AppConfig.offsetZCm).applyQuaternion(lockedQuat);
                 displayPass.pos.copy(displayPass.pivotPos).add(faceOffset);
             }
         }
+
+        // Final exact pin so the striking face sits flush behind the ball on the trace line
+        ghostBlock.updateMatrixWorld(true);
+        let finalGhostInv = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
+        let lockedLocalFace = displayPass.pos.clone().applyMatrix4(finalGhostInv);
+        let residualVec = new THREE.Vector3(
+            (displayPass.rawDev || 0) - lockedLocalFace.x,
+            -lockedLocalFace.y,
+            getDynamicFaceZ() - lockedLocalFace.z
+        ).applyQuaternion(ghostPivot.quaternion);
+
+        for (let i = 0; i < rawTracePoints.length; i++) {
+            let w = Math.min(i / (impactIdx || 1), 1.0);
+            let stepShift = residualVec.clone().multiplyScalar(w);
+            rawTracePoints[i].pos.add(stepShift);
+            if (recordedFrames[i]) recordedFrames[i].pivotPos.add(stepShift);
+        }
+        displayPass.pos.add(residualVec);
+        displayPass.pivotPos.add(residualVec);
     }
+
+    if (impactDetected && displayPass && displayPass.isStrike && displayPass.pivotQuat) {
+        let lockedEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
+        displayPass.aoaDeg = -THREE.MathUtils.radToDeg(lockedEuler.x);
+        currentSwingAoA = displayPass.aoaDeg;
+    }
+
+    castData.forEach(c => { c.backHeight = getFrontFaceBackswingHeightCm(c.trailIndex); });
 
     // 4. --- FINALIZE AND DRAW ---
     updateSmoothTrail();
@@ -2548,14 +2825,18 @@ async function finalizeSwingData(nowTime) {
     let tempoHtml = lastComputedTempo > 0 ? `${Math.round(lastComputedTempo)} BPM` : `--`;
     
     let dwellHtml = impactDetected ? `${currentSwingDwell} ms` : `N/A`;
-    let aoaHtml = impactDetected ? currentSwingAoA.toFixed(1) + '°' : '--';
+    let finalAoa = (displayPass && displayPass.aoaDeg !== undefined) ? displayPass.aoaDeg : (impactDetected ? currentSwingAoA : null);
+
+    let aoaDir = (finalAoa !== null) ? (Math.abs(finalAoa) < 0.2 ? 'Level' : (finalAoa > 0 ? 'Up' : 'Dn')) : '';
+    let aoaHtml = (impactDetected && finalAoa !== null) ? `${Math.abs(finalAoa).toFixed(1)}° ${aoaDir}` : `N/A`;
+
     let distHtml = (impactDetected && displayPass && displayPass.estDist !== undefined) ? `${displayPass.estDist.toFixed(0)}m` : `-`;
     let planeTwistHtml = (displayPass && displayPass.planeTwist !== undefined) ? `${(displayPass.planeTwist > 0 ? '+' : '')}${displayPass.planeTwist.toFixed(1)}°` : `N/A`;
     // Convert the calculated horizontal path radians to degrees for the Approach Angle display
     let approachDeg = displayPass ? (displayPass.pathAngleRads * (180.0 / Math.PI)) : 0;
     let impactTwistHtml = (displayPass && !displayPass.isWhiff) ? `${(approachDeg > 0 ? '+' : '')}${approachDeg.toFixed(1)}°` : `--`;
     let twistDeflectionVal = displayPass ? calculateCollisionDeflection(maxTwist, currentSwingDwell, displayPass.rawDev) : 0;
-    let twistDeflection = impactDetected ? twistDeflectionVal.toFixed(2) + '°' : `N/A`;
+    let twistDeflection = (displayPass && displayPass.deflectionDeg !== undefined) ? displayPass.deflectionDeg.toFixed(2) + '°' : `N/A`;
     
     let finalStars = displayPass ? displayPass.stars : ""; let finalStarColor = displayPass ? displayPass.starColor : "var(--text-muted)";
     let starHtml  = finalStars !== "" ? `<span style="color: ${finalStarColor};" class="font-bold">${finalStars}</span>` : `<span class="text-muted">-</span>`;
@@ -2581,21 +2862,13 @@ async function finalizeSwingData(nowTime) {
 
     // MASK THE DATA IF NOT SUBSCRIBED
     if (!AppConfig.isSubscribed) {
-        tempoHtml = "--";
-        distHtml = "--";
-        edgeVelHtml = "--";
-        forceHtml = "--";
-        momentumHtml = "--";
-        twistDeflection = "--";
-        downTimeHtml = "--";
-        dsPDeltaHtml = "--";
-        pDeltaHtml = "--";
-        dwellHtml = "--";
-        aoaHtml = "--";
-        extHtml = "--";
-        estAccHtml = "--";
-        trueAccHtml = "--";
-        
+        let proBadge = `<span class="text-accent">PRO</span>`;
+        planeTwistHtml = proBadge;
+        aoaHtml = proBadge;
+        leanHtml = proBadge;
+        twistDeflection = proBadge;
+        pDeltaHtml = proBadge;
+        tempoHtml = proBadge; 
         advMsgHtml = `<div class="mt-3 text-center" style="color: var(--danger); font-size: 0.85rem; font-weight: bold;">Please subscribe to see Advanced Metrics</div>`;
     }
 
@@ -2613,23 +2886,10 @@ async function finalizeSwingData(nowTime) {
     }
 
     // 2. ONLY build the Advanced Dropdown if there was a physical strike
-    let advancedKinematicsHtml = '';
-    if (impactDetected) {
-        advancedKinematicsHtml = `
-        <details class="advanced-metrics mt-4">
-            <summary>Advanced Strike Kinematics</summary>
-            <div class="mt-4">
-                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Impact Deflection</span><span class="adv-val">${twistDeflection}</span></div>
-                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The exact time (ms) the ball remained physically compressed against the face.">Impact Dwell</span><span class="adv-val">${dwellHtml}</span></div>
-                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The raw physical power transferred to the ball (kg·m/s).">Momentum</span><span class="adv-val text-accent">${momentumHtml}</span></div>
-                <div class="adv-row"><span class="tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The physical pushing force (N) applied through the shaft during and after the strike.">Extension</span><span class="adv-val">${extHtml}</span></div>
-                ${advMsgHtml}
-            </div>
-        </details>`;
-    }
-
+    
     // 3. Assemble the perfectly clean History Card with the new permanent toolbar
-    let defaultVel = displayPass ? `${displayPass.passSpeed.toFixed(1)} m/s` : `--`;
+    let defaultVel = displayPass ? `${(displayPass.passSpeed * 3.6).toFixed(1)} kph` : `--`;
+    let backHeightHtml = (displayPass && displayPass.backHeight !== undefined) ? `${displayPass.backHeight.toFixed(1)} cm` : `--`;    
     
     // HELPER: Safely trigger the hidden master toggles from the generated HTML
     if (!window.clickMasterToggle) {
@@ -2688,17 +2948,26 @@ async function finalizeSwingData(nowTime) {
                 </div>
             </div>
             
-            <div id="swing-header-${swingIndex}" class="card-basic-stats">
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (m/s).">Velocity</span><span class="stat-val">${defaultVel}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean</span><span class="stat-val text-warning">${leanHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact Location</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${pDeltaHtml}</span></div>
-                <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${tempoHtml}</span></div>
-            </div>
-            
             ${castsHtml}
-            ${advancedKinematicsHtml}
+
+            <div id="swing-header-${swingIndex}" class="mt-3">
+                <div class="card-basic-stats" style="margin-bottom: 4px;">
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The speed of the mallet head at the bottom of the swing (kph).">Speed</span><span class="stat-val">${defaultVel}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The maximum vertical height the front striking face lifted off the lawn during the backswing.">Backswing</span><span class="stat-val">${backHeightHtml}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Exactly where on the mallet face the ball was struck.">Impact</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
+                </div>
+                <details class="more-metrics">
+                    <summary>More</summary>
+                    <div class="card-basic-stats">
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The angle of the mallet face relative to the target line at impact.">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The vertical approach angle of the mallet head into the ball (+ Up / - Down).">Strike Angle</span><span class="stat-val text-accent">${aoaHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The lateral tilt of the mallet shaft (Roll) at impact.">Lean Angle</span><span class="stat-val text-warning">${leanHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The amount the mallet face physically twisted open or closed during the collision.">Deflection</span><span class="stat-val text-warning">${twistDeflection}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Compares your swing rhythm to a mathematically perfect, gravity-driven pendulum.">Swing PΔ</span><span class="stat-val">${pDeltaHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="The overall rhythm and cadence of your full swing cycle (BPM).">Tempo</span><span class="stat-val">${tempoHtml}</span></div>
+                    </div>
+                </details>
+            </div>
         </div>
     `;
 
@@ -2723,14 +2992,35 @@ async function finalizeSwingData(nowTime) {
     }
 }    
 
-window.bleManager.onStateChange = (isConnected, name) => {
+let wakeLockSentinel = null;
+
+async function setScreenWakeLock(enable) {
+    if (!('wakeLock' in navigator)) return;
+    try {
+        if (enable && !wakeLockSentinel) {
+            wakeLockSentinel = await navigator.wakeLock.request('screen');
+            wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+        } else if (!enable && wakeLockSentinel) {
+            await wakeLockSentinel.release();
+            wakeLockSentinel = null;
+        }
+    } catch (e) {}
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && window.bleManager?.isConnected()) {
+        setScreenWakeLock(true);
+    }
+});
+
+window.bleManager.onStateChange = async (isConnected, name, mac, flashProfile) => {
     if (!isConnected) {
+        setScreenWakeLock(false);
         const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-disconnected";
         
         document.getElementById('swing-state').innerHTML = "MALLET DISCONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal;'>Ensure Bluetooth is on.</span>"; 
         document.getElementById('swing-state').className = "text-accent text-center font-bold mb-4";
         
-        // Show connect button, hide activity buttons
         let connectGrp = document.getElementById('connect-group');
         if (connectGrp) connectGrp.classList.remove('hidden');
         document.getElementById('ready-group').classList.add('hidden');
@@ -2741,51 +3031,77 @@ window.bleManager.onStateChange = (isConnected, name) => {
         document.getElementById('device-name-display').classList.add('hidden');
         document.getElementById('calibration-container').classList.add('hidden'); 
         appState = 0; 
-        showToast("Mallet disconnected ");
+        if (activeMallet && window.applyMalletToUI) window.applyMalletToUI(activeMallet, false);
+        showToast("Mallet disconnected");
         if (inGameMode) { showToast("Mallet disconnected, but match tracking continues offline."); }
     } else {
-        savedBleName = name || "LVE Mallet"; document.getElementById('malletNameInput').value = savedBleName; saveSettings(); 
+        setScreenWakeLock(true);
+        const bleName = name || window.bleManager.deviceName || "LVE Mallet";
         const btToggleBtn = document.getElementById('btToggleBtn'); btToggleBtn.className = "icon-btn bt-connected";
         appState = 1; initAudio(); 
         
         window.lveLastActiveTime = Date.now();
         window.lveLastMag = 1.0;
-        
-        let swingStateTxt = document.getElementById('swing-state');
-        if(swingStateTxt) { 
-            swingStateTxt.innerHTML = "MALLET CONNECTED<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal; text-decoration: none;'>Select an activity to begin.</span>"; 
-            swingStateTxt.className = "text-accent text-center font-bold mb-4"; 
-        }
       
-        // Hide connect button, show activity buttons
         let connectGrp = document.getElementById('connect-group');
         if (connectGrp) connectGrp.classList.add('hidden');
         document.getElementById('ready-group').classList.remove('hidden');
         
         document.getElementById('powerOffBtn').classList.remove('hidden');
-        // ... (rest of the connected logic remains the same)
         document.getElementById('battery-display').classList.remove('hidden'); 
-        let nameDisp = document.getElementById('device-name-display'); nameDisp.classList.remove('hidden'); nameDisp.innerText = savedBleName;
+        let nameDisp = document.getElementById('device-name-display'); nameDisp.classList.remove('hidden'); nameDisp.innerText = bleName;
 
-        let ledGuidance = AppConfig.ledGuidance ? 1 : 0;
-        let radius = AppConfig.radiusInput;
-        let mass = AppConfig.massKg * 1000;
-        let impact = parseFloat(document.getElementById('impactInput').value) || 1.5;
-        let offsetY = parseFloat(document.getElementById('offsetYInput').value) || 5.5;
-        let timeout = parseInt(document.getElementById('timeoutInput').value) || 5;
-        let sweetSpot = AppConfig.sweetSpot;
-        let twist = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
+        // Reconcile calibration & physical specs between Xiao Flash, Supabase Cloud & Local Cache
+        const resolved = await syncConnectedMallet(mac, bleName, flashProfile);
+        const displayTitle = resolved?.name || bleName;
 
-        let payload = [ 67, radius, mass / 10, impact * 10, offsetY * 10, timeout, sweetSpot * 10, ledGuidance, Math.round(twist * 10) ];
-        
-        window.bleManager.sendCommand(payload, true).then(() => {
-            if(inGameMode) { window.bleManager.sendCommand([75]); } else { window.bleManager.sendCommand([76]); }
-            showToast(`Connected to ${savedBleName} & Push Synced!`);
-        });
+        let swingStateTxt = document.getElementById('swing-state');
+        if (swingStateTxt) { 
+            const calWarning = (resolved && !resolved.is_calibrated)
+                ? "<br><span class='small-help text-warning' style='font-size: 0.75rem; font-weight: bold;'>Mallet uncalibrated — open Mallet menu to calibrate.</span>"
+                : "<br><span class='small-help text-muted' style='font-size: 0.75rem; font-weight: normal; text-decoration: none;'>Select an activity to begin.</span>";
+            swingStateTxt.innerHTML = `${displayTitle.toUpperCase()} CONNECTED${calWarning}`; 
+            swingStateTxt.className = "text-accent text-center font-bold mb-4"; 
+        }
+
+        await syncConfigurationToMallet();
+        if (inGameMode) {
+            await window.bleManager.sendCommand([75]);
+        } else {
+            await window.bleManager.sendCommand([76]);
+        }
+        showToast(`Connected to ${displayTitle} (${mac})`);
     }
 };
 
-bleManager.onBatteryUpdate = (alreadyCalculatedPct, isCharging, availStrikes) => {
+window.lveLastActiveTime = Date.now();
+window.lveLastMag = 1.0;
+
+window.bleManager.onBatteryUpdate = (voltage_mV, isCharging, availStrikes) => {
+    let adjusted_mV = voltage_mV;
+    if (isCharging && voltage_mV < 4150) {
+        adjusted_mV -= 150;
+    }
+
+    let calculatedPct = 0;
+    if (adjusted_mV >= 4050) {
+        calculatedPct = 100;
+    } else if (adjusted_mV >= 3950) {
+        calculatedPct = 80 + ((adjusted_mV - 3950) / 100) * 20;
+    } else if (adjusted_mV >= 3750) {
+        calculatedPct = 40 + ((adjusted_mV - 3750) / 200) * 40;
+    } else if (adjusted_mV >= 3500) {
+        calculatedPct = 10 + ((adjusted_mV - 3500) / 250) * 30;
+    } else if (adjusted_mV >= 3300) {
+        calculatedPct = ((adjusted_mV - 3300) / 200) * 10;
+    }
+
+    calculatedPct = Math.max(0, Math.min(100, Math.round(calculatedPct)));
+
+    window.lveBatteryVolts = (voltage_mV / 1000).toFixed(2) + "V";
+    window.lveBatteryPct = calculatedPct + "%";
+    window.lveIsCharging = isCharging ? "YES" : "NO";
+
     const batteryDisplay = document.getElementById('battery-display');
     batteryDisplay.classList.remove('hidden');
 
@@ -2793,13 +3109,8 @@ bleManager.onBatteryUpdate = (alreadyCalculatedPct, isCharging, availStrikes) =>
         batteryDisplay.innerHTML = `<span class="syncing">⚡</span> Charging`;
         batteryDisplay.style.color = "var(--warning)";
     } else {
-        batteryDisplay.innerText = `🔋 ${alreadyCalculatedPct}%`;
-        
-        if (alreadyCalculatedPct <= 20) {
-            batteryDisplay.style.color = "var(--danger)";
-        } else {
-            batteryDisplay.style.color = "var(--text-main)";
-        }
+        batteryDisplay.innerText = `🔋 ${calculatedPct}%`;
+        batteryDisplay.style.color = calculatedPct <= 20 ? "var(--danger)" : "var(--text-main)";
     }
 };
 
@@ -2807,7 +3118,79 @@ window.bleManager.onFirmwareVersion = (ver) => {
     let aboutFw = document.getElementById('about-fw-display'); if (aboutFw) aboutFw.innerText = ver;
 };
 
-window.bleManager.onTelemetryData = handleParsedTelemetry;
+window.bleManager.onTelemetryData = (t) => {
+    handleParsedTelemetry(t);
+
+    if (devHudEnabled) {
+        let debugDiv = document.getElementById('lve-diagnostic-hud-content');
+        if (debugDiv) {
+            let cleanNumber = (num) => {
+                if (num === undefined || num === null || isNaN(num)) return "+0.00";
+                let val = Number(num).toFixed(2);
+                if (val === "0.00" || val === "-0.00") return "+0.00";
+                return Number(val) > 0 ? "+" + val : val;
+            };
+
+            let mag = Math.sqrt(t.ax * t.ax + t.ay * t.ay + t.az * t.az);
+
+            if (Math.abs(mag - window.lveLastMag) > 0.05) {
+                window.lveLastActiveTime = Date.now();
+            }
+            window.lveLastMag = mag;
+
+            let timeoutMins = parseInt(document.getElementById('timeoutInput').value) || 5;
+            let secondsIdle = (Date.now() - window.lveLastActiveTime) / 1000;
+            let sleepRemaining = Math.max(0, (timeoutMins * 60) - secondsIdle);
+
+            if (sleepRemaining <= 0 && window.bleManager?.device?.gatt?.connected) {
+                sendBleCommand([88], true);
+                window.lveLastActiveTime = Date.now();
+            }
+
+            let sleepMin = Math.floor(sleepRemaining / 60);
+            let sleepSec = Math.floor(sleepRemaining % 60).toString().padStart(2, '0');
+            let sleepStr = `${sleepMin}m ${sleepSec}s`;
+
+            let calMat = typeof hardwareMountOffset !== 'undefined' ? hardwareMountOffset : { w: 1, x: 0, y: 0, z: 0 };
+            let calQ = typeof lastRawQuat !== 'undefined' ? lastRawQuat : { w: 1, x: 0, y: 0, z: 0 };
+
+            let taredQ = typeof targetQuaternion !== 'undefined' ? targetQuaternion : new THREE.Quaternion();
+            let euler = new THREE.Euler().setFromQuaternion(taredQ, 'YXZ');
+            let pitchDeg = THREE.MathUtils.radToDeg(euler.x);
+            let yawDeg = THREE.MathUtils.radToDeg(euler.y);
+            let rollDeg = THREE.MathUtils.radToDeg(euler.z);
+
+            debugDiv.innerHTML = `
+                <strong style="color:#fff;">--- LVE DIAGNOSTICS ---</strong><br><br>
+                
+                <strong style="color:#ef4444;">POWER MANAGEMENT:</strong><br>
+                Voltage: ${window.lveBatteryVolts} (${window.lveBatteryPct}) | Charging: ${window.lveIsCharging}<br>
+                Time to Sleep: ${sleepStr}<br><br>
+
+                <strong style="color:#32cd32;">RAW ACCELEROMETER:</strong><br>
+                X: ${cleanNumber(t.ax)} | Y: ${cleanNumber(t.ay)} | Z: ${cleanNumber(t.az)}<br>
+                Mag: ${cleanNumber(mag)} G<br><br>
+                
+                <strong style="color:#32cd32;">RAW SILICON QUATERNION:</strong><br>
+                W: ${cleanNumber(t.q0)} | X: ${cleanNumber(t.q1)}<br>
+                Y: ${cleanNumber(t.q2)} | Z: ${cleanNumber(t.q3)}<br><br>
+
+                <strong style="color:#f59e0b;">HARDWARE MATRIX (BASE):</strong><br>
+                W: ${cleanNumber(calMat.w)} | X: ${cleanNumber(calMat.x)}<br>
+                Y: ${cleanNumber(calMat.y)} | Z: ${cleanNumber(calMat.z)}<br><br>
+                
+                <strong style="color:#a855f7;">TARED ORIENTATION (DEG):</strong><br>
+                Pitch (X): ${cleanNumber(pitchDeg)}°<br>
+                Yaw (Y): ${cleanNumber(yawDeg)}°<br>
+                Roll (Z): ${cleanNumber(rollDeg)}°<br><br>
+
+                <strong style="color:#38bdf8;">FINAL UI QUATERNION:</strong><br>
+                W: ${cleanNumber(calQ.w)} | X: ${cleanNumber(calQ.x)}<br>
+                Y: ${cleanNumber(calQ.y)} | Z: ${cleanNumber(calQ.z)}
+            `;
+        }
+    }
+};
 window.bleManager.onHistoricalStrike = handleHistoricalStrike;
 window.bleManager.onLiveStrike = handleLiveStrike;
 window.bleManager.onError = showToast;
@@ -2913,144 +3296,106 @@ function toggleDeveloperHUD(forceState) {
         if(typeof showToast === "function") showToast("DIAGNOSTIC HUD DISABLED");
     }
 }
-const originalBatteryUpdate = window.bleManager.onBatteryUpdate;
 
-window.bleManager.onBatteryUpdate = function(voltage_mV, isCharging, availStrikes) {
-    let adjusted_mV = voltage_mV;
-    
-    if (isCharging && voltage_mV < 4150) {
-        adjusted_mV -= 150; 
-    }
+window.createStrikeCastFromBurst = function(finalRecord, pkt) {
+    if (!finalRecord || !pkt || window.strikeCastGenerated) return;
+    window.pendingStrikePacket = null;
+    window.strikeCastGenerated = true;
 
-    let calculatedPct = 0;
-    
-    if (adjusted_mV >= 4050) {
-        calculatedPct = 100;
-    } else if (adjusted_mV >= 3950) {
-        calculatedPct = 80 + ((adjusted_mV - 3950) / 100) * 20;
-    } else if (adjusted_mV >= 3750) {
-        calculatedPct = 40 + ((adjusted_mV - 3750) / 200) * 40;
-    } else if (adjusted_mV >= 3500) {
-        calculatedPct = 10 + ((adjusted_mV - 3500) / 250) * 30;
-    } else if (adjusted_mV >= 3300) {
-        calculatedPct = ((adjusted_mV - 3300) / 200) * 10;
+    let iQuat = finalRecord.rotation.clone();
+    let snapshotPos = finalRecord.pivotPos.clone();
+    let faceOffset = new THREE.Vector3(0, -loadedRadius, AppConfig.offsetZCm).applyQuaternion(iQuat);
+    let exactFacePos = snapshotPos.clone().add(faceOffset);
+
+    ghostBlock.updateMatrixWorld(true);
+    let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
+    let localFaceAtImpact = exactFacePos.clone().applyMatrix4(ghostInvMat);
+
+    let strikeX = localFaceAtImpact.x;
+    let halfWidth = AppConfig.malletWidthCm / 2.0;
+    if (Math.abs(strikeX) > halfWidth) strikeX = strikeX > 0 ? halfWidth : -halfWidth;
+
+    let devCM = Math.abs(strikeX);
+    if (devCM < (AppConfig.sweetSpot * 0.15)) devCM = 0.0;
+    let dir = strikeX > 0.1 ? 'R' : (strikeX < -0.1 ? 'L' : 'C');
+
+    let leanEulerNode = new THREE.Euler().setFromQuaternion(iQuat, 'YXZ');
+    let rawLeanDeg = THREE.MathUtils.radToDeg(leanEulerNode.z);
+    let leanDeg = Math.abs(rawLeanDeg) < 0.1 ? 0.0 : Math.abs(rawLeanDeg);
+    let leanDir = rawLeanDeg > 0.1 ? 'R' : (rawLeanDeg < -0.1 ? 'L' : '');
+
+    let locTwist = pkt.locTwist;
+    let passSpeed = pkt.zVel;
+    let estDist = calculateEstimatedDistance(passSpeed, AppConfig.massKg, AppConfig.lawnSpeed);
+    currentSwingDist = estDist;
+
+    let rawMm = calculateOffCenterImpact(Math.abs(maxTwist), passSpeed);
+    let liveTargetX_cm = maxTwist > 0 ? -(rawMm / 10.0) : (rawMm / 10.0);
+    let accData = calcAccuracyData(liveTargetX_cm, locTwist, 0, maxTwist, currentSwingDwell);
+    accData.isWhiff = false;
+
+    let passRating = getStarRating(liveTargetX_cm, accData.trueLaunchDeg);
+    let currentTwistTol = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
+    let targetDist = inGameMode ? (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : (parseFloat(document.getElementById('trainerDistSetup').value) || 10.0);
+    let isHit = (Math.abs(liveTargetX_cm) <= AppConfig.sweetSpot) && (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && (estDist >= targetDist);
+
+    if (isHit && !inGameMode && AppConfig.ledGuidance) playSuccessSound();
+
+    let p_delta = lastComputedTempo > 0 ? calculatePendulumDelta(60.0 / lastComputedTempo, AppConfig.handleLengthCm) : null;
+
+    let newStrikeCast = {
+        rawDev: strikeX, dev: devCM, dir: dir, lean: leanDeg, leanDir: leanDir, deflectionDeg: accData.collisionDeflection,
+        isStrike: true, pos: exactFacePos, rot: iQuat.clone(),
+        localX: strikeX, localY: localFaceAtImpact.y, faceAngle: locTwist, planeTwist: locTwist, impactTwist: locTwist,
+        pathAngleRads: window.pristinePathAngleRads || 0, aoaDeg: -THREE.MathUtils.radToDeg(leanEulerNode.x), passSpeed: passSpeed, passForce: calculateImpactForce(passSpeed), appliedForce: pkt.appliedForce,
+        stars: passRating.string, starColor: passRating.color, trailIndex: rawTracePoints.length - 1,
+        pivotQuat: iQuat, pivotPos: snapshotPos, extension: 0, time: globalHwTime,
+        isWhiff: false, estAccRange: accData.estAccRange, trueAccRange: accData.trueAccRange, trueLaunchDeg: accData.trueLaunchDeg,
+        estLaunchRads: accData.estLaunchRads, trueLaunchRads: accData.trueLaunchRads, maxAccRange: accData.trueAccRange,
+        estDist: estDist, pDelta: p_delta, rawBLE: finalRecord.rawBLE, isHit: isHit,
+        backArc: pkt.backArc, backswingTime: pkt.backswingTime, tempo: lastComputedTempo
+    };
+
+    let lastCast = castData[castData.length - 1];
+    if (lastCast && !lastCast.isStrike && Math.abs(globalHwTime - lastCast.time) < 250) {
+        castData[castData.length - 1] = newStrikeCast;
     } else {
-        calculatedPct = 0;
+        castData.push(newStrikeCast);
     }
 
-    calculatedPct = Math.round(calculatedPct);
-    calculatedPct = Math.max(0, Math.min(100, calculatedPct)); 
-
-    if (originalBatteryUpdate) originalBatteryUpdate(calculatedPct, isCharging, availStrikes);
-    window.lveBatteryVolts = (voltage_mV / 1000).toFixed(2) + "V";
-    window.lveBatteryPct = calculatedPct + "%";
-    window.lveIsCharging = isCharging ? "YES" : "NO";
-};
-
-const originalAppTelemetry = window.bleManager.onTelemetryData;
-
-// --- NEW: Global trackers for the HUD sleep timer ---
-window.lveLastActiveTime = Date.now();
-window.lveLastMag = 1.0;
-// ----------------------------------------------------
-
-window.bleManager.onTelemetryData = function(t) {
-    if (originalAppTelemetry) originalAppTelemetry(t);
-    
-    if (devHudEnabled) {
-        let debugDiv = document.getElementById('lve-diagnostic-hud-content');
-        if (debugDiv) {
-            let cleanNumber = (num) => {
-                if (num === undefined || num === null || isNaN(num)) return "+0.00";
-                let val = Number(num).toFixed(2);
-                if (val === "0.00" || val === "-0.00") return "+0.00"; 
-                return Number(val) > 0 ? "+" + val : val;
-            };
-            
-            let mag = Math.sqrt(t.ax*t.ax + t.ay*t.ay + t.az*t.az);
-            
-            // --- NEW: Calculate Time Remaining until Sleep ---
-            // If the mallet experiences a 0.05G shock, reset the sleep timer
-            if (Math.abs(mag - window.lveLastMag) > 0.05) {
-                window.lveLastActiveTime = Date.now();
-            }
-            window.lveLastMag = mag;
-
-           // Pull the user's saved timeout setting (defaulting to 5 minutes)
-            let timeoutMins = parseInt(document.getElementById('timeoutInput').value) || 5;
-            let secondsIdle = (Date.now() - window.lveLastActiveTime) / 1000;
-            let sleepRemaining = Math.max(0, (timeoutMins * 60) - secondsIdle);
-            
-            // --- FIX: Force the mallet to sleep when the app's timer hits zero ---
-            if (sleepRemaining <= 0 && window.bleManager && window.bleManager.device && window.bleManager.device.gatt.connected) {
-                sendBleCommand([88], true); // Command 'X' forces the hardware to power off
-                window.lveLastActiveTime = Date.now(); // Reset the timer so we don't spam the command
-            }
-            // ----------------------------------------------------------------------
-
-            let sleepMin = Math.floor(sleepRemaining / 60);
-            let sleepSec = Math.floor(sleepRemaining % 60).toString().padStart(2, '0');
-            let sleepStr = `${sleepMin}m ${sleepSec}s`;
-            // -------------------------------------------------
-
-            let calMat = typeof hardwareMountOffset !== 'undefined' ? hardwareMountOffset : {w:1, x:0, y:0, z:0};
-            let calQ = typeof lastRawQuat !== 'undefined' ? lastRawQuat : {w:1, x:0, y:0, z:0};
-
-            // Calculate Euler angles from the fully tared target quaternion
-            let taredQ = typeof targetQuaternion !== 'undefined' ? targetQuaternion : new THREE.Quaternion();
-            let euler = new THREE.Euler().setFromQuaternion(taredQ, 'YXZ');
-            let pitchDeg = THREE.MathUtils.radToDeg(euler.x);
-            let yawDeg = THREE.MathUtils.radToDeg(euler.y);
-            let rollDeg = THREE.MathUtils.radToDeg(euler.z);
-
-            debugDiv.innerHTML = `
-                <strong style="color:#fff;">--- LVE DIAGNOSTICS ---</strong><br><br>
-                
-                <strong style="color:#ef4444;">POWER MANAGEMENT:</strong><br>
-                Voltage: ${window.lveBatteryVolts} (${window.lveBatteryPct}) | Charging: ${window.lveIsCharging}<br>
-                Time to Sleep: ${sleepStr}<br><br>
-
-                <strong style="color:#32cd32;">RAW ACCELEROMETER:</strong><br>
-                X: ${cleanNumber(t.ax)} | Y: ${cleanNumber(t.ay)} | Z: ${cleanNumber(t.az)}<br>
-                Mag: ${cleanNumber(mag)} G<br><br>
-                
-                <strong style="color:#32cd32;">RAW SILICON QUATERNION:</strong><br>
-                W: ${cleanNumber(t.q0)} | X: ${cleanNumber(t.q1)}<br>
-                Y: ${cleanNumber(t.q2)} | Z: ${cleanNumber(t.q3)}<br><br>
-
-                <strong style="color:#f59e0b;">HARDWARE MATRIX (BASE):</strong><br>
-                W: ${cleanNumber(calMat.w)} | X: ${cleanNumber(calMat.x)}<br>
-                Y: ${cleanNumber(calMat.y)} | Z: ${cleanNumber(calMat.z)}<br><br>
-                
-                <strong style="color:#a855f7;">TARED ORIENTATION (DEG):</strong><br>
-                Pitch (X): ${cleanNumber(pitchDeg)}°<br>
-                Yaw (Y): ${cleanNumber(yawDeg)}°<br>
-                Roll (Z): ${cleanNumber(rollDeg)}°<br><br>
-
-                <strong style="color:#38bdf8;">FINAL UI QUATERNION:</strong><br>
-                W: ${cleanNumber(calQ.w)} | X: ${cleanNumber(calQ.x)}<br>
-                Y: ${cleanNumber(calQ.y)} | Z: ${cleanNumber(calQ.z)}
-            `;
-        }
-    }
+    if (!isDynamicCalibrationActive && !inGameMode) renderLiveCasts();
 };
 
 window.bleManager.onTraceData = (traceArray) => {
     console.log("Received pristine 160ms pre-impact hardware trace!");
     
-    // 1. Remove the overlap! The burst covers the last 160ms (roughly 4 low-res BLE frames).
-    // Trimming the arrays ensures the trace doesn't visually loop backward in time.
-    let framesToTrim = Math.min(4, rawTracePoints.length);
-    rawTracePoints.splice(-framesToTrim);
-    recordedFrames.splice(-framesToTrim);
+    // 1. Trim overlapping BLE frames by actual timestamp (156ms window) so traceArray[0] joins cleanly
+    if (rawTracePoints.length > 0) {
+        let lastTime = rawTracePoints[rawTracePoints.length - 1].time;
+        if (lastTime !== undefined) {
+            let trimCutoff = lastTime - 156;
+            let trimmed = 0;
+            while (rawTracePoints.length > 0 && trimmed < 8 && rawTracePoints[rawTracePoints.length - 1].time >= trimCutoff) {
+                rawTracePoints.pop();
+                recordedFrames.pop();
+                trimmed++;
+            }
+        } else {
+            let framesToTrim = Math.min(4, rawTracePoints.length);
+            rawTracePoints.splice(-framesToTrim);
+            recordedFrames.splice(-framesToTrim);
+        }
+    }
 
-    traceArray.forEach(q => {
+    // Drop the last 2 samples (0-4ms before trigger) which already contain the initial collision impulse,
+    // aligning the burst tip with the 8ms pre-shockwave pristine StrikePacket quaternion.
+    let cleanTrace = traceArray.slice(0, Math.max(1, traceArray.length - 2));
+    let startExt = recordedFrames.length > 0 ? (recordedFrames[recordedFrames.length - 1].extension || 0) : 0;
+
+    cleanTrace.forEach((q, idx) => {
         if (!q) return;
         
         let pureQ = new THREE.Quaternion(q.q1, q.q2, q.q3, q.q0);
-
-        // THE FIX: Apply the hardware calibration matrix to the high-speed trace frames!
-        pureQ.multiply(hardwareMountOffset);
 
         let orientedQ = new THREE.Quaternion(pureQ.y, -pureQ.z, -pureQ.x, pureQ.w).normalize();
         orientedQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
@@ -3061,10 +3406,27 @@ window.bleManager.onTraceData = (traceArray) => {
         
         let finalQuat = baseQuatInverse.clone().multiply(orientedQ);
         
-        // THE FIX: Track the center of the physical mallet mesh, not the shaft!
+        // Taper pre-burst extension smoothly to 0 at impact so there is no vertical step at the splice
+        let taper = cleanTrace.length > 1 ? (1.0 - idx / (cleanTrace.length - 1)) : 0;
+        let frameExt = startExt * taper;
+
+        // Match the wrist-pivot X-offset used during live telemetry so the burst splices seamlessly
+        let handleLen = AppConfig.handleLengthCm || 91.4;
+        let trueWristPivot = handleLen * 0.60;
+        let excessRadius = (loadedRadius + frameExt) - trueWristPivot;
+        let pivotX = 0;
+        let pivotY = pivotBaseY + frameExt;
+        if (excessRadius > 0) {
+            let shaftDirection = new THREE.Vector3(0, -1, 0).applyQuaternion(finalQuat);
+            pivotX = -excessRadius * shaftDirection.x;
+            pivotY -= excessRadius * (1.0 + shaftDirection.y);
+        }
+        let framePivotPos = new THREE.Vector3(pivotX, pivotY, 0);
+
+        // Track the center of the physical mallet mesh
         let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
-        let headOffset = new THREE.Vector3(0, -loadedRadius, meshShiftZ).applyQuaternion(finalQuat);
-        let trueHeadPos = new THREE.Vector3(0, pivotBaseY, 0).add(headOffset);
+        let headOffset = new THREE.Vector3(0, -(loadedRadius + frameExt), meshShiftZ).applyQuaternion(finalQuat);
+        let trueHeadPos = framePivotPos.clone().add(headOffset);
         
         rawTracePoints.push({
             pos: trueHeadPos,
@@ -3073,45 +3435,25 @@ window.bleManager.onTraceData = (traceArray) => {
             isForward: true
         });
 
-        // 2. Keep the replay system in sync!
         recordedFrames.push({
             rotation: finalQuat,
-            forceMag: currentSwingMaxG, // Fallback since trace packet lacks raw acceleration
+            forceMag: currentSwingMaxG,
             rawPtIndex: rawTracePoints.length,
-            pivotPos: new THREE.Vector3(0, pivotBaseY, 0),
-            extension: 0,
+            pivotPos: framePivotPos.clone(),
+            extension: frameExt,
             rawBLE: pureQ
         });
     });
 
-    // THE FIX: Sync the recorded strike cast to the newly injected pristine trace!
-    if (castData.length > 0) {
-        let strikeCast = castData.find(c => c.isStrike) || castData[castData.length - 1];
-        if (strikeCast) {
-            // 1. Shift the math index to the new end of the array
-            strikeCast.trailIndex = rawTracePoints.length - 1;
-            
-            // 2. Sync the 3D Face Position to the pristine hardware frame so the Sweet Spot Slide is perfectly calculated
-            let finalRecord = recordedFrames[recordedFrames.length - 1];
-            strikeCast.pivotQuat.copy(finalRecord.rotation);
-            
-            let faceOffset = new THREE.Vector3(0, -loadedRadius - strikeCast.extension, getDynamicFaceZ()).applyQuaternion(strikeCast.pivotQuat);
-            strikeCast.pos.copy(strikeCast.pivotPos).add(faceOffset);
-        }
-    }
-
-    // --- SHOCKWAVE-PROOF APPROACH ANGLE ---
+    // --- 1. SHOCKWAVE-PROOF APPROACH & STRIKE ANGLE (UP / DOWN) ---
     let totalPts = rawTracePoints.length;
-    // 1. Back away from the final frame to avoid the physical collision twist
-    let preImpactIdx = totalPts - 3; 
-    // 2. Go back far enough to get a clean, straight 10-frame baseline
-    let pastIdx = totalPts - 13; 
+    let preImpactIdx = totalPts - 2; 
+    let pastIdx = totalPts - 8; 
     
     if (pastIdx >= 0 && preImpactIdx > pastIdx) {
         let pastPos = rawTracePoints[pastIdx].pos;
         let preImpactPos = rawTracePoints[preImpactIdx].pos;
         
-        // Convert world positions into your local Tare alignment before doing the math!
         ghostBlock.updateMatrixWorld(true);
         let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
         
@@ -3119,11 +3461,42 @@ window.bleManager.onTraceData = (traceArray) => {
         let localImpact = preImpactPos.clone().applyMatrix4(ghostInvMat);
         
         let dx = localImpact.x - localPast.x; 
+        let dy = localImpact.y - localPast.y;
         let dz = localImpact.z - localPast.z; 
         
-        // Only calculate if the mallet physically traveled forward enough to form a stable vector
         if (Math.abs(dz) > 0.01) {
             window.pristinePathAngleRads = Math.atan2(dx, Math.abs(dz));
+            window.pristineAoARads = Math.atan2(dy, Math.abs(dz));
+            currentSwingAoA = THREE.MathUtils.radToDeg(window.pristineAoARads);
+        }
+
+        // Advance the 8ms pre-trigger impact pose to actual ball contact using clean pre-impact rotation rate
+        if (totalPts >= 5) {
+            let qEarly = rawTracePoints[totalPts - 4].rot;
+            let qLate = rawTracePoints[totalPts - 1].rot;
+            let step12ms = qEarly.clone().invert().multiply(qLate);
+            window.pristineStep8ms = new THREE.Quaternion().slerp(step12ms, 2.0 / 3.0);
+            if (window.pristineImpactQuat) {
+                window.pristineImpactQuat = window.pristineImpactQuat.clone().multiply(window.pristineStep8ms).normalize();
+            }
+        }
+    }
+
+    // --- 2. ANCHOR STRIKE CAST TO THE EXACT IMPACT FRAME (END OF 40-POINT BURST) ---
+    let finalRecord = recordedFrames[recordedFrames.length - 1];
+    window.lastBurstFinalRecord = finalRecord;
+    if (finalRecord && window.pendingStrikePacket && !window.strikeCastGenerated) {
+        window.createStrikeCastFromBurst(finalRecord, window.pendingStrikePacket);
+    } else if (castData.length > 0 && finalRecord) {
+        let lastCast = castData[castData.length - 1];
+        let strikeCast = castData.find(c => c.isStrike) || (Math.abs(globalHwTime - lastCast.time) < 250 ? lastCast : null);
+        if (strikeCast) {
+            strikeCast.trailIndex = rawTracePoints.length - 1;
+            strikeCast.pivotQuat.copy(finalRecord.rotation);
+            strikeCast.pivotPos.copy(finalRecord.pivotPos);
+
+            let faceOffset = new THREE.Vector3(0, -loadedRadius - strikeCast.extension, AppConfig.offsetZCm).applyQuaternion(strikeCast.pivotQuat);
+            strikeCast.pos.copy(strikeCast.pivotPos).add(faceOffset);
         }
     }
 
@@ -3134,12 +3507,6 @@ window.fetchCloudMatches = fetchCloudMatches;
 window.fetchCloudStrikes = fetchCloudStrikes;
 window.openMatchEdit = openMatchEdit;
 window.deleteCloudSession = deleteCloudSession; 
-
-window.syncHardwareOffsetFromCloud = function(x, y, z, w) {
-    hardwareMountOffset.set(x, y, z, w);
-    updateMalletScale();
-    saveSettings();
-};
 
 document.getElementById('training-tab-content').addEventListener('click', (e) => {
     const replayBtn = e.target.closest('.replay-btn');

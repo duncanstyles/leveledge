@@ -345,7 +345,7 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
         let qInterp = new THREE.Quaternion().copy(q1).slerp(q2, lerpFactor);
         
         let vNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(qInterp);
-        let faceCenter = smoothPoints[i].clone().add(vNormal.clone().multiplyScalar(activeOffsetZ));
+        let faceCenter = smoothPoints[i].clone().add(vNormal.clone().multiplyScalar(malletHalfLength));
 
         // --- THE VISUAL BREAK LOGIC ---
         if (hideBackswing && !pts[idx1].isForward) {

@@ -6,7 +6,7 @@
     <title>LevelEdge AI</title>
     <script>
         // UPDATE THE VERSION HERE
-        const APP_VERSION = "9.8.03"; // Change this single variable to update the version everywhere
+        const APP_VERSION = "9.8.06"; // Change this single variable to update the version everywhere
         
         document.addEventListener("DOMContentLoaded", () => {
             document.title = `LevelEdge v${APP_VERSION}`;
@@ -108,24 +108,6 @@
         <div class="instructions">`Version ${APP_VERSION}`</div>
     </div>
 
-    <div id="alignment-panel">
-        <h3 style="margin-top:0; font-size:1.1rem; color:var(--text-main); text-transform:uppercase;">Align Target Line</h3>
-        <p style="font-size:0.75rem; color:var(--text-muted); margin-bottom:15px;">Rotate the environment grid to perfectly match your physical swing path.</p>
-        
-        <button id="snapYawBtn" class="btn-primary" style="font-size: 0.8rem; padding: 8px; margin-bottom: 15px;">SNAP GRID TO SWING PATH</button>
-
-        <div>
-            <label for="spinY" style="font-size:0.7rem; font-family:var(--font-mono); color:var(--accent-primary); display:block; margin-bottom:4px; text-align:center;">TARGET LINE YAW</label>
-            <input type="range" id="spinY" min="-45" max="45" step="0.5" value="0.0" style="width:100%;">
-            <div id="spinYValue" class="tune-val-box mt-2">0.0°</div>
-        </div>
-        
-        <div style="display:flex; gap:10px; margin-top:20px;">
-            <button id="cancelTuneBtn" class="btn-primary btn-danger btn-small" style="flex:1;">CANCEL</button>
-            <button id="saveTuneBtn" class="btn-primary btn-success btn-small" style="flex:1;">SAVE OFFSET</button>
-        </div>
-    </div>
-
     <div id="game-mode-dashboard" class="hidden flex-col items-center justify-center w-full" style="position:fixed; top:60px; height:calc(100vh - 60px);">
         <h1 class="gm-title text-accent font-800 uppercase text-center mb-2">Match in Progress</h1>
         <div class="status-pulse" style="width: 30px; height: 30px; background: var(--success); border-radius: 50%; margin: 20px 0; animation: pulse 2s infinite;"></div>
@@ -194,9 +176,6 @@
                     <input type="checkbox" id="toggleForwardOnly" checked>
                     Hide Backswing
                 </label> -->
-                <button id="enterTuningBtn" class="vis-toggle hidden" title="Tune Matrix" style="color: var(--warning); border-color: var(--warning);">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
-                </button>
             </div>
 
             <div id="live-tracking-card" class="history-card hidden">
@@ -205,7 +184,7 @@
                     <span id="live-tempo" class="swing-time text-accent font-bold">-- BPM</span>
                 </div>
                 <div class="live-stat-row" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px;">
-                    <div class="stat-block"><span class="stat-lbl">Speed</span><span id="live-speed" class="stat-val">0 m/s</span></div>
+                    <div class="stat-block"><span class="stat-lbl">Speed</span><span id="live-speed" class="stat-val">0 kph</span></div>
                     <div class="stat-block"><span class="stat-lbl">Force (N)</span><span id="live-force" class="stat-val">0 N</span></div>
                     <!-- <div class="stat-block"><span class="stat-lbl">Deviation</span><span id="live-dev" class="stat-val">-- cm</span></div> -->
                     <div class="stat-block"><span class="stat-lbl">Lean</span><span id="live-lean" class="stat-val">--°</span></div>           
@@ -268,9 +247,9 @@
                 <div class="setting-item" style="padding: 8px;">
                     <label for="trainerDistSetup" class="flex justify-between" style="font-size: 0.85rem;">
                         <span>Target Distance (m):</span>
-                        <span id="trainerDistLabel" class="text-accent font-bold">10.0</span>
+                        <span id="trainerDistLabel" class="text-accent font-bold">5</span>
                     </label>
-                    <input type="range" id="trainerDistSetup" min="1" max="40" step="0.5" value="10" style="padding: 0; margin-top: 5px;">
+                    <input type="range" id="trainerDistSetup" min="1" max="25" step="1" value="5" style="padding: 0; margin-top: 5px;">
                 </div>
                 
                 <div class="setting-item setting-checkbox" style="padding: 8px;">
@@ -280,7 +259,7 @@
                 
                 <div class="setting-item flex justify-between items-center" style="padding: 8px; display: flex; flex-direction: row;">
                     <label for="practiceInput" style="font-size: 0.85rem; margin: 0;">Shot Clock (s)</label>
-                    <input type="number" id="practiceInput" value="10.0" step="0.5" style="padding: 4px; width: 70px; text-align: right; margin: 0;">
+                    <input type="number" id="practiceInput" value="10.0" step="1" style="padding: 4px; width: 70px; text-align: right; margin: 0;">
                 </div>
                 
                 <div class="setting-item setting-checkbox" style="padding: 8px;">
@@ -462,9 +441,28 @@
                 <h2>MALLET</h2>
                 <button id="closeMalletBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
             </div>
+
+            <!-- Cloud Mallet Bag & Hardware Status -->
+            <div class="mb-4 p-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="font-mono text-muted" style="font-size: 0.72rem;" id="malletMacDisplay">HW ID: Not Connected</span>
+                    <span id="malletCalibBadge" class="font-mono font-bold text-warning" style="font-size: 0.75rem;">● UNCALIBRATED</span>
+                </div>
+                <div class="setting-item">
+                    <label for="activeMalletSelect">Saved Mallets (Your Bag):</label>
+                    <select id="activeMalletSelect">
+                        <option value="">-- Connect Mallet or Log In --</option>
+                    </select>
+                </div>
+                <div id="sharedMalletActions" class="hidden mt-2 flex justify-between items-center">
+                    <span class="text-accent font-bold" style="font-size: 0.75rem;">Shared Mallet</span>
+                    <button id="removeMalletFromBagBtn" class="btn-primary btn-danger btn-small" style="font-size: 0.72rem; padding: 4px 10px;">Remove From Bag</button>
+                </div>
+            </div>
+
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                 <div class="setting-item span-2"><label for="malletNameInput">Profile Name:</label><input type="text" id="malletNameInput" value="Primary Mallet"></div>
-                <div class="setting-item"><label for="handleLengthInput">Handle Length (cm):</label><input type="number" id="handleLengthInput" value="90.0" step="0.5"></div>
+                <div class="setting-item"><label for="handleLengthInput">Handle Length (cm):</label><input type="number" id="handleLengthInput" value="91.4" step="0.5"></div>
                 <div class="setting-item"><label for="malletLengthInput">Head Length (cm):</label><input type="number" id="malletLengthInput" value="27.6" step="0.1"></div>
                 <div class="setting-item"><label for="malletWidthInput">Face Width (cm):</label><input type="number" id="malletWidthInput" value="6.0" step="0.1"></div>
                 <div class="setting-item"><label for="massInput">Mallet Mass (g):</label><input type="number" id="massInput" value="1000" step="50"></div>
@@ -480,10 +478,10 @@
                     <label for="sweetSpotInput">Sweet Spot (±cm):</label>
                     <input type="number" id="sweetSpotInput" value="1.5" step="0.1">
                 </div>
-                
+
                 <div class="setting-item setting-checkbox span-2">
-                    <label for="allowRealtimeTuningCheck">Allow Realtime Tuning:</label>
-                    <input type="checkbox" id="allowRealtimeTuningCheck">
+                    <label for="allowSharingCheck">Allow Other Players to Share:</label>
+                    <input type="checkbox" id="allowSharingCheck" checked>
                 </div>
                 
                 <div class="setting-item span-2 mt-2 flex-col gap-2">
@@ -556,12 +554,11 @@
     <dialog id="system-modal" class="modal">
         <div class="settings-container">
             <div class="modal-header">
-                <h2>SYSTEM & ALGORITHMS</h2>
+                <h2>SYSTEM CONFIG</h2>
                 <button id="closeSystemBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
             </div>
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
                 <div class="setting-item setting-checkbox span-2"><label for="ledGuidanceCheck">Real-Time LED Guidance:</label><input type="checkbox" id="ledGuidanceCheck" checked></div>
-                <div class="setting-item"><label for="impactInput">Impact Jerk (ΔG):</label><input type="number" id="impactInput" value="1.5" step="0.5"></div>
                 
                 <div class="setting-item span-2">
                     <label for="lawnSpeedInput" class="flex justify-between">
@@ -579,8 +576,6 @@
                 </div>
 
                 <div class="setting-item"><label for="timeoutInput">Sleep Timeout (mins):</label><input type="number" id="timeoutInput" value="5" step="1"></div>
-                <div class="setting-item"><label for="durationInput">Follow-Thru Rec (s):</label><input type="number" id="durationInput" value="1.0" step="0.1"></div>
-                <div class="setting-item"><label for="flatMagInput">Visual Delta Mag (x):</label><input type="number" id="flatMagInput" value="1.0" step="0.5"></div>
                 <div class="setting-item setting-checkbox span-2"><label for="showTraceCheck">Render 3D Trace:</label><input type="checkbox" id="showTraceCheck" checked></div>
                 
                 <div class="setting-item mt-2"><button id="btnUpdateFW" class="btn-primary">Sync FW</button></div>
@@ -658,7 +653,7 @@
             <div class="font-mono mb-5" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
                 Offline Strokes: <span id="about-storage-display" class="text-accent">--</span><br>
-                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 9.7.02</span>
+                <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 9.8.03</span>
             </div>
             <div class="text-muted line-height-15" style="font-size: 0.8rem;">
                 &copy; Duncan Styles<br>
@@ -685,6 +680,12 @@
                 <div class="setting-item setting-checkbox" style="background: rgba(0,0,0,0.05); padding: 10px; border-radius: 8px;">
                     <label for="showCloudDataCheck" class="text-warning font-bold">Show Raw Cloud Data</label>
                     <input type="checkbox" id="showCloudDataCheck">
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 5px 0;">
+                    <div class="setting-item"><label for="impactInput">Impact Jerk (ΔG):</label><input type="number" id="impactInput" value="1.5" step="0.5"></div>
+                    <div class="setting-item"><label for="durationInput">Follow-Thru Rec (s):</label><input type="number" id="durationInput" value="1.0" step="0.1"></div>
+                    <div class="setting-item"><label for="flatMagInput">Visual Delta Mag (x):</label><input type="number" id="flatMagInput" value="1.0" step="0.5"></div>
                 </div>
 
                 <button id="toggleDiagnosticHudBtn" class="btn-primary">TOGGLE KINEMATIC HUD</button>

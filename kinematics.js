@@ -41,18 +41,18 @@ export function calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwistDegPe
     let faceWidthCM = parseFloat(document.getElementById('malletWidthInput').value) || 6.0; 
     let isWhiff = Math.abs(strikeX) >= (faceWidthCM / 2.0);
     let ssTolerance = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
-    let estAccRange = 0.0; let trueAccRange = 0.0; let trueLaunchDeg = locTwist; let estLaunchThetaRads = 0; let trueLaunchThetaRads = 0;
+    let estAccRange = 0.0; let trueAccRange = 0.0; let trueLaunchDeg = locTwist; let estLaunchThetaRads = 0; let trueLaunchThetaRads = 0; let collisionDeflection = 0;
     if (!isWhiff) {
         let faceAngleRads = locTwist * (Math.PI / 180.0); estLaunchThetaRads = faceAngleRads;
         if (Math.abs(strikeX) > ssTolerance) { estLaunchThetaRads = (0.80 * faceAngleRads) + (0.20 * pathAngleRads); }
         if (Math.abs(estLaunchThetaRads) < 0.0001) estAccRange = 35.0; else estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(estLaunchThetaRads)));
-        let twistMagnitude = Math.abs(maxTwistDegPerSec); let collisionDeflection = twistMagnitude * (dwellMs / 1000.0); if (strikeX < 0) collisionDeflection = -collisionDeflection; 
+        let twistMagnitude = Math.abs(maxTwistDegPerSec); collisionDeflection = twistMagnitude * (dwellMs / 1000.0); if (strikeX < 0) collisionDeflection = -collisionDeflection; 
         let dynamicFaceAngleRads = (locTwist + (collisionDeflection * 0.5)) * (Math.PI / 180.0); trueLaunchThetaRads = dynamicFaceAngleRads;
         if (Math.abs(strikeX) > ssTolerance) { trueLaunchThetaRads = (0.80 * dynamicFaceAngleRads) + (0.20 * pathAngleRads); }
         trueLaunchDeg = trueLaunchThetaRads * (180.0 / Math.PI);
         if (Math.abs(trueLaunchThetaRads) < 0.0001) trueAccRange = 35.0; else trueAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(trueLaunchThetaRads)));
     }
-    return { isWhiff, estAccRange, trueAccRange, trueLaunchDeg, estLaunchRads: estLaunchThetaRads, trueLaunchRads: trueLaunchThetaRads };
+    return { isWhiff, estAccRange, trueAccRange, trueLaunchDeg, estLaunchRads: estLaunchThetaRads, trueLaunchRads: trueLaunchThetaRads, collisionDeflection };
 }
 
 export function calculateImpactForce(speedMps) { 
@@ -104,15 +104,18 @@ export function calculateTrueDwell(zVel, peakG, massKg) {
 }
 
 export function calculateOffCenterImpact(peakTwistDegPerSec, speedMps) {
-    // Prevent division by zero and filter out noise from tiny taps
-    if (speedMps <= 0.5 || !peakTwistDegPerSec) return 0; 
+    if (speedMps <= 0.5 || Math.abs(peakTwistDegPerSec) < 10) return 0; 
     
-    // The constant 0.1125 is an empirical baseline for a standard 1kg mallet.
-    // It scales the ratio of angular velocity to linear velocity into millimeters.
-    let distanceMm = (Math.abs(peakTwistDegPerSec) / speedMps) * 0.1125;
+    let distanceMm = (peakTwistDegPerSec / speedMps) * 0.1125;
     
-    // Cap at 30mm (the physical edge of a standard 6cm wide mallet face)
-    return Math.min(distanceMm, 30.0); 
+    // Dynamically calculate the physical edge based on stored mallet width
+    let faceWidthCM = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
+    let maxDeviationMm = (faceWidthCM * 10.0) / 2.0;
+    
+    if (distanceMm > maxDeviationMm) return maxDeviationMm;
+    if (distanceMm < -maxDeviationMm) return -maxDeviationMm;
+    
+    return distanceMm; 
 }
 
 export function anchorSwingToImpact(swing) {

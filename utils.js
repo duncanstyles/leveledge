@@ -31,7 +31,7 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
     let f2tStr = `${rF2t > 0 ? '+' : ''}${rF2t}°`;
     let f2pStr = `${rF2p > 0 ? '+' : ''}${rF2p}°`;
 
-    let speedStr = `Vel: ${(c.passSpeed || 0).toFixed(1)}m/s`;
+    let speedStr = `Vel: ${((c.passSpeed || 0) * 3.6).toFixed(1)}kph`;
     
     let starDisplay = c.stars !== "" ? `<span style="color: ${c.starColor};" class="font-bold">${c.stars}</span>` : `<span class="text-muted">-</span>`;
     let prefix = c.isStrike ? "STRIKE" : (castIndex + 1);
@@ -41,8 +41,13 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
     let devMm = Math.round((c.dev || 0) * 10);
     let devDisplay = `${c.dir || 'C'} ${devMm}mm`;
     
-    // --- NEW: Format Lean ---
+    // --- NEW: Format Lean & Strike Angle ---
     let leanDisplay = c.lean !== undefined ? `${c.lean.toFixed(1)}° ${c.leanDir}`.trim() : `--`;
+    
+    let hasAoa = c.aoaDeg !== undefined && c.aoaDeg !== null;
+    let aoaVal = hasAoa ? c.aoaDeg : 0;
+    let aoaDir = Math.abs(aoaVal) < 0.2 ? 'Level' : (aoaVal > 0 ? 'Up' : 'Down');
+    let aoaDisplay = hasAoa ? `${aoaVal > 0.1 ? '+' : ''}${aoaVal.toFixed(1)}° ${aoaDir}` : `N/A`;
     
     let distStr = c.estDist ? `Dst: ${Math.round(c.estDist)}m` : `Dst: 0m`;
     
@@ -69,8 +74,8 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
         <!-- DETAILS ROW (Hidden Accordion) -->
         <div class="cast-details flex-col mt-2 pt-2" style="display: none; border-top: 1px dashed var(--border-color);">
             <div class="flex justify-between items-center text-muted font-normal mt-1">
-                <!-- <span style="flex: 1; text-align: left;">Dev: ${devDisplay}</span> -->
                 <span style="flex: 1; text-align: left;">Lean: ${leanDisplay}</span>
+                <span style="flex: 1; text-align: center;">AoA: ${aoaDisplay}</span>
                 <span style="flex: 1; text-align: right;">Tgt: ${f2tStr}</span>
             </div>
         
