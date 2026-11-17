@@ -23,7 +23,7 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
     let pathDeg = (c.pathAngleRads || 0) * (180 / Math.PI);
     let f2p = f2t - pathDeg; 
     
-    let arcStr = c.backArc ? `Arc: ${c.backArc.toFixed(1)}cm` : `Arc: --`;
+    let arcStr = c.backArc ? `Arc: ${Math.round(c.backArc)}cm` : `Arc: --`;
     let upTimeStr = c.backswingTime ? `Up: ${c.backswingTime}ms` : `Up: --`;
 
     let rF2t = Math.round(f2t || 0);

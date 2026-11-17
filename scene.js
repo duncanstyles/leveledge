@@ -24,14 +24,44 @@ export const targetEnvironmentGroup = new THREE.Group();
 export let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 })); 
 export let floorGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
 
-// Create the vertical grid
-export let verticalGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
-// Rotate 90 degrees on the Z-axis to stand it up perfectly along the swing path
-verticalGrid.rotation.z = Math.PI / 2;
-// Stretch it to be twice as long (200 units) without changing the 100-unit height
-verticalGrid.scale.z = 2;
-// Hide it by default
-verticalGrid.visible = false;
+function createScaledVerticalGrid(heightCm = 75, lengthCm = 200, stepCm = 2.5, centerColor = 0x38bdf8, gridColor = 0x94a3b8) {
+    const halfH = heightCm / 2;
+    const halfL = lengthCm / 2;
+    const cols = Math.round(lengthCm / stepCm);
+    const rows = Math.round(heightCm / stepCm);
+
+    const positions = [];
+    const colors = [];
+    const cCenter = new THREE.Color(centerColor);
+    const cGrid = new THREE.Color(gridColor);
+
+    // Vertical lines along the swing path (Z)
+    for (let i = 0; i <= cols; i++) {
+        const z = -halfL + i * stepCm;
+        const col = Math.abs(z) < 0.001 ? cCenter : cGrid; // Highlight z = 0 impact line
+        positions.push(0, -halfH, z, 0, halfH, z);
+        colors.push(col.r, col.g, col.b, col.r, col.g, col.b);
+    }
+
+    // Horizontal height lines (Y)
+    for (let j = 0; j <= rows; j++) {
+        const y = -halfH + j * stepCm;
+        positions.push(0, y, -halfL, 0, y, halfL);
+        colors.push(cGrid.r, cGrid.g, cGrid.b, cGrid.r, cGrid.g, cGrid.b);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+    const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.25 });
+    const grid = new THREE.LineSegments(geo, mat);
+    grid.visible = false;
+    return grid;
+}
+
+// Create the 75cm high x 200cm long vertical grid (5cm x 5cm squares to match floorGrid)
+export let verticalGrid = createScaledVerticalGrid(150, 300, 5);
 
 export let targetArrow = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -20), 40, 0xef4444, 4, 3);
 export let virtualBall = new THREE.Mesh(new THREE.SphereGeometry(4.6, 8, 6), new THREE.MeshBasicMaterial({ color: 0x0284c7, wireframe: true, transparent: true, opacity: 0.6 }));

@@ -1,5 +1,5 @@
 // cloud.js
-import { difficultyMatrix, getStarRating, getShaftTwist, calculateTrueDwell } from './kinematics.js';
+import { difficultyMatrix, getStarRating, getShaftTwist, calculateTrueDwell, calculatePendulumDelta } from './kinematics.js';
 import { showToast, formatOffset, buildCastRowHTML } from './utils.js';
 
 const SUPABASE_URL = 'https://ymqqthvgfsrdmairukfi.supabase.co';
@@ -696,8 +696,8 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
         let decelHtml = `<span style="color:${decelColor};">${decelVal > 0 ? '+' : ''}${decelVal}%</span>`;
         let downHtml = `${downVal} ms`;
 
-        let sRad = parseFloat(document.getElementById('radiusInput').value) || 127;
-        let dsPDelta = downVal > 0 ? (9.81 * Math.pow((2 * (downVal / 1000.0)) / Math.PI, 2) * 100.0) - sRad : null;
+        let handleLen = parseFloat(document.getElementById('handleLengthInput')?.value) || activeMallet?.handle_length_cm || 91.4;
+        let dsPDelta = downVal > 0 ? calculatePendulumDelta(4.0 * (downVal / 1000.0), handleLen) : null;
         let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
 
         let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); 
