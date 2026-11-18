@@ -162,8 +162,8 @@ function addTwistVertex(idx, pos, r, g, b) {
     twistRibbonColors[idx * 3] = r; twistRibbonColors[idx * 3 + 1] = g; twistRibbonColors[idx * 3 + 2] = b;
 }
 
-// Base Center Line
-export const trailLine = new THREE.Line(trailGeometry, new THREE.LineBasicMaterial({ vertexColors: true, linewidth: 3, transparent: true, opacity: 0.9 }));
+// Base Center Line (3D Tube matching Optimum Swing Arc 0.15cm radius)
+export const trailLine = new THREE.Mesh(trailGeometry, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }));
 trailLine.frustumCulled = false;
 
 export function initScene() {
@@ -323,14 +323,86 @@ export function drawStrikeLaser(cast) {
     impactLasers.push(laserMesh); 
 }
 
+function rebuildTraceTube(pts, hideBackswing) {
+    let runs = [];
+    let currentRun = [];
+
+    for (let i = 0; i < pts.length; i++) {
+        let p = pts[i];
+        if (hideBackswing && !p.isForward) {
+            if (currentRun.length >= 2) runs.push(currentRun);
+            currentRun = [];
+        } else {
+            let q = p.rot || new THREE.Quaternion();
+            let vNormal = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+            currentRun.push({
+                facePos: p.pos.clone().addScaledVector(vNormal, malletHalfLength),
+                color: p.color
+            });
+        }
+    }
+    if (currentRun.length >= 2) runs.push(currentRun);
+
+    let allPositions = [];
+    let allColors = [];
+    let allIndices = [];
+    let vertexOffset = 0;
+    const radialSegments = 8;
+
+    for (let r = 0; r < runs.length; r++) {
+        let run = runs[r];
+        let segCurve = new THREE.CatmullRomCurve3(run.map(item => item.facePos), false, 'centripetal', 0.5);
+        let segSteps = Math.min(1500, Math.max(2, (run.length - 1) * 3));
+        let tube = new THREE.TubeGeometry(segCurve, segSteps, 0.10, radialSegments, false);
+
+        let posArr = tube.attributes.position.array;
+        for (let k = 0; k < posArr.length; k++) allPositions.push(posArr[k]);
+
+        for (let s = 0; s <= segSteps; s++) {
+            let t = s / segSteps;
+            let rawIdx = t * (run.length - 1);
+            let i1 = Math.floor(rawIdx);
+            let i2 = Math.min(run.length - 1, Math.ceil(rawIdx));
+            let f = rawIdx - i1;
+            let c1 = run[i1].color;
+            let c2 = run[i2].color;
+            let cR = c1.r + (c2.r - c1.r) * f;
+            let cG = c1.g + (c2.g - c1.g) * f;
+            let cB = c1.b + (c2.b - c1.b) * f;
+
+            for (let v = 0; v <= radialSegments; v++) {
+                allColors.push(cR, cG, cB);
+            }
+        }
+
+        let idxArr = tube.index.array;
+        for (let k = 0; k < idxArr.length; k++) allIndices.push(idxArr[k] + vertexOffset);
+
+        vertexOffset += tube.attributes.position.count;
+        tube.dispose();
+    }
+
+    let mergedGeo = new THREE.BufferGeometry();
+    if (allPositions.length > 0) {
+        mergedGeo.setAttribute('position', new THREE.Float32BufferAttribute(allPositions, 3));
+        mergedGeo.setAttribute('color', new THREE.Float32BufferAttribute(allColors, 3));
+        mergedGeo.setIndex(allIndices);
+    }
+    if (trailLine.geometry) trailLine.geometry.dispose();
+    trailLine.geometry = mergedGeo;
+}
+
 export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
     let pts = rawTracePoints.slice(0, limitIndex); 
     if (pts.length < 2) { 
-        trailGeometry.setDrawRange(0, 0); 
+        if (trailLine.geometry) trailLine.geometry.dispose();
+        trailLine.geometry = new THREE.BufferGeometry();
         ribbonGeometry.setDrawRange(0, 0);
         twistRibbonGeometry.setDrawRange(0, 0);
         return; 
     }
+    let hideBackswingEl = document.getElementById('hideBackswingCheck');
+    rebuildTraceTube(pts, hideBackswingEl ? hideBackswingEl.checked : true);
     
     let curve = new THREE.CatmullRomCurve3(pts.map(p => p.pos), false, 'centripetal', 0.5);
     let sampleCount = pts.length * 3; 
@@ -483,15 +555,17 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
     twistRibbonGeometry.setDrawRange(0, twistVertexIndex);
 }
 
-export function rebuildArcPts(radius) {
+export function rebuildArcPts(radius, halfAngleDeg = 60) {
     let arcPts = []; 
     // Shift the origin of the perfect ghost arc forward by malletHalfLength
     let baseVec = new THREE.Vector3(0, -radius, activeOffsetZ); 
+    let maxDeg = Math.max(10, Math.min(110, halfAngleDeg || 60));
+    let step = Math.max(1, maxDeg / 30);
     
-    for(let i=-60; i<=60; i+=2) { 
-            let a = THREE.MathUtils.degToRad(i); 
-            let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); 
-            arcPts.push(v);
+    for (let aDeg = -maxDeg; aDeg <= maxDeg + 0.001; aDeg += step) { 
+        let a = THREE.MathUtils.degToRad(aDeg); 
+        let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); 
+        arcPts.push(v);
     }
     let curve = new THREE.CatmullRomCurve3(arcPts); let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false); 
     if (ghostRail.geometry) ghostRail.geometry.dispose(); ghostRail.geometry = tubeGeo;

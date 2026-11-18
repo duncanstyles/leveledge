@@ -831,8 +831,35 @@ function updateLawnSpeedLabel() {
     }
 }
 
+function getOptimumArcHalfAngleDeg(radiusCm) {
+    let targetDist = inGameMode
+        ? (parseFloat(document.getElementById('matchDistSetup')?.value) || 10.0)
+        : (parseFloat(document.getElementById('trainerDistSetup')?.value) || 5.0);
+    let lawnSpd = inGameMode
+        ? (parseFloat(document.getElementById('matchLawnSetup')?.value) || AppConfig.lawnSpeed || 10.0)
+        : (AppConfig.lawnSpeed || 10.0);
+    let massKg = AppConfig.massKg || 1.0;
+    let radiusM = (radiusCm || loadedRadius || 127) / 100.0;
+
+    let lawnMult = Math.max(0.1, 0.50 + (lawnSpd - 10.0) * 0.075);
+    let reqBallSpeed = Math.sqrt(Math.max(0.1, targetDist) / lawnMult);
+    let reqMalletSpeed = reqBallSpeed * (massKg + 0.454) / (1.8 * massKg);
+
+    let oneMinusCos = (reqMalletSpeed * reqMalletSpeed) / (2.0 * 9.81 * radiusM);
+    let baseThetaRad = oneMinusCos >= 1.0
+        ? (Math.PI / 2.0)
+        : Math.acos(Math.max(-1.0, 1.0 - oneMinusCos));
+
+    let arcLengthM = (baseThetaRad * radiusM) * 1.25;
+    let arcAngleDeg = THREE.MathUtils.radToDeg(arcLengthM / radiusM);
+    return Math.max(15, Math.min(110, arcAngleDeg));
+}
+
 let lawnInput = document.getElementById('lawnSpeedInput');
-if (lawnInput) lawnInput.addEventListener('input', updateLawnSpeedLabel);
+if (lawnInput) lawnInput.addEventListener('input', () => {
+    updateLawnSpeedLabel();
+    rebuildArcPts(loadedRadius, getOptimumArcHalfAngleDeg(loadedRadius));
+});
 
 function updateMatchLawnSpeedLabel() {
     let el = document.getElementById('matchLawnSetup'); 
@@ -844,18 +871,23 @@ function updateMatchLawnSpeedLabel() {
     }
 }
 let matchLawnInput = document.getElementById('matchLawnSetup');
-if (matchLawnInput) matchLawnInput.addEventListener('input', updateMatchLawnSpeedLabel);
+if (matchLawnInput) matchLawnInput.addEventListener('input', () => {
+    updateMatchLawnSpeedLabel();
+    rebuildArcPts(loadedRadius, getOptimumArcHalfAngleDeg(loadedRadius));
+});
 
 let matchDistInput = document.getElementById('matchDistSetup');
 if (matchDistInput) matchDistInput.addEventListener('input', (e) => {
     let lbl = document.getElementById('matchDistLabel');
     if (lbl) lbl.innerText = parseFloat(e.target.value).toFixed(1);
+    rebuildArcPts(loadedRadius, getOptimumArcHalfAngleDeg(loadedRadius));
 });
 
 let trainerDistInput = document.getElementById('trainerDistSetup');
 if (trainerDistInput) trainerDistInput.addEventListener('input', (e) => {
     let lbl = document.getElementById('trainerDistLabel');
     if (lbl) lbl.innerText = parseFloat(e.target.value).toFixed(1);
+    rebuildArcPts(loadedRadius, getOptimumArcHalfAngleDeg(loadedRadius));
 });
 
 window.addEventListener('beforeunload', () => { window.bleManager.disconnect(); });
@@ -919,7 +951,7 @@ function updateMalletScale() {
     faceTrackerNode.position.set(0, 0, offsetZ);
     
     updateSystemGeometry(); 
-    rebuildArcPts(loadedRadius);
+    rebuildArcPts(loadedRadius, getOptimumArcHalfAngleDeg(loadedRadius));
 }
 
 window.applyMalletToUI = function(mallet, isConnectedToThisMallet = false) {
@@ -1195,6 +1227,7 @@ document.getElementById('optimumArcToggle').addEventListener('change', (e) => {
 
 document.getElementById('hideBackswingCheck').addEventListener('change', (e) => {
     syncAppConfig();
+    document.getElementById('toggleBackswing')?.classList.toggle('active', !e.target.checked);
     if (rawTracePoints.length > 0) updateSmoothTrail(); // Instantly redraws the line
 });
 
@@ -1357,7 +1390,7 @@ updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); co
 if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5;
 if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1;
 
-if (rInput) { rInput.addEventListener('change', (e) => { let newRadius = parseFloat(e.target.value); if (newRadius < 50) { newRadius = 50; e.target.value = 50; } setLoadedRadius(newRadius); updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update(); rebuildArcPts(newRadius); if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5; if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1; }); }
+if (rInput) { rInput.addEventListener('change', (e) => { let newRadius = parseFloat(e.target.value); if (newRadius < 50) { newRadius = 50; e.target.value = 50; } setLoadedRadius(newRadius); updateSystemGeometry(); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update(); rebuildArcPts(newRadius, getOptimumArcHalfAngleDeg(newRadius)); if(tableMesh) tableMesh.position.y = pivotBaseY - loadedRadius - 1.5; if(headingArrow) headingArrow.position.y = pivotBaseY - loadedRadius - 1; }); }
 
 const scrubberInput = document.getElementById('replayScrubber');
 if (scrubberInput) {
@@ -2307,7 +2340,7 @@ function handleParsedTelemetry(t) {
             let prependedPts = [];
             let prependedFrames = [];
             preRollBuffer.forEach(f => {
-                if (f.time >= existingFirstTime) return;
+                if (f.time >= nowTime || f.time >= existingFirstTime) return;
                 if (f.time >= cutoffTime && rawTracePoints.length < MAX_TRAIL_POINTS) {
                     let r = 0.0, g = 1.0, b = 0.0; 
                     if (!f.isForward) { r = 1.0; g = 1.0; b = 0.0; } 
@@ -2538,6 +2571,7 @@ function handleParsedTelemetry(t) {
             let dropFromPeakDeg = THREE.MathUtils.radToDeg(window.peakFollowThroughTheta - thetaSwing);
             let idleAtApexMs = nowTime - (window.followThroughLastMoveTime || nowTime);
 
+        
             // Stop once the mallet passes its apex and starts falling backwards (>= 1.5° drop) or pauses at the top (> 350ms)
             if (postFrames >= 2 && (dropFromPeakDeg >= 1.5 || idleAtApexMs > 350)) {
                 window.followThroughComplete = true;
@@ -2547,9 +2581,9 @@ function handleParsedTelemetry(t) {
                 }
                 clearTimeout(window.finalizeTimerId);
                 setTimeout(() => { finalizeSwingData(nowTime); }, 0);
-            } else {
+            } else if (dropFromPeakDeg < 1.5) {
                 canRecordFrame = true;
-                frameIsForward = true; // Keep entire forward follow-through visible when Hide Backswing is enabled
+                frameIsForward = true; // Only mark upward/forward follow-through as forward
             }
         }
 
@@ -2615,7 +2649,12 @@ function handleParsedTelemetry(t) {
 
 async function finalizeSwingData(nowTime) {
     if (appState !== 4 && !window.matchSwinging) return;
-    
+
+    if (impactDetected && !window.followThroughComplete && window.peakFollowThroughIdx >= 0 && window.peakFollowThroughIdx < rawTracePoints.length - 1) {
+        rawTracePoints.length = window.peakFollowThroughIdx + 1;
+        recordedFrames.length = window.peakFollowThroughIdx + 1;
+    }
+    window.followThroughComplete = true;
     if (inGameMode) {
         window.matchSwinging = false;
         if (!impactDetected && castData.length > 0) {
@@ -2792,13 +2831,14 @@ async function finalizeSwingData(nowTime) {
     // Freeze the follow-through yaw/roll to ignore the physical shockwave without shifting Z/Y.
     if (displayPass && window.pristineImpactQuat) {
         let impactIdx = displayPass.trailIndex;
-        let pristineEuler = new THREE.Euler().setFromQuaternion(window.pristineImpactQuat, 'YXZ');
+        let anchoredEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
 
         for (let i = impactIdx; i < rawTracePoints.length; i++) {
+            if (!recordedFrames[i]) continue;
             let corruptedEuler = new THREE.Euler().setFromQuaternion(recordedFrames[i].rotation, 'YXZ');
             
-            corruptedEuler.y = pristineEuler.y;
-            corruptedEuler.z = pristineEuler.z;
+            corruptedEuler.y = anchoredEuler.y;
+            corruptedEuler.z = anchoredEuler.z;
             
             let lockedQuat = new THREE.Quaternion().setFromEuler(corruptedEuler, 'YXZ');
             
@@ -2811,8 +2851,8 @@ async function finalizeSwingData(nowTime) {
             
             if (i === impactIdx) {
                 let perfectEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
-                perfectEuler.y = pristineEuler.y;
-                perfectEuler.z = pristineEuler.z;
+                perfectEuler.y = anchoredEuler.y;
+                perfectEuler.z = anchoredEuler.z;
                 displayPass.pivotQuat.setFromEuler(perfectEuler, 'YXZ');
                 
                 let faceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, getDynamicFaceZ()).applyQuaternion(lockedQuat);
@@ -2824,11 +2864,27 @@ async function finalizeSwingData(nowTime) {
     if (impactDetected && displayPass) {
         if (window.pristineAoARads !== undefined && window.pristineAoARads !== null) {
             displayPass.aoaDeg = THREE.MathUtils.radToDeg(window.pristineAoARads);
+        } else if (window.pristineImpactQuat) {
+            let impEuler = new THREE.Euler().setFromQuaternion(window.pristineImpactQuat, 'YXZ');
+            displayPass.aoaDeg = -THREE.MathUtils.radToDeg(impEuler.x);
         } else if (displayPass.pivotQuat) {
             let lockedEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
             displayPass.aoaDeg = -THREE.MathUtils.radToDeg(lockedEuler.x);
         }
         currentSwingAoA = displayPass.aoaDeg;
+
+        if (displayPass.aoaDeg !== null && displayPass.aoaDeg !== undefined && !isNaN(displayPass.aoaDeg)) {
+            let localFaceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, getDynamicFaceZ());
+            let anchoredFacePos = displayPass.pivotPos.clone().add(localFaceOffset.clone().applyQuaternion(displayPass.pivotQuat));
+
+            let strikeEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
+            strikeEuler.x = -THREE.MathUtils.degToRad(displayPass.aoaDeg);
+            displayPass.pivotQuat.setFromEuler(strikeEuler, 'YXZ');
+
+            let tiltedFaceOffset = localFaceOffset.clone().applyQuaternion(displayPass.pivotQuat);
+            displayPass.pivotPos.copy(anchoredFacePos).sub(tiltedFaceOffset);
+            displayPass.pos.copy(anchoredFacePos);
+        }
     }
 
     castData.forEach((c, idx) => {
@@ -2986,6 +3042,19 @@ async function finalizeSwingData(nowTime) {
     // HELPER: Safely trigger the hidden master toggles from the generated HTML
     if (!window.clickMasterToggle) {
         window.clickMasterToggle = function(type) {
+            if (type === 'toggleBackswing') {
+                let chk = document.getElementById('hideBackswingCheck');
+                if (chk) {
+                    chk.checked = !chk.checked;
+                    chk.dispatchEvent(new Event('change'));
+                    let isShown = !chk.checked;
+                    document.querySelectorAll('.toggleBackswing-clone').forEach(el => {
+                        el.classList.toggle('active', isShown);
+                        el.style.color = isShown ? 'var(--accent-primary)' : '';
+                    });
+                }
+                return;
+            }
             let master = document.getElementById(type);
             if (master) {
                 master.click(); // Fires the original logic and updates the variables
@@ -3002,6 +3071,7 @@ async function finalizeSwingData(nowTime) {
     let baseActive = document.getElementById('toggleBase')?.classList.contains('active') ? 'active' : '';
     let wobbleActive = document.getElementById('toggleWobble')?.classList.contains('active') ? 'active' : '';
     let twistActive = document.getElementById('toggleTwist')?.classList.contains('active') ? 'active' : '';
+    let backswingActive = !document.getElementById('hideBackswingCheck')?.checked ? 'active' : '';
 
     let logHtml = `
         <div class="history-card">
@@ -3024,11 +3094,15 @@ async function finalizeSwingData(nowTime) {
                         <button class="trace-toggle toggleTwist-clone icon-btn ${twistActive}" onclick="window.clickMasterToggle('toggleTwist')" title="Toggle Twist Ribbon" style="padding: 4px; border: none; background: transparent; cursor: pointer;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><polyline points="3 3 3 8 8 8"></polyline></svg>
                         </button>
+                        <!-- Backswing Arc Icon -->
+                        <button class="trace-toggle toggleBackswing-clone icon-btn ${backswingActive}" onclick="window.clickMasterToggle('toggleBackswing')" title="Toggle Backswing Trace" style="color: ${backswingActive ? 'var(--accent-primary)' : 'inherit'}; padding: 4px; border: none; background: transparent; cursor: pointer;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a10 10 0 0 0 16 0"></path></svg>
+                        </button>
                         
                         <div style="width: 1px; height: 16px; background: var(--border-color); margin: 0 4px;"></div>
                         
                         <!-- Play Button -->
-                        <button class="icon-btn replay-btn" data-swing-index="${swingIndex}" title="Replay Trace" style="color: var(--accent-primary); padding: 4px; border: none; background: transparent; cursor: pointer;">
+                        <button class="icon-btn replay-btn" data-swing-index="${swingIndex}" title="Replay Trace" style="color: var(--text-main); padding: 4px; border: none; background: transparent; cursor: pointer;">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                         </button>
                     </div>
@@ -3395,27 +3469,13 @@ window.bleManager.onTraceData = (traceArray) => {
     let impactTime = window.impactHwTime || (rawTracePoints.length > 0 ? rawTracePoints[rawTracePoints.length - 1].time : globalHwTime);
 
     // Separate pre-impact points from any post-impact follow-through points that arrived early
-    let prePoints = [];
-    let preFrames = [];
-    let postPoints = [];
-    let postFrames = [];
-
-    for (let i = 0; i < rawTracePoints.length; i++) {
-        let pt = rawTracePoints[i];
-        let fr = recordedFrames[i];
-        if (pt.time !== undefined && pt.time > impactTime + 10) {
-            postPoints.push(pt);
-            if (fr) postFrames.push(fr);
-        } else if (pt.time === undefined || pt.time < impactTime - 156) {
-            prePoints.push(pt);
-            if (fr) preFrames.push(fr);
-        }
-    }
-
     // Drop the last 2 samples (0-4ms before trigger) which already contain initial collision impulse
     let cleanTrace = traceArray.slice(0, Math.max(1, traceArray.length - 2));
     let burstPoints = [];
     let burstFrames = [];
+    let ghostInvQuat = ghostPivot.quaternion.clone().invert();
+    let minBurstAngle = Infinity;
+    let apexBurstIdx = 0;
 
     cleanTrace.forEach((q, idx) => {
         if (!q) return;
@@ -3434,7 +3494,14 @@ window.bleManager.onTraceData = (traceArray) => {
         let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
         let headOffset = new THREE.Vector3(0, -loadedRadius, meshShiftZ).applyQuaternion(finalQuat);
         let trueHeadPos = new THREE.Vector3(0, pivotBaseY, 0).add(headOffset);
-        let ptTime = impactTime - ((cleanTrace.length - idx) * 4);
+        let ptTime = impactTime - ((cleanTrace.length - 1 - idx) * 4);
+
+        let localShaft = new THREE.Vector3(0, -1, 0).applyQuaternion(finalQuat).applyQuaternion(ghostInvQuat);
+        let swingAngle = Math.atan2(localShaft.z, -localShaft.y);
+        if (swingAngle < minBurstAngle) {
+            minBurstAngle = swingAngle;
+            apexBurstIdx = burstPoints.length;
+        }
 
         burstPoints.push({
             pos: trueHeadPos,
@@ -3447,13 +3514,39 @@ window.bleManager.onTraceData = (traceArray) => {
         burstFrames.push({
             rotation: finalQuat,
             forceMag: currentSwingMaxG,
-            rawPtIndex: prePoints.length + burstPoints.length,
+            rawPtIndex: burstPoints.length,
             pivotPos: new THREE.Vector3(0, pivotBaseY, 0),
             extension: 0,
             rawBLE: pureQ,
             time: ptTime
         });
     });
+
+    // Any burst samples before the backswing turnaround apex are still moving backward
+    for (let i = 0; i < apexBurstIdx; i++) {
+        burstPoints[i].isForward = false;
+        burstPoints[i].color = { r: 1.0, g: 1.0, b: 0.0 };
+    }
+
+    let firstBurstTime = burstPoints.length > 0 ? burstPoints[0].time : (impactTime - 160);
+
+    // Separate pre-impact points from genuine post-impact follow-through points without overlapping burstPoints
+    let prePoints = [];
+    let preFrames = [];
+    let postPoints = [];
+    let postFrames = [];
+
+    for (let i = 0; i < rawTracePoints.length; i++) {
+        let pt = rawTracePoints[i];
+        let fr = recordedFrames[i];
+        if (pt.time !== undefined && pt.time > impactTime + 80) {
+            postPoints.push(pt);
+            if (fr) postFrames.push(fr);
+        } else if (pt.time === undefined || pt.time < firstBurstTime - 2) {
+            prePoints.push(pt);
+            if (fr) preFrames.push(fr);
+        }
+    }
 
     // Rebuild trace chronologically: pre-impact -> 4ms burst -> post-impact follow-through
     rawTracePoints.length = 0;
@@ -3505,8 +3598,23 @@ window.bleManager.onTraceData = (traceArray) => {
                 strikeCast.aoaDeg = THREE.MathUtils.radToDeg(window.pristineAoARads);
             }
 
-            let faceOffset = new THREE.Vector3(0, -loadedRadius - strikeCast.extension, getDynamicFaceZ()).applyQuaternion(strikeCast.pivotQuat);
-            strikeCast.pos.copy(strikeCast.pivotPos).add(faceOffset);
+            let localFaceOffset = new THREE.Vector3(0, -loadedRadius - strikeCast.extension, getDynamicFaceZ());
+            let anchoredFacePos = strikeCast.pivotPos.clone().add(localFaceOffset.clone().applyQuaternion(strikeCast.pivotQuat));
+
+            if (strikeCast.aoaDeg !== undefined && strikeCast.aoaDeg !== null && !isNaN(strikeCast.aoaDeg)) {
+                let strikeEuler = new THREE.Euler().setFromQuaternion(strikeCast.pivotQuat, 'YXZ');
+                strikeEuler.x = -THREE.MathUtils.degToRad(strikeCast.aoaDeg);
+                strikeCast.pivotQuat.setFromEuler(strikeEuler, 'YXZ');
+            }
+
+            let faceOffset = localFaceOffset.clone().applyQuaternion(strikeCast.pivotQuat);
+            strikeCast.pivotPos.copy(anchoredFacePos).sub(faceOffset);
+            strikeCast.pos.copy(anchoredFacePos);
+
+            if (appState === 4.5 || appState === 5) {
+                finalReviewPivotQuat.copy(strikeCast.pivotQuat);
+                finalReviewPivotPos.copy(strikeCast.pivotPos);
+            }
         }
     }
 
