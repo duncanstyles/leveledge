@@ -53,7 +53,14 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
     
     // formatOffset is already in utils.js, so we can call it directly
     let pDeltaStr = `PΔ: ${formatOffset(c.pDelta)}`;
-    let traceAccStr = c.isWhiff ? `-` : `Acc: ${(c.estAccRange >= 35 ? 'Max' : Math.round(c.estAccRange) + 'm')}`;
+    let accRange = (c.isStrike && c.trueAccRange !== undefined && c.trueAccRange !== null) ? c.trueAccRange : c.estAccRange;
+    let launchDeg = (c.trueLaunchDeg !== undefined && c.trueLaunchDeg !== null)
+        ? c.trueLaunchDeg
+        : ((c.trueLaunchRads ?? c.estLaunchRads ?? 0) * (180 / Math.PI));
+    let accDir = launchDeg > 0.05 ? 'L' : (launchDeg < -0.05 ? 'R' : '');
+    let traceAccStr = c.isWhiff
+        ? `-`
+        : `Acc: ${(accRange >= 35 ? 'Max' : `${Math.round(accRange)}m${accDir ? ' ' + accDir : ''}`)}`;
     
     let hitStyle = c.isHit ? `background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.2); border-left: 3px solid var(--success); border-radius: 4px;` : `border: 1px solid transparent;`;
     
@@ -74,9 +81,14 @@ export function buildCastRowHTML(c, castIndex, swingIndex, isCloud = false) {
         <!-- DETAILS ROW (Hidden Accordion) -->
         <div class="cast-details flex-col mt-2 pt-2" style="display: none; border-top: 1px dashed var(--border-color);">
             <div class="flex justify-between items-center text-muted font-normal mt-1">
+                <span style="flex: 1; text-align: left;">Face: ${f2tStr}</span>
+                <span style="flex: 1; text-align: center;">Twist: ${f2pStr}</span>
+                <span style="flex: 1; text-align: right;">σ: ${(!c.isWhiff && c.trueLaunchDeg !== undefined && c.trueLaunchDeg !== null) ? ((Math.round(c.trueLaunchDeg * 10) / 10 > 0 ? '+' : '') + (Math.round(c.trueLaunchDeg * 10) / 10).toFixed(1) + '°') : '--'}</span>
+            </div>
+            <div class="flex justify-between items-center text-muted font-normal mt-1">
                 <span style="flex: 1; text-align: left;">Lean: ${leanDisplay}</span>
                 <span style="flex: 1; text-align: center;">AoA: ${aoaDisplay}</span>
-                <span style="flex: 1; text-align: right;">Tgt: ${f2tStr}</span>
+                <span style="flex: 1; text-align: right;">Impact: ${devDisplay}</span>
             </div>
         
             <!--
