@@ -7,13 +7,15 @@ export const difficultyMatrix = {
     expert:       { name: "Expert",       distances: [5, 10, 15, 20], starColor: "#f59e0b", starChar: "★" }
 };
 
-export function getStarRating(offsetCm, angleDeg) {
+export function getStarRating(offsetCm, angleDeg, isStrike = true) {
     let activeTier = document.getElementById('difficultySelect').value || "intermediate"; 
     let profile = difficultyMatrix[activeTier];
+    let faceWidthCM = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
     let ss = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5; 
-    if (Math.abs(offsetCm) > ss) return { string: "", color: "var(--text-muted)" }; 
+    let outOfBounds = isStrike ? (Math.abs(offsetCm) > ss) : (Math.abs(offsetCm) >= (faceWidthCM / 2.0));
+    if (outOfBounds) return { string: "", color: "var(--text-muted)" }; 
     let angleRad = angleDeg * (Math.PI / 180.0); 
-    let checkHit = (distM) => Math.abs(offsetCm + (distM * 100.0) * Math.tan(angleRad)) <= 9.2; 
+    let checkHit = (distM) => Math.abs((distM * 100.0) * Math.tan(angleRad)) <= 9.2; 
     let stars = "";
     if (checkHit(profile.distances[3])) stars = profile.starChar.repeat(4); 
     else if (checkHit(profile.distances[2])) stars = profile.starChar.repeat(3); 
@@ -23,42 +25,47 @@ export function getStarRating(offsetCm, angleDeg) {
 }
 
 export function getShaftTwist(q) {
-    // Relies on the global THREE object loaded in your HTML
-    let v = new THREE.Vector3(0, 0, 1).applyQuaternion(q); 
-    let up = new THREE.Vector3(0, 1, 0).applyQuaternion(q); 
-    let projZ = new THREE.Vector3(0, 0, 1).projectOnPlane(up);
-    if (projZ.lengthSq() < 0.0001) return 0; 
-    projZ.normalize(); 
-    let angle = v.angleTo(projZ); 
-    let cross = new THREE.Vector3().crossVectors(projZ, v);
-    if (cross.dot(up) < 0) angle = -angle; 
-    let deg = THREE.MathUtils.radToDeg(angle);
-    if (deg > 90) deg -= 180; else if (deg < -90) deg += 180;
+    // Horizontal face normal heading relative to target line (+Z), immune to pitch & lie angle
+    let v = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    if ((v.x * v.x + v.z * v.z) < 0.0001) return 0;
+    let deg = THREE.MathUtils.radToDeg(Math.atan2(v.x, v.z));
+    if (deg > 90) deg -= 180;
+    else if (deg < -90) deg += 180;
     return deg;
 }
 
 export function calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwistDegPerSec, dwellMs) {
     let faceWidthCM = parseFloat(document.getElementById('malletWidthInput').value) || 6.0; 
     let isWhiff = Math.abs(strikeX) >= (faceWidthCM / 2.0);
-    let ssTolerance = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
     let estAccRange = 0.0; let trueAccRange = 0.0; let trueLaunchDeg = locTwist; let estLaunchThetaRads = 0; let trueLaunchThetaRads = 0; let collisionDeflection = 0;
     if (!isWhiff) {
-        let faceAngleRads = locTwist * (Math.PI / 180.0); estLaunchThetaRads = faceAngleRads;
-        if (Math.abs(strikeX) > ssTolerance) { estLaunchThetaRads = (0.80 * faceAngleRads) + (0.20 * pathAngleRads); }
+        let faceAngleRads = locTwist * (Math.PI / 180.0);
+        let safePathRads = pathAngleRads || 0;
+        estLaunchThetaRads = (0.80 * faceAngleRads) + (0.20 * safePathRads);
         if (Math.abs(estLaunchThetaRads) < 0.0001) estAccRange = 35.0; else estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(estLaunchThetaRads)));
-        let twistMagnitude = Math.abs(maxTwistDegPerSec); collisionDeflection = twistMagnitude * (dwellMs / 1000.0); if (strikeX < 0) collisionDeflection = -collisionDeflection; 
-        let dynamicFaceAngleRads = (locTwist + (collisionDeflection * 0.5)) * (Math.PI / 180.0); trueLaunchThetaRads = dynamicFaceAngleRads;
-        if (Math.abs(strikeX) > ssTolerance) { trueLaunchThetaRads = (0.80 * dynamicFaceAngleRads) + (0.20 * pathAngleRads); }
+
+        // strikeX > 0 means mallet is Left of ball (ball struck Right half of face) -> twists face Player Right (-)
+        let twistMagnitude = Math.abs(maxTwistDegPerSec);
+        collisionDeflection = twistMagnitude * (dwellMs / 1000.0);
+        if (strikeX > 0) collisionDeflection = -collisionDeflection;
+
+        let dynamicFaceAngleRads = (locTwist + (collisionDeflection * 0.5)) * (Math.PI / 180.0);
+        trueLaunchThetaRads = (0.80 * dynamicFaceAngleRads) + (0.20 * safePathRads);
         trueLaunchDeg = trueLaunchThetaRads * (180.0 / Math.PI);
         if (Math.abs(trueLaunchThetaRads) < 0.0001) trueAccRange = 35.0; else trueAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(trueLaunchThetaRads)));
     }
     return { isWhiff, estAccRange, trueAccRange, trueLaunchDeg, estLaunchRads: estLaunchThetaRads, trueLaunchRads: trueLaunchThetaRads, collisionDeflection };
 }
 
-export function calculateImpactForce(speedMps) { 
+export function calculateImpactForce(speedMps, massKgOverride = null) { 
+    if (!speedMps || speedMps <= 0) return 0;
     let massEl = document.getElementById('massInput'); 
-    let massKg = massEl ? (parseFloat(massEl.value) / 1000.0) : 1.0; 
-    return (massKg * speedMps) / 0.0015; 
+    let massKg = massKgOverride ?? (massEl ? (parseFloat(massEl.value) / 1000.0) : 1.0); 
+    let ballMassKg = 0.454;
+    let ballSpeedMps = speedMps * (massKg * 1.8) / (massKg + ballMassKg);
+    let transferredImpulse = ballMassKg * ballSpeedMps;
+    let dwellSec = calculateTrueDwell(speedMps, 0, massKg) / 1000.0;
+    return transferredImpulse / dwellSec; 
 }
 
 export function calculateMomentum(speedMps) { 

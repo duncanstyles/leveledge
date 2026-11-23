@@ -1,5 +1,5 @@
 // cloud.js
-import { difficultyMatrix, getStarRating, getShaftTwist, calculateTrueDwell, calculatePendulumDelta } from './kinematics.js';
+import { difficultyMatrix, getStarRating, getShaftTwist, calculateImpactForce, calculateTrueDwell, calculatePendulumDelta } from './kinematics.js';
 import { showToast, formatOffset, buildCastRowHTML } from './utils.js';
 
 const SUPABASE_URL = 'https://ymqqthvgfsrdmairukfi.supabase.co';
@@ -749,43 +749,131 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
     detailsHTML += `</div></details>`; container.innerHTML = detailsHTML;
 }
 
-export async function savePracticeCastsToCloud(castsArray, currentTempo) {
-    if (!currentUser || !castsArray || castsArray.length === 0) return;
+function buildCloudCastPayload(c, index, swingId, isoTimestamp, currentTempo, ctx = {}) {
+    const faceDeg = c.planeTwist ?? c.faceAngle ?? null;
+    const pathDeg = (c.pathAngleRads !== undefined && c.pathAngleRads !== null)
+        ? (c.pathAngleRads * (180.0 / Math.PI))
+        : 0;
+    const faceToPathDeg = (faceDeg !== null && faceDeg !== undefined)
+        ? parseFloat((faceDeg - pathDeg).toFixed(2))
+        : null;
 
-    const uniqueSwingId = crypto.randomUUID(); 
+    const massKg = ctx.massKg ?? 1.0;
+    const speedMps = c.passSpeed ?? 0;
+    const targetDistM = c.targetDistM ?? ctx.targetDistM ?? null;
+    const launchRads = c.trueLaunchRads ?? (c.trueLaunchDeg !== undefined && c.trueLaunchDeg !== null
+        ? (c.trueLaunchDeg * Math.PI / 180.0)
+        : null);
+    const targetLateralCm = (!c.isWhiff && targetDistM !== null && launchRads !== null)
+        ? parseFloat(((targetDistM * 100.0) * Math.sin(launchRads)).toFixed(1))
+        : null;
+
+    const backArcCm = c.backArcLength ?? c.backArc ?? null;
+    const backTimeMs = c.backswingTime || (c.isStrike ? (ctx.backswingTimeMs || null) : null);
+
+    return {
+        swing_id: swingId,
+        user_id: currentUser.id,
+        mallet_id: activeMallet?.id || null,
+        timestamp: isoTimestamp,
+        cast_index: index,
+        is_strike: !!c.isStrike,
+        raw_dev_cm: c.rawDev !== undefined && c.rawDev !== null ? parseFloat(c.rawDev.toFixed(2)) : null,
+        path_dev_cm: c.dev !== undefined && c.dev !== null ? parseFloat(c.dev.toFixed(2)) : null,
+        dir: c.dir || null,
+        off_center_mm: c.isStrike && c.offCenterMm !== undefined && c.offCenterMm !== null
+            ? parseFloat(c.offCenterMm.toFixed(1))
+            : null,
+        shaft_lean_deg: c.lean !== undefined && c.lean !== null ? parseFloat(c.lean.toFixed(1)) : null,
+        lean_dir: c.leanDir || null,
+        plane_twist: faceDeg !== null && faceDeg !== undefined ? parseFloat(faceDeg.toFixed(2)) : null,
+        impact_twist: c.impactTwist !== null && c.impactTwist !== undefined ? parseFloat(c.impactTwist.toFixed(2)) : null,
+        face_to_path_deg: faceToPathDeg,
+        strike_angle_deg: c.aoaDeg !== undefined && c.aoaDeg !== null ? parseFloat(c.aoaDeg.toFixed(2)) : null,
+        deflection_deg: c.isStrike && c.deflectionDeg !== undefined && c.deflectionDeg !== null
+            ? parseFloat(c.deflectionDeg.toFixed(2))
+            : null,
+        true_launch_deg: c.trueLaunchDeg !== undefined && c.trueLaunchDeg !== null
+            ? parseFloat(c.trueLaunchDeg.toFixed(2))
+            : null,
+        true_launch_rads: launchRads,
+        speed_mps: parseFloat(speedMps.toFixed(2)),
+        est_dist_m: c.estDist !== undefined && c.estDist !== null ? parseFloat(c.estDist.toFixed(2)) : null,
+        tempo_bpm: currentTempo > 0 ? Math.round(currentTempo) : (c.tempo > 0 ? Math.round(c.tempo) : null),
+        est_acc_range: c.estAccRange ?? null,
+        true_acc_range: c.trueAccRange ?? null,
+        path_angle_rads: c.pathAngleRads ?? null,
+        pass_force: c.passForce !== undefined && c.passForce !== null ? parseFloat(c.passForce.toFixed(1)) : null,
+        applied_force_n: c.appliedForce !== undefined && c.appliedForce !== null ? parseFloat(c.appliedForce.toFixed(1)) : null,
+        accel_pct: c.decelFactor !== undefined && c.decelFactor !== null && !isNaN(c.decelFactor)
+            ? Math.round(c.decelFactor)
+            : null,
+        p_delta: c.pDelta !== undefined && c.pDelta !== null ? parseFloat(c.pDelta.toFixed(2)) : null,
+        backswing_arc_cm: backArcCm !== null && backArcCm !== undefined ? parseFloat(backArcCm.toFixed(1)) : null,
+        backswing_lift_cm: c.backHeight !== undefined && c.backHeight !== null ? parseFloat(c.backHeight.toFixed(1)) : null,
+        backswing_time_ms: backTimeMs ? Math.round(backTimeMs) : null,
+        downswing_time_ms: c.isStrike && ctx.downwardSwingTimeMs ? Math.round(ctx.downwardSwingTimeMs) : null,
+        peak_g: c.isStrike && ctx.peakG ? parseFloat(ctx.peakG.toFixed(2)) : null,
+        peak_twist_dps: c.isStrike && ctx.peakTwistDps !== undefined && ctx.peakTwistDps !== null
+            ? parseFloat(ctx.peakTwistDps.toFixed(1))
+            : null,
+        dwell_ms: c.isStrike && ctx.dwellMs ? parseFloat(ctx.dwellMs.toFixed(2)) : null,
+        momentum_kgms: parseFloat((massKg * speedMps).toFixed(2)),
+        target_dist_m: targetDistM,
+        target_lateral_cm: targetLateralCm,
+        is_hit: !!c.isHit,
+        is_whiff: !!c.isWhiff,
+        star_rating: c.stars || null,
+        lawn_speed: ctx.lawnSpeed ?? null,
+        sweet_spot_cm: ctx.sweetSpotCm ?? null,
+        twist_tolerance_deg: ctx.twistToleranceDeg ?? null,
+        pivot_quat: c.pivotQuat ? {
+            x: parseFloat(c.pivotQuat.x.toFixed(5)),
+            y: parseFloat(c.pivotQuat.y.toFixed(5)),
+            z: parseFloat(c.pivotQuat.z.toFixed(5)),
+            w: parseFloat(c.pivotQuat.w.toFixed(5))
+        } : null
+    };
+}
+
+export async function savePracticeCastsToCloud(castsArray, currentTempo, ctx = {}) {
+    if (!currentUser || !castsArray || castsArray.length === 0) return null;
+
+    const uniqueSwingId = crypto.randomUUID();
     const nowRealTime = Date.now();
     const lastCastHwTime = castsArray[castsArray.length - 1].time;
 
-    let castsToInsert = castsArray.map((c, index) => {
-        let exactCastTime = nowRealTime - (lastCastHwTime - c.time);
-        
-        return {
-            swing_id: uniqueSwingId,             
-            user_id: currentUser.id,
-            mallet_id: activeMallet?.id || null,
-            timestamp: new Date(exactCastTime).toISOString(),
-            cast_index: index,
-            is_strike: c.isStrike,
-            path_dev_cm: parseFloat(c.dev.toFixed(1)),
-            dir: c.dir,
-            shaft_lean_deg: c.lean !== undefined && c.lean !== null ? parseFloat(c.lean.toFixed(1)) : null,
-            lean_dir: c.leanDir || null,
-            plane_twist: c.planeTwist !== null && c.planeTwist !== undefined ? parseFloat(c.planeTwist.toFixed(1)) : null,
-            impact_twist: c.impactTwist !== null && c.impactTwist !== undefined ? parseFloat(c.impactTwist.toFixed(1)) : null,
-            speed_mps: parseFloat(c.passSpeed.toFixed(1)),
-            est_dist_m: c.estDist,
-            tempo_bpm: currentTempo > 0 ? Math.round(currentTempo) : null,
-            est_acc_range: c.estAccRange,
-            true_acc_range: c.trueAccRange,
-            path_angle_rads: c.pathAngleRads,
-            pass_force: c.passForce,
-            p_delta: c.pDelta
-        };
+    const castsToInsert = castsArray.map((c, index) => {
+        const exactCastTime = nowRealTime - (lastCastHwTime - c.time);
+        const isoTimestamp = new Date(exactCastTime).toISOString();
+        return buildCloudCastPayload(c, index, uniqueSwingId, isoTimestamp, currentTempo, ctx);
     });
 
     const { error } = await supabaseClient.from('practice_casts').insert(castsToInsert);
     if (error) {
         console.error("Error saving practice casts:", error.message);
+        return null;
+    }
+    return uniqueSwingId;
+}
+
+export async function updatePracticeStrikeInCloud(swingId, castIndex, strikeCast, currentTempo, ctx = {}) {
+    if (!currentUser || !swingId || !strikeCast) return;
+
+    const fullRow = buildCloudCastPayload(strikeCast, castIndex, swingId, new Date().toISOString(), currentTempo, ctx);
+    delete fullRow.swing_id;
+    delete fullRow.user_id;
+    delete fullRow.timestamp;
+    delete fullRow.cast_index;
+
+    const { error } = await supabaseClient
+        .from('practice_casts')
+        .update(fullRow)
+        .eq('swing_id', swingId)
+        .eq('cast_index', castIndex);
+
+    if (error) {
+        console.error("Error updating practice strike in cloud:", error.message);
     }
 }
 
@@ -921,70 +1009,266 @@ export async function fetchCloudTraining() {
     const showRawData = document.getElementById('showCloudDataCheck')?.checked;
     
     if (showRawData) {
-        sessionOrder.forEach(sId => {
+        const isSubscribed = document.getElementById('subscribedCheck')?.checked ?? true;
+        const defaultTargetDistM = parseFloat(document.getElementById('trainerDistSetup')?.value) || 5.0;
+        const massKg = (parseFloat(document.getElementById('massInput')?.value) || 1000) / 1000.0;
+
+        const fmtSignedDeg = (v) => {
+            if (v === undefined || v === null || isNaN(v)) return `N/A`;
+            let clean = Math.abs(v) < 0.05 ? 0 : v;
+            return `${clean > 0 ? '+' : ''}${clean.toFixed(1)}°`;
+        };
+        const fmtSignedPct = (v) => {
+            if (v === undefined || v === null || isNaN(v)) return `N/A`;
+            let rounded = Math.round(v);
+            return `${rounded > 0 ? '+' : ''}${rounded}%`;
+        };
+
+        const buildCloudMetricsHeaderHTML = (cast, wasOpen = false) => {
+            const distM = (cast.targetDistM !== undefined && cast.targetDistM !== null && !isNaN(cast.targetDistM))
+                ? cast.targetDistM
+                : defaultTargetDistM;
+            const formattedDist = Number.isInteger(distM) ? `${distM}` : `${parseFloat(distM.toFixed(1))}`;
+            const targetLabelStr = `TARGET: ${formattedDist}m`;
+
+            let hitMissStr = `N/A`;
+            if (cast.isWhiff) {
+                hitMissStr = `Whiff`;
+            } else {
+                let launchRads = cast.trueLaunchRads;
+                if ((launchRads === undefined || launchRads === null || isNaN(launchRads)) &&
+                    cast.trueLaunchDeg !== undefined && cast.trueLaunchDeg !== null && !isNaN(cast.trueLaunchDeg)) {
+                    launchRads = cast.trueLaunchDeg * (Math.PI / 180.0);
+                }
+                if (launchRads !== undefined && launchRads !== null && !isNaN(launchRads)) {
+                    let lateralCm = (distM * 100.0) * Math.sin(launchRads);
+                    let centerDistCm = Math.abs(lateralCm);
+                    const BALL_DIAMETER_CM = 9.2;
+                    if (centerDistCm <= BALL_DIAMETER_CM) {
+                        let side = centerDistCm < 0.5 ? '' : (lateralCm > 0 ? ' L' : ' R');
+                        let distStr = centerDistCm < 0.5 ? '0cm' : `${Math.round(centerDistCm)}cm${side}`;
+                        hitMissStr = `<span class="text-success">Hit ${distStr}</span>`;
+                    } else {
+                        let missEdgeCm = centerDistCm - BALL_DIAMETER_CM;
+                        let side = lateralCm > 0 ? ' L' : ' R';
+                        let distStr = missEdgeCm < 1.0 ? `${missEdgeCm.toFixed(1)}cm${side}` : `${Math.round(missEdgeCm)}cm${side}`;
+                        hitMissStr = `<span class="text-danger">Miss ${distStr}</span>`;
+                    }
+                }
+            }
+
+            let velStr = cast.passSpeed ? `${(cast.passSpeed * 3.6).toFixed(1)} kph` : `--`;
+            let locStr = `N/A`;
+            if (cast.isStrike) {
+                if (cast.offCenterMm !== undefined && cast.offCenterMm !== null) {
+                    locStr = cast.offCenterMm < 2.0 ? `Center` : `${Math.round(cast.offCenterMm)}mm ${cast.dir || ''}`.trim();
+                } else {
+                    locStr = cast.dev < 0.2 ? `Center` : `${(cast.dev * 10).toFixed(0)}mm ${cast.dir || ''}`.trim();
+                }
+            } else if (cast.dev !== undefined && cast.dev !== null) {
+                locStr = `${cast.dev.toFixed(1)}cm ${cast.dir || ''}`.trim();
+            }
+
+            let faceDeg = cast.planeTwist !== undefined ? cast.planeTwist : cast.faceAngle;
+            let faceAngleStr = fmtSignedDeg(faceDeg);
+            let pathDeg = (cast.pathAngleRads || 0) * (180.0 / Math.PI);
+            let pathTwistStr = (cast.faceToPathDeg !== undefined && cast.faceToPathDeg !== null)
+                ? fmtSignedDeg(cast.faceToPathDeg)
+                : (faceDeg !== undefined && faceDeg !== null ? fmtSignedDeg(faceDeg - pathDeg) : `N/A`);
+            let devSigmaStr = (!cast.isWhiff && cast.trueLaunchDeg !== undefined && cast.trueLaunchDeg !== null)
+                ? fmtSignedDeg(cast.trueLaunchDeg)
+                : (cast.isWhiff ? `Whiff` : `N/A`);
+
+            let hasAoa = cast.isStrike && cast.aoaDeg !== undefined && cast.aoaDeg !== null;
+            let cAoa = hasAoa ? cast.aoaDeg : 0;
+            let cAoaDir = Math.abs(cAoa) < 0.2 ? 'Level' : (cAoa > 0 ? 'Up' : 'Dn');
+            let aoaStr = hasAoa ? `${Math.abs(cAoa).toFixed(1)}° ${cAoaDir}` : `N/A`;
+
+            let leanStr = (cast.lean !== undefined && cast.lean !== null)
+                ? `${cast.lean.toFixed(1)}° ${cast.leanDir || ''}`.trim()
+                : `N/A`;
+            let deflStr = (cast.isStrike && cast.deflectionDeg !== undefined && cast.deflectionDeg !== null)
+                ? fmtSignedDeg(cast.deflectionDeg)
+                : `N/A`;
+            let strikeForceStr = cast.isStrike
+                ? `${((cast.passForce || calculateImpactForce(cast.passSpeed || 0, massKg)) / 1000).toFixed(2)} kN`
+                : `N/A`;
+            let accelStr = fmtSignedPct(cast.decelFactor);
+            let tempoStr = cast.tempo > 0 ? `${Math.round(cast.tempo)} BPM` : `--`;
+            let backArcStr = (cast.backArcLength !== undefined && cast.backArcLength !== null)
+                ? `${Math.round(cast.backArcLength)} cm`
+                : `--`;
+            let backLiftStr = (cast.backHeight !== undefined && cast.backHeight !== null)
+                ? `${Math.round(cast.backHeight)} cm`
+                : `--`;
+            let pDeltaStr = (cast.pDelta !== null && cast.pDelta !== undefined)
+                ? formatOffset(cast.pDelta)
+                : `N/A`;
+
+            let proBadge = `<span class="text-accent">PRO</span>`;
+            let dispFace     = isSubscribed ? faceAngleStr : proBadge;
+            let dispDevSigma = isSubscribed ? devSigmaStr  : proBadge;
+            let dispTwist    = isSubscribed ? pathTwistStr : proBadge;
+            let dispAoa      = isSubscribed ? aoaStr       : proBadge;
+            let dispLean     = isSubscribed ? leanStr      : proBadge;
+            let dispDefl     = isSubscribed ? deflStr      : proBadge;
+            let dispAccel    = isSubscribed ? accelStr     : proBadge;
+            let dispTempo    = isSubscribed ? tempoStr     : proBadge;
+            let dispPDel     = isSubscribed ? pDeltaStr    : proBadge;
+
+            return `
+                <div class="card-basic-stats" style="margin-bottom: 4px;">
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Mallet head speed through the bottom of the swing (kph).">Speed</span><span class="stat-val">${velStr}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Projected lateral miss or hit at the target distance (cm Left/Right of target center).">${targetLabelStr}</span><span class="stat-val">${hitMissStr}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Strike location on the mallet face relative to center (mm Left/Right).">Impact</span><span class="adv-val text-warning">${locStr}</span></div>
+                </div>
+                <details class="more-metrics" ${wasOpen ? 'open' : ''}>
+                    <summary>More</summary>
+                    <div class="card-basic-stats">
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the target line at impact (+ Left / - Right).">Face Angle</span><span class="stat-val">${dispFace}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Total horizontal ball launch angle (σ) off the target line, combining face angle, swing path, and collision deflection.">Deviation (σ)</span><span class="stat-val">${dispDevSigma}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the swing path (+ Left / - Right).">Twist</span><span class="stat-val">${dispTwist}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Vertical angle of attack of the mallet head into the ball (+ Up / - Down).">Strike Angle</span><span class="stat-val text-accent">${dispAoa}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Sideways tilt (roll) of the mallet head at impact (Left / Right).">Lean Angle</span><span class="stat-val text-warning">${dispLean}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Degrees the mallet face twisted left (+) or right (-) during ball contact.">Deflection</span><span class="stat-val text-warning">${dispDefl}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Average impact force transferred to the ball during collision (kilonewtons).">Strike Force</span><span class="stat-val">${strikeForceStr}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Change in mallet head speed entering impact (+ accelerating through the ball / - decelerating).">Accel</span><span class="stat-val">${dispAccel}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Overall cadence of the full swing cycle in beats per minute (BPM).">Tempo</span><span class="stat-val">${dispTempo}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Distance the mallet travels along the swing arc during the backswing (cm).">Backswing Arc</span><span class="stat-val">${backArcStr}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Maximum vertical height the mallet face lifts above the lawn in the backswing (cm).">Backswing Lift</span><span class="stat-val">${backLiftStr}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Difference between your swing period and an ideal gravity pendulum of your handle length (cm).">Swing PΔ</span><span class="stat-val">${dispPDel}</span></div>
+                    </div>
+                </details>
+            `;
+        };
+
+        const mappedSessions = {};
+
+        sessionOrder.forEach((sId, sIdx) => {
             let sessionCasts = sessions[sId];
             sessionCasts.sort((a, b) => a.cast_index - b.cast_index);
-             
-            let sessionTime = new Date(sessionCasts[0].timestamp).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-            let finalStrike = sessionCasts.find(c => c.is_strike) || sessionCasts[sessionCasts.length - 1];
-            
-            let finalTempo = finalStrike.tempo_bpm ? `${finalStrike.tempo_bpm} BPM` : '--';
-            let finalDev = finalStrike.path_dev_cm !== null ? `${finalStrike.path_dev_cm.toFixed(1)}cm ${finalStrike.dir || ''}` : '--';
-            let finalSpeed = finalStrike.speed_mps !== null ? `${(finalStrike.speed_mps * 3.6).toFixed(1)} kph` : '--';
-            
-            let castsHtml = sessionCasts.map(c => {
-                let mappedCast = {
-                    planeTwist: c.plane_twist, faceAngle: c.plane_twist, pathAngleRads: c.path_angle_rads,
-                    passSpeed: c.speed_mps, isStrike: c.is_strike, dev: c.path_dev_cm / 10.0, 
-                    dir: c.dir, 
+
+            let swingNum = sessionOrder.length - sIdx;
+            let sessionTime = new Date(sessionCasts[0].timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            let sessionDate = new Date(sessionCasts[0].timestamp).toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+            let mappedList = sessionCasts.map(c => {
+                let isWhiff = c.is_whiff ?? (c.est_acc_range === null || c.est_acc_range === undefined);
+                let trueLaunchDeg = c.true_launch_deg;
+                let trueLaunchRads = c.true_launch_rads;
+
+                // Backfill launch angle for legacy rows saved prior to schema expansion
+                if (!isWhiff && (trueLaunchDeg === undefined || trueLaunchDeg === null) &&
+                    c.plane_twist !== undefined && c.plane_twist !== null) {
+                    let faceRads = c.plane_twist * (Math.PI / 180.0);
+                    let pathRads = c.path_angle_rads || 0;
+                    trueLaunchRads = (0.80 * faceRads) + (0.20 * pathRads);
+                    trueLaunchDeg = trueLaunchRads * (180.0 / Math.PI);
+                }
+
+                return {
+                    rawDev: c.raw_dev_cm ?? 0,
+                    planeTwist: c.plane_twist,
+                    faceAngle: c.plane_twist,
+                    faceToPathDeg: c.face_to_path_deg,
+                    pathAngleRads: c.path_angle_rads,
+                    aoaDeg: c.strike_angle_deg,
+                    deflectionDeg: c.deflection_deg,
+                    trueLaunchDeg: trueLaunchDeg,
+                    trueLaunchRads: trueLaunchRads,
+                    passSpeed: c.speed_mps,
+                    passForce: c.pass_force,
+                    appliedForce: c.applied_force_n,
+                    decelFactor: c.accel_pct,
+                    isStrike: !!c.is_strike,
+                    dev: c.path_dev_cm ?? 0,
+                    dir: c.dir,
+                    offCenterMm: c.off_center_mm,
                     lean: c.shaft_lean_deg,
                     leanDir: c.lean_dir,
-                    estDist: c.est_dist_m, pDelta: c.p_delta, estAccRange: c.est_acc_range,
-                    isWhiff: c.est_acc_range === null || c.est_acc_range === undefined,
-                    stars: "", isHit: false
+                    estDist: c.est_dist_m,
+                    pDelta: c.p_delta,
+                    estAccRange: c.est_acc_range,
+                    trueAccRange: c.true_acc_range,
+                    backArcLength: c.backswing_arc_cm,
+                    backHeight: c.backswing_lift_cm,
+                    backswingTime: c.backswing_time_ms,
+                    tempo: c.tempo_bpm,
+                    targetDistM: c.target_dist_m,
+                    isWhiff: isWhiff,
+                    stars: c.star_rating || "",
+                    isHit: !!c.is_hit
                 };
-                return buildCastRowHTML(mappedCast, c.cast_index, 0, true);
+            });
+
+            let displayCast = mappedList.find(c => c.isStrike) || mappedList[mappedList.length - 1];
+            mappedSessions[sId] = { list: mappedList, defaultCast: displayCast };
+
+            let castsHtml = mappedList.map((mc, idx) => {
+                return buildCastRowHTML(mc, idx, sIdx, false)
+                    .replace('highlight-pass-btn', 'cloud-cast-row')
+                    .replace(`data-swing-index="${sIdx}"`, `data-cloud-swing-id="${sId}"`);
             }).join('');
 
             container.innerHTML += `
                 <div class="history-card">
-                    <div class="card-header">
-                        <div>
-                            <span class="swing-title">SWING LOG</span>
-                            <button class="icon-btn text-danger" style="display:inline-block; padding: 2px; margin-left: 5px; opacity:0.7;" onclick="deleteCloudSession('${sId}')" title="Delete Swing">🗑️</button>
+                    <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                        <div class="flex items-center gap-2">
+                            <span class="swing-title" data-reset-cloud-swing="${sId}" style="cursor: pointer; text-decoration: underline; text-underline-offset: 4px; white-space: nowrap;" title="Click to show final pass metrics">SWING ${swingNum}</span>
+                            <button class="icon-btn text-danger" style="display:inline-block; padding: 2px; opacity:0.7;" onclick="deleteCloudSession('${sId}')" title="Delete Swing">🗑️</button>
                         </div>
-                        <span class="swing-time">${sessionTime}</span>
+                        <div class="flex items-center gap-2">
+                            <span class="swing-time" style="white-space: nowrap;">${sessionDate} ${sessionTime}</span>
+                        </div>
                     </div>
-                    <div class="card-basic-stats">
-                        <div class="stat-block"><span class="stat-lbl">Final Speed</span><span class="stat-val">${finalSpeed}</span></div>
-                        <div class="stat-block"><span class="stat-lbl">Final Dev</span><span class="stat-val text-warning">${finalDev}</span></div>
-                        <div class="stat-block"><span class="stat-lbl">Tempo</span><span class="stat-val text-accent">${finalTempo}</span></div>
+
+                    <div id="cloud-cast-container-${sId}" class="mt-3">
+                        ${castsHtml}
                     </div>
-                    <details class="advanced-metrics mt-4">
-                        <summary>View Casting Sequence (${sessionCasts.length} passes)</summary>
-                        <div class="mt-2">${castsHtml}</div>
-                    </details>
+
+                    <div id="cloud-swing-header-${sId}" class="mt-3">
+                        ${buildCloudMetricsHeaderHTML(displayCast, false)}
+                    </div>
                 </div>`;
         });
-        
-        let cloudRows = container.querySelectorAll('.highlight-cloud-pass-btn');
-        cloudRows.forEach(row => {
+
+        container.querySelectorAll('.expand-icon').forEach(el => el.style.display = 'none');
+        container.querySelectorAll('.cast-details').forEach(el => {
+            el.style.display = 'none';
+            el.classList.remove('flex-col');
+        });
+
+        container.querySelectorAll('.cloud-cast-row').forEach(row => {
             row.onclick = () => {
-                let details = row.querySelector('.cast-details');
-                let icon = row.querySelector('.expand-icon');
-                if (!details) return;
-                
-                if (details.style.display === 'none' || details.style.display === '') {
-                    container.querySelectorAll('.highlight-cloud-pass-btn .cast-details').forEach(el => {
-                        el.style.display = 'none'; el.classList.remove('flex-col');
-                    });
-                    container.querySelectorAll('.highlight-cloud-pass-btn .expand-icon').forEach(el => el.innerText = '▼');
-                    details.style.display = 'flex'; details.classList.add('flex-col');
-                    if (icon) icon.innerText = '▲';
+                const sId = row.getAttribute('data-cloud-swing-id');
+                const castIdx = parseInt(row.getAttribute('data-cast-index'), 10);
+                const sess = mappedSessions[sId];
+                if (!sess || isNaN(castIdx) || !sess.list[castIdx]) return;
+
+                const headerDiv = document.getElementById(`cloud-swing-header-${sId}`);
+                const wasOpen = !!headerDiv?.querySelector('details.more-metrics')?.open;
+                const isAlreadyActive = row.classList.contains('active-cast-row');
+
+                container.querySelectorAll('.cloud-cast-row.active-cast-row').forEach(el => el.classList.remove('active-cast-row'));
+
+                if (isAlreadyActive) {
+                    if (headerDiv) headerDiv.innerHTML = buildCloudMetricsHeaderHTML(sess.defaultCast, wasOpen);
                 } else {
-                    details.style.display = 'none'; details.classList.remove('flex-col');
-                    if (icon) icon.innerText = '▼';
+                    row.classList.add('active-cast-row');
+                    if (headerDiv) headerDiv.innerHTML = buildCloudMetricsHeaderHTML(sess.list[castIdx], wasOpen);
                 }
+            };
+        });
+
+        container.querySelectorAll('[data-reset-cloud-swing]').forEach(titleEl => {
+            titleEl.onclick = () => {
+                const sId = titleEl.getAttribute('data-reset-cloud-swing');
+                const sess = mappedSessions[sId];
+                if (!sess) return;
+                container.querySelectorAll('.cloud-cast-row.active-cast-row').forEach(el => el.classList.remove('active-cast-row'));
+                const headerDiv = document.getElementById(`cloud-swing-header-${sId}`);
+                const wasOpen = !!headerDiv?.querySelector('details.more-metrics')?.open;
+                if (headerDiv) headerDiv.innerHTML = buildCloudMetricsHeaderHTML(sess.defaultCast, wasOpen);
             };
         });
     }

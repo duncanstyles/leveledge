@@ -300,18 +300,63 @@ export function drawStrikeLaser(cast) {
         direction.applyQuaternion(ghostPivot.quaternion);
     }
     
-    // 4. Extend the line forward 10 meters, and slightly backward into the mallet
-    let distance = 100.0; 
-    let endPos = startPos.clone().add(direction.clone().multiplyScalar(distance));
+    // 4. Target distance (for green target line & target ball) vs. actual hit distance (for red ball path line)
+    let isMatchActive = !document.getElementById('game-mode-dashboard')?.classList.contains('hidden');
+    let targetDistMeters = isMatchActive
+        ? (parseFloat(document.getElementById('matchDistSetup')?.value) || 10.0)
+        : (parseFloat(document.getElementById('trainerDistSetup')?.value) || 10.0);
+    let targetDistance = (targetDistMeters * 100.0) + 4.6;
+
+    let hitDistMeters = Math.max(0.2, cast.estDist ?? targetDistMeters);
+    let actualDistance = (hitDistMeters * 100.0) + 4.6;
+
+    let endPos = startPos.clone().add(direction.clone().multiplyScalar(actualDistance));
     let backPos = startPos.clone().add(direction.clone().multiplyScalar(-0.25)); 
 
-    // 5. Build the Red Dotted Line
+    // 5. Build the Green Dashed Perfect Target Line (0° straight along target line)
+    let targetDir = new THREE.Vector3(0, 0, 1);
+    if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+        targetDir.applyQuaternion(ghostPivot.quaternion);
+    }
+    let targetEndPos = startPos.clone().add(targetDir.clone().multiplyScalar(targetDistance));
+    let targetBackPos = startPos.clone().add(targetDir.clone().multiplyScalar(-0.25));
+
+    let targetGeo = new THREE.BufferGeometry().setFromPoints([targetBackPos, targetEndPos]);
+    let targetMat = new THREE.LineDashedMaterial({
+        color: 0x10b981,
+        linewidth: 5,
+        dashSize: 4,
+        gapSize: 2,
+        transparent: true,
+        opacity: 0.75
+    });
+
+    let targetMesh = new THREE.Line(targetGeo, targetMat);
+    targetMesh.computeLineDistances();
+
+    scene.add(targetMesh);
+    impactLasers.push(targetMesh);
+
+    // 6. Add Virtual Target Ball on the Perfect Target Line at the Target Distance
+    let targetBallGeo = new THREE.SphereGeometry(4.6, 16, 12);
+    let targetBallMat = new THREE.MeshBasicMaterial({
+        color: 0x10b981,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.75
+    });
+    let targetBallMesh = new THREE.Mesh(targetBallGeo, targetBallMat);
+    targetBallMesh.position.copy(targetEndPos);
+    scene.add(targetBallMesh);
+    impactLasers.push(targetBallMesh);
+
+    /// 7. Build the Red Dotted Actual Ball Launch Line
     let laserGeo = new THREE.BufferGeometry().setFromPoints([backPos, endPos]);
     let laserMat = new THREE.LineDashedMaterial({
         color: 0xff0000,
         linewidth: 5,
-        dashSize: 1,
-        gapSize: 0.5,
+        dashSize: 4,
+        gapSize: 2,
         transparent: true,
         opacity: 0.8
     });
@@ -321,6 +366,20 @@ export function drawStrikeLaser(cast) {
 
     scene.add(laserMesh);         
     impactLasers.push(laserMesh); 
+
+    // 8. Add Virtual Target Ball on the Actual Launch Line at the Target Distance
+    let launchTargetPos = startPos.clone().add(direction.clone().multiplyScalar(targetDistance));
+    let launchBallGeo = new THREE.SphereGeometry(4.6, 16, 12);
+    let launchBallMat = new THREE.MeshBasicMaterial({
+        color: 0xff0000,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.75
+    });
+    let launchBallMesh = new THREE.Mesh(launchBallGeo, launchBallMat);
+    launchBallMesh.position.copy(launchTargetPos);
+    scene.add(launchBallMesh);
+    impactLasers.push(launchBallMesh);
 }
 
 function rebuildTraceTube(pts, hideBackswing) {
