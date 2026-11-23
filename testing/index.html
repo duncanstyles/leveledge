@@ -694,24 +694,22 @@
                 </div>
             </div>
 
-            <div class="p-4 mb-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                <div class="font-bold mb-2" style="font-size: 0.88rem;">Step 1: Enter Bootloader (DFU) Mode</div>
+           <div class="p-4 mb-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="font-bold" style="font-size: 0.88rem;">Install Firmware Over USB</span>
+                    <span id="fwBootloaderStatus" class="font-mono text-muted" style="font-size: 0.72rem;">● Checking USB...</span>
+                </div>
                 <p class="text-muted mb-3" style="font-size: 0.78rem; line-height: 1.4;">
-                    Plug the USB-C cable into the mallet and your computer.
+                    Plug the USB-C cable into your mallet and computer, then click below. The app will connect via Bluetooth to prepare the mallet automatically (or you can <strong>double-tap the Reset button</strong> on the mallet instead). Select <strong>XIAO nRF52840</strong> if prompted.
                 </p>
-                <button id="btnModalEnterDfu" class="drawer-btn justify-center w-full">
-                    📡 PREPARE MALLET FOR UPDATE XXX
-                </button>
-            </div>
-
-            <div class="p-4 mb-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                <div class="font-bold mb-2" style="font-size: 0.88rem;">Step 2: Install Firmware Over USB</div>
-                <p class="text-muted mb-3" style="font-size: 0.78rem; line-height: 1.4;">
-                    Click Flash Firmware and select <strong>XIAO nRF52840</strong> if prompted
-                </p>
-                <button id="btnModalStartFlash" class="btn-primary">
-                    ⚡ FLASH FIRMWARE OVER USB
-                </button>
+                <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <button id="btnModalStartFlash" type="button" class="btn-primary" style="cursor: pointer;">
+                        ⚡ UPDATE FIRMWARE
+                    </button>
+                    <button id="btnModalFactoryReset" type="button" class="drawer-btn justify-center w-full text-warning" style="border-color: var(--warning); font-size: 0.78rem; cursor: pointer; pointer-events: auto;">
+                        ↺ FACTORY RESET (v9.9.01)
+                    </button>
+                </div>
 
                 <div id="fwModalProgressWrap" class="hidden mt-4">
                     <div class="flex justify-between font-mono mb-1" style="font-size: 0.75rem;">

@@ -951,7 +951,98 @@ document.getElementById('closeAboutBtn').onclick = () => {
     document.getElementById('about-modal').close();
 };
 
+const XIAO_VID = 0x2886;
+const XIAO_DFU_PIDS = [0x0045, 0x0044];
+const XIAO_APP_PIDS = [0x8045, 0x8044];
+let pendingUpdateMalletId = null;
+
+async function findAuthorizedDfuPort() {
+    const ports = await navigator.serial.getPorts();
+    return ports.find(p => {
+        const info = p.getInfo();
+        return info.usbVendorId === XIAO_VID && XIAO_DFU_PIDS.includes(info.usbProductId);
+    }) || null;
+}
+
+async function waitForDfuPort(timeoutMs = 3500) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const port = await findAuthorizedDfuPort();
+        if (port) return port;
+        await new Promise(r => setTimeout(r, 250));
+    }
+    return null;
+}
+
+async function refreshBootloaderStatus() {
+    const statusEl = document.getElementById('fwBootloaderStatus');
+    const flashBtn = document.getElementById('btnModalStartFlash');
+    if (!statusEl || !flashBtn) return;
+
+    if (!('serial' in navigator)) {
+        statusEl.innerText = "● USB Unsupported";
+        statusEl.className = "font-mono text-danger";
+        flashBtn.disabled = true;
+        return;
+    }
+
+    const ports = await navigator.serial.getPorts();
+    const dfuPort = ports.find(p => {
+        const info = p.getInfo();
+        return info.usbVendorId === XIAO_VID && XIAO_DFU_PIDS.includes(info.usbProductId);
+    });
+    const appPort = ports.find(p => {
+        const info = p.getInfo();
+        return info.usbVendorId === XIAO_VID && XIAO_APP_PIDS.includes(info.usbProductId);
+    });
+
+    if (dfuPort) {
+        statusEl.innerText = "● Bootloader Ready";
+        statusEl.className = "font-mono text-success font-bold";
+        flashBtn.disabled = false;
+        flashBtn.innerText = "⚡ UPDATE FIRMWARE";
+    } else if (appPort && !window.bleManager?.isConnected()) {
+        statusEl.innerText = "● Not in Bootloader";
+        statusEl.className = "font-mono text-warning font-bold";
+        flashBtn.disabled = false;
+        flashBtn.innerText = "⚡ UPDATE FIRMWARE";
+    } else {
+        statusEl.innerText = "● Ready";
+        statusEl.className = "font-mono text-muted";
+        flashBtn.disabled = false;
+        flashBtn.innerText = "⚡ UPDATE FIRMWARE";
+    }
+}
+
+if ('serial' in navigator) {
+    navigator.serial.addEventListener('connect', () => {
+        if (document.getElementById('firmware-modal')?.open) refreshBootloaderStatus();
+    });
+    navigator.serial.addEventListener('disconnect', () => {
+        if (document.getElementById('firmware-modal')?.open) refreshBootloaderStatus();
+    });
+}
+
+const FACTORY_DEFAULT_FW_VERSION = '9.9.01';
+let pendingTargetRelease = null;
+let pendingIsFactoryReset = false;
+let factoryResetArmed = false;
+let factoryResetArmTimer = null;
+
+function resetFactoryResetConfirmState() {
+    clearTimeout(factoryResetArmTimer);
+    factoryResetArmed = false;
+    const resetBtn = document.getElementById('btnModalFactoryReset');
+    if (resetBtn) {
+        resetBtn.innerText = `↺ FACTORY RESET (v${FACTORY_DEFAULT_FW_VERSION})`;
+        resetBtn.disabled = false;
+    }
+}
+
 document.getElementById('closeFirmwareModalBtn').onclick = () => {
+    pendingTargetRelease = null;
+    pendingIsFactoryReset = false;
+    resetFactoryResetConfirmState();
     document.getElementById('firmware-modal').close();
 };
 
@@ -997,6 +1088,8 @@ document.getElementById('checkUpdatesBtn').onclick = async () => {
         }
 
         activeFirmwareRelease = latestRel;
+        pendingUpdateMalletId = window.bleManager?.isConnected() ? (activeMallet?.id || null) : null;
+
         const currentFw = window.bleManager?.firmwareVersion || 'Not Connected';
         const isUpToDate = currentFw !== 'Not Connected' && !isNewerVersion(latestRel.version, currentFw);
 
@@ -1006,120 +1099,288 @@ document.getElementById('checkUpdatesBtn').onclick = async () => {
         document.getElementById('fwModalProgressWrap').classList.add('hidden');
         document.getElementById('fwModalLog').textContent = `Ready to install v${latestRel.version}.`;
 
-        const dfuBtn = document.getElementById('btnModalEnterDfu');
         if (currentFw === '9.8.05') {
-            dfuBtn.disabled = true;
-            dfuBtn.innerText = "USB RESET REQUIRED FOR v9.8.05 → v9.9.02+";
-            fwLog("v9.8.05 detected: plug in USB-C and double-tap the reset button on the XIAO, then click Flash Firmware below.");
-        } else {
-            dfuBtn.disabled = false;
-            dfuBtn.innerText = window.bleManager?.isConnected()
-                ? "📡 PREPARE MALLET FOR UPDATE"
-                : "📡 CONNECT BLUETOOTH & ARM FOR UPDATE";
+            fwLog("v9.8.05 detected: plug in USB-C and double-tap Reset on the XIAO, then click Update Firmware.");
         }
 
+        resetFactoryResetConfirmState();
         document.getElementById('about-modal').close();
         document.getElementById('firmware-modal').showModal();
+        refreshBootloaderStatus();
     } finally {
         btn.disabled = false;
         btn.innerText = "CHECK FOR FIRMWARE UPDATES";
     }
 };
 
-document.getElementById('btnModalEnterDfu').onclick = async () => {
-    const dfuBtn = document.getElementById('btnModalEnterDfu');
-    dfuBtn.disabled = true;
+async function resolveConnectedMalletIdentity(timeoutMs = 3000) {
+    if (!window.bleManager?.isConnected()) return { malletId: null, version: null };
 
-    try {
-        if (!window.bleManager?.isConnected()) {
-            fwLog("Connecting to mallet via Bluetooth...");
-            await window.bleManager.connect();
-        }
-
-        if (!window.bleManager?.isConnected()) {
-            fwLog("Bluetooth connection cancelled or failed.");
-            return;
-        }
-
-        fwLog(`Sending update command ('U') to ${window.bleManager.deviceName}...`);
-        const sent = await window.bleManager.sendCommand([0x55], true);
-        if (!sent) throw new Error("Failed to send DFU command over BLE.");
-
-        fwLog("Mallet armed! Plug in USB-C now (or if already plugged in, XIAO-SENSE will mount immediately).");
-        showToast("Mallet armed! Connect USB-C and click Flash.");
-    } catch (err) {
-        fwLog(`BLE error: ${err.message}`);
-    } finally {
-        dfuBtn.disabled = false;
+    // Explicitly request config/version ('C') if firmwareVersion hasn't arrived yet
+    if (!window.bleManager.firmwareVersion && typeof syncConfigurationToMallet === 'function') {
+        syncConfigurationToMallet().catch(() => {});
     }
-};
 
-document.getElementById('btnModalStartFlash').onclick = async () => {
-    if (!activeFirmwareRelease) return;
-    if (!('serial' in navigator)) {
-        showToast("Web Serial API requires desktop Chrome or Edge.");
-        fwLog("Error: navigator.serial is unavailable in this browser.");
-        return;
+    const connectedMac = window.bleManager.deviceMac;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+        const hasMatchingMallet = Boolean(
+            activeMallet?.id && (!connectedMac || activeMallet.ble_mac === connectedMac)
+        );
+        const hasVersion = Boolean(window.bleManager.firmwareVersion);
+
+        if (hasMatchingMallet && hasVersion) break;
+        await new Promise(r => setTimeout(r, 100));
     }
-    if (!window.WebSerialDFU) {
-        fwLog("Error: nrfSerialDfu.js is not loaded.");
-        return;
+
+    const malletId = (activeMallet?.id && (!connectedMac || activeMallet.ble_mac === connectedMac))
+        ? activeMallet.id
+        : null;
+    const version = window.bleManager.firmwareVersion || activeMallet?.firmware_version || null;
+
+    if (version) {
+        const modalFw = document.getElementById('fwModalCurrent');
+        if (modalFw) modalFw.innerText = version;
     }
+
+    return { malletId, version };
+}
+
+async function executeFirmwareInstall(targetRelease, isFactoryReset = false) {
+    if (!targetRelease) return;
 
     const flashBtn = document.getElementById('btnModalStartFlash');
-    flashBtn.disabled = true;
+    const resetBtn = document.getElementById('btnModalFactoryReset');
+    if (flashBtn) flashBtn.disabled = true;
+    if (resetBtn) resetBtn.disabled = true;
+
+    const prevVersionRaw = document.getElementById('fwModalCurrent')?.innerText || '';
+    let previousVersion = (prevVersionRaw && prevVersionRaw !== 'Not Connected' && prevVersionRaw !== '--')
+        ? prevVersionRaw
+        : null;
+
+    let updateSucceeded = false;
+    let awaitingUsbPairGesture = false;
 
     try {
-        setFwProgress(10, "Downloading firmware package...");
-        fwLog(`Downloading ${activeFirmwareRelease.storage_path}...`);
+        if (!('serial' in navigator)) {
+            showToast("Web Serial API requires desktop Chrome or Edge.");
+            throw new Error("navigator.serial is unavailable in this browser.");
+        }
+        if (!window.WebSerialDFU) {
+            throw new Error("nrfSerialDfu.js is not loaded.");
+        }
+
+        if (isFactoryReset) {
+            fwLog(`Starting factory reset to v${targetRelease.version}...`);
+        }
+
+        // 1. Check if already in bootloader mode; if not, try connecting over BLE first
+        let port = await findAuthorizedDfuPort();
+
+        if (!port && !window.bleManager?.isConnected() && navigator.bluetooth) {
+            setFwProgress(5, "Connecting via Bluetooth...");
+            fwLog("Bluetooth not connected — attempting to connect (or double-tap the Reset button on the mallet to enter bootloader mode manually)...");
+            try {
+                await window.bleManager.connect();
+            } catch (bleErr) {
+                fwLog("Bluetooth skipped or unavailable. Alternatively, double-tap the Reset button on the mallet.");
+            }
+        }
+
+        // 2. Wait for BLE mallet ID + firmware version to resolve BEFORE sending 'U'
+        if (window.bleManager?.isConnected()) {
+            const resolved = await resolveConnectedMalletIdentity(3000);
+            if (resolved.malletId) pendingUpdateMalletId = resolved.malletId;
+            if (resolved.version) previousVersion = resolved.version;
+        } else if (!pendingUpdateMalletId && Array.isArray(playerMallets) && playerMallets.length === 1) {
+            // Single-mallet account fallback when flashed via manual double-tap Reset without BLE
+            const soleMallet = playerMallets[0]?.mallet;
+            if (soleMallet?.id) {
+                pendingUpdateMalletId = soleMallet.id;
+                if (!previousVersion && soleMallet.firmware_version) {
+                    previousVersion = soleMallet.firmware_version;
+                }
+            }
+        }
+
+        // 3. If connected over BLE, send 'U' to reboot into bootloader mode
+        if (!port && window.bleManager?.isConnected()) {
+            if (previousVersion === '9.8.05') {
+                fwLog("v9.8.05 requires a manual reset: double-tap the Reset button on the XIAO now.");
+            } else {
+                setFwProgress(8, "Rebooting mallet into bootloader...");
+                fwLog(`Sending update command ('U') to ${window.bleManager.deviceName}...`);
+                const sent = await window.bleManager.sendCommand([0x55], true);
+                if (!sent) throw new Error("Failed to send DFU command over BLE.");
+
+                fwLog("Waiting for USB bootloader...");
+                port = await waitForDfuPort(3500);
+                refreshBootloaderStatus();
+            }
+        }
+
+        // 3. Prompt to select USB port if this is a new board or first-time browser
+        if (!port) {
+            setFwProgress(10, "Select XIAO nRF52840 in popup...");
+            try {
+                port = await navigator.serial.requestPort({
+                    filters: XIAO_DFU_PIDS.map(pid => ({ usbVendorId: XIAO_VID, usbProductId: pid }))
+                });
+                refreshBootloaderStatus();
+            } catch (portErr) {
+                if (portErr.name === 'SecurityError') {
+                    awaitingUsbPairGesture = true;
+                    pendingTargetRelease = targetRelease;
+                    pendingIsFactoryReset = isFactoryReset;
+                    fwLog("Click 'Select USB Port to Flash' above to choose XIAO nRF52840 (ensure the mallet rebooted via Bluetooth or double-tap Reset).");
+                    return;
+                }
+                if (portErr.name === 'NotFoundError') {
+                    throw new Error("No bootloader port selected. Connect via Bluetooth or double-tap the Reset button on the mallet, then try again.");
+                }
+                throw portErr;
+            }
+        }
+
+        // 4. Download & verify firmware package
+        setFwProgress(20, "Downloading firmware package...");
+        fwLog(`Downloading ${targetRelease.storage_path}...`);
 
         const { data: fileBlob, error: dlErr } = await supabaseClient.storage
             .from('firmware-binaries')
-            .download(activeFirmwareRelease.storage_path);
+            .download(targetRelease.storage_path);
 
         if (dlErr || !fileBlob) {
-            throw new Error(`Storage error (${activeFirmwareRelease.storage_path}): ${dlErr?.message || 'Download failed'}`);
+            throw new Error(`Storage error (${targetRelease.storage_path}): ${dlErr?.message || 'Download failed'}`);
         }
         const zipBuffer = await fileBlob.arrayBuffer();
 
-        setFwProgress(25, "Verifying SHA-256 checksum...");
+        setFwProgress(30, "Verifying SHA-256 checksum...");
         const actualHash = await computeSha256Hex(zipBuffer);
-        if (actualHash !== activeFirmwareRelease.sha256.toLowerCase()) {
+        if (actualHash !== targetRelease.sha256.toLowerCase()) {
             throw new Error("SHA-256 mismatch! Aborting flash to protect hardware.");
         }
         fwLog("SHA-256 verified OK.");
 
-        setFwProgress(30, "Connecting to mallet USB port...");
-        const authorizedPorts = await navigator.serial.getPorts();
-        let port = authorizedPorts.find(p => p.getInfo().usbVendorId === 0x2886);
-        if (!port) {
-            setFwProgress(30, "Select XIAO nRF52840 in popup...");
-            port = await navigator.serial.requestPort({
-                filters: [{ usbVendorId: 0x2886 }]
-            });
-        }
-
+        // 5. Flash over Web Serial DFU
         const dfu = new window.WebSerialDFU(port, {
             baudRate: 115200,
             onProgress: (sent, total) => {
                 const pct = 30 + (sent / total) * 70;
-                setFwProgress(pct, "Flashing nRF52840...");
+                setFwProgress(pct, isFactoryReset ? `Restoring v${targetRelease.version}...` : "Flashing nRF52840...");
             },
             onLog: (line) => fwLog(line)
         });
 
         await dfu.flashZip(zipBuffer);
 
-        setFwProgress(100, "Update Complete!");
-        fwLog(`Successfully flashed v${activeFirmwareRelease.version}! Unplug USB-C now—the app will reconnect automatically.`);
-        showToast(`Firmware updated to v${activeFirmwareRelease.version}!`);
+        updateSucceeded = true;
+        setFwProgress(100, isFactoryReset ? "Factory Reset Complete!" : "Update Complete!");
+        if (isFactoryReset) {
+            fwLog(`Successfully restored factory firmware v${targetRelease.version}! Unplug USB-C now to exit charging mode and reconnect Bluetooth.`);
+            showToast(`Factory reset to v${targetRelease.version} complete!`);
+        } else {
+            fwLog(`Successfully flashed v${targetRelease.version}! Mallet is rebooting and will auto-reconnect.`);
+            showToast(`Firmware updated to v${targetRelease.version}!`);
+        }
     } catch (err) {
-        fwLog(`UPDATE FAILED: ${err.message}`);
-        showToast("Firmware update failed. Check log.");
+        fwLog(`${isFactoryReset ? 'FACTORY RESET' : 'UPDATE'} FAILED: ${err.message}`);
+        showToast(isFactoryReset ? "Factory reset failed. Check log." : "Firmware update failed. Check log.");
     } finally {
-        flashBtn.disabled = false;
+        if (!awaitingUsbPairGesture) {
+            pendingTargetRelease = null;
+            pendingIsFactoryReset = false;
+
+            if (currentUser) {
+                const fullLogText = document.getElementById('fwModalLog')?.textContent || '';
+
+                const { error: logErr } = await supabaseClient
+                    .from('mallet_update_logs')
+                    .insert([{
+                        mallet_id: pendingUpdateMalletId,
+                        user_id: currentUser.id,
+                        version: targetRelease.version,
+                        previous_version: previousVersion,
+                        status: updateSucceeded ? 'success' : 'failed',
+                        log_output: fullLogText
+                    }]);
+
+                if (logErr) {
+                    fwLog(`Cloud audit log warning: ${logErr.message}`);
+                }
+
+                if (updateSucceeded && pendingUpdateMalletId) {
+                    await supabaseClient
+                        .from('mallets')
+                        .update({ firmware_version: targetRelease.version })
+                        .eq('id', pendingUpdateMalletId);
+                }
+            }
+        }
+
+        if (flashBtn) {
+            flashBtn.disabled = false;
+            flashBtn.innerText = awaitingUsbPairGesture
+                ? "🔌 SELECT USB PORT TO FLASH"
+                : "⚡ UPDATE FIRMWARE";
+        }
+        if (resetBtn) {
+            resetBtn.disabled = awaitingUsbPairGesture;
+        }
     }
-};
+}
+
+const modalStartFlashBtn = document.getElementById('btnModalStartFlash');
+if (modalStartFlashBtn) {
+    modalStartFlashBtn.onclick = async () => {
+        resetFactoryResetConfirmState();
+        if (pendingTargetRelease) {
+            await executeFirmwareInstall(pendingTargetRelease, pendingIsFactoryReset);
+        } else {
+            await executeFirmwareInstall(activeFirmwareRelease, false);
+        }
+    };
+}
+
+const modalFactoryResetBtn = document.getElementById('btnModalFactoryReset');
+if (modalFactoryResetBtn) {
+    modalFactoryResetBtn.onclick = async () => {
+        if (!factoryResetArmed) {
+            factoryResetArmed = true;
+            modalFactoryResetBtn.innerText = `⚠️ CLICK AGAIN TO CONFIRM RESET (v${FACTORY_DEFAULT_FW_VERSION})`;
+            fwLog(`Click Factory Reset again within 5 seconds to restore v${FACTORY_DEFAULT_FW_VERSION}.`);
+            clearTimeout(factoryResetArmTimer);
+            factoryResetArmTimer = setTimeout(() => {
+                resetFactoryResetConfirmState();
+            }, 5000);
+            return;
+        }
+
+        resetFactoryResetConfirmState();
+        modalFactoryResetBtn.disabled = true;
+
+        try {
+            fwLog(`Fetching factory firmware release v${FACTORY_DEFAULT_FW_VERSION}...`);
+            const { data: factoryRel, error: relErr } = await supabaseClient
+                .from('firmware_releases')
+                .select('*')
+                .eq('version', FACTORY_DEFAULT_FW_VERSION)
+                .maybeSingle();
+
+            if (relErr || !factoryRel) {
+                fwLog(`Error: Factory firmware v${FACTORY_DEFAULT_FW_VERSION} not found in release catalog.`);
+                showToast(`Factory firmware v${FACTORY_DEFAULT_FW_VERSION} unavailable.`);
+                return;
+            }
+
+            await executeFirmwareInstall(factoryRel, true);
+        } finally {
+            if (!pendingTargetRelease) modalFactoryResetBtn.disabled = false;
+        }
+    };
+}
 
 document.getElementById('openMalletBtn').onclick = () => { document.getElementById('mallet-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
 document.getElementById('closeMalletBtn').onclick = () => { document.getElementById('mallet-modal').close(); };
@@ -3749,7 +4010,10 @@ window.bleManager.onBatteryUpdate = (voltage_mV, isCharging, availStrikes) => {
 };
 
 window.bleManager.onFirmwareVersion = (ver) => {
-    let aboutFw = document.getElementById('about-fw-display'); if (aboutFw) aboutFw.innerText = ver;
+    let aboutFw = document.getElementById('about-fw-display');
+    if (aboutFw) aboutFw.innerText = ver;
+    let modalFw = document.getElementById('fwModalCurrent');
+    if (modalFw && ver) modalFw.innerText = ver;
 };
 
 window.bleManager.onTelemetryData = (t) => {

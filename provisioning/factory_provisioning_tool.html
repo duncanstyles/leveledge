@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LevelEdge Bench Flasher</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #0f172a;
+            --bg-secondary: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent-primary: #38bdf8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --border-color: #334155;
+            --radius: 8px;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 600px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 2rem;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+
+        h1 {
+            margin-top: 0;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--accent-primary);
+            text-align: center;
+            letter-spacing: -0.5px;
+        }
+
+        .step-card {
+            background: var(--bg-base);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .step-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .file-input-wrapper {
+            margin-top: 1rem;
+        }
+
+        input[type="file"] {
+            display: block;
+            width: 100%;
+            padding: 0.5rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            color: var(--text-main);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            cursor: pointer;
+        }
+
+        button {
+            width: 100%;
+            padding: 0.85rem;
+            background: var(--accent-primary);
+            color: #0f172a;
+            border: none;
+            border-radius: var(--radius);
+            font-weight: 800;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            margin-top: 1rem;
+        }
+
+        button:hover { opacity: 0.9; }
+        button:disabled {
+            background: var(--border-color);
+            color: var(--text-muted);
+            cursor: not-allowed;
+        }
+
+        #logArea {
+            width: 100%;
+            height: 200px;
+            background: #000;
+            color: #34d399;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            padding: 1rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            overflow-y: auto;
+            box-sizing: border-box;
+            white-space: pre-wrap;
+            margin-top: 1rem;
+        }
+
+        .progress-wrap {
+            margin-top: 1rem;
+            display: none;
+        }
+
+        .progress-bar-bg {
+            width: 100%;
+            height: 12px;
+            background: var(--bg-base);
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        #progressBar {
+            width: 0%;
+            height: 100%;
+            background: var(--accent-primary);
+            transition: width 0.1s, background-color 0.3s;
+        }
+
+        .text-muted { color: var(--text-muted); font-size: 0.85rem; line-height: 1.4; }
+        .text-success { color: var(--success); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>LevelEdge Bench Flasher</h1>
+    <p class="text-muted" style="text-align: center; margin-bottom: 2rem;">Offline factory provisioning tool for XIAO nRF52840 Sense.</p>
+
+    <div class="step-card">
+        <div class="step-title">1. Select Firmware Package</div>
+        <p class="text-muted">Choose the compiled <code>.zip</code> file from your local machine (e.g., <code>LevelEdge_0_9902.ino.zip</code>).</p>
+        <div class="file-input-wrapper">
+            <input type="file" id="fwFileInput" accept=".zip">
+        </div>
+    </div>
+
+    <div class="step-card">
+        <div class="step-title">
+            <span>2. Flash Board</span>
+            <span id="usbStatus" style="font-family: 'JetBrains Mono'; font-size: 0.75rem; color: var(--text-muted);">● Waiting for USB</span>
+        </div>
+        <p class="text-muted">Plug in the board, <strong>double-tap the reset button</strong> so it enters bootloader mode, then click flash.</p>
+        
+        <button id="btnStartFlash">⚡ FLASH OVER USB</button>
+
+        <div id="progressWrap" class="progress-wrap">
+            <div style="display: flex; justify-content: space-between; font-family: 'JetBrains Mono'; font-size: 0.75rem; margin-bottom: 4px;">
+                <span>Progress</span>
+                <span id="progressPct">0%</span>
+            </div>
+            <div class="progress-bar-bg">
+                <div id="progressBar"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="step-title" style="margin-bottom: 0.5rem;">Console Log</div>
+    <div id="logArea">LevelEdge Offline Provisioning System Initialized...</div>
+</div>
+
+<!-- Dependencies -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="nrfSerialDfu.js"></script>
+
+<script>
+    const XIAO_VID = 0x2886;
+    const XIAO_DFU_PIDS = [0x0045, 0x0044];
+
+    const fileInput = document.getElementById('fwFileInput');
+    const btnStartFlash = document.getElementById('btnStartFlash');
+    const logArea = document.getElementById('logArea');
+    const usbStatus = document.getElementById('usbStatus');
+    const progressWrap = document.getElementById('progressWrap');
+    const progressBar = document.getElementById('progressBar');
+    const progressPct = document.getElementById('progressPct');
+
+    function fwLog(msg) {
+        logArea.textContent += `\n[${new Date().toLocaleTimeString([], {hour12: false})}] ${msg}`;
+        logArea.scrollTop = logArea.scrollHeight;
+    }
+
+    async function computeSha256Hex(arrayBuffer) {
+        const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+        return Array.from(new Uint8Array(hashBuf))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+    }
+
+    if (!('serial' in navigator)) {
+        fwLog("CRITICAL: Web Serial API not supported in this browser. Use desktop Chrome/Edge.");
+        btnStartFlash.disabled = true;
+    }
+
+    navigator.serial.addEventListener('connect', () => fwLog("USB device connected."));
+    navigator.serial.addEventListener('disconnect', () => fwLog("USB device disconnected."));
+
+    btnStartFlash.onclick = async () => {
+        if (!fileInput.files.length) {
+            alert("Please select a .zip firmware package first.");
+            return;
+        }
+
+        btnStartFlash.disabled = true;
+        progressWrap.style.display = 'block';
+        progressBar.style.width = '0%';
+        progressBar.style.background = 'var(--accent-primary)';
+        progressPct.innerText = '0%';
+
+        try {
+            if (!window.WebSerialDFU) throw new Error("nrfSerialDfu.js is missing or failed to load.");
+
+            const file = fileInput.files[0];
+            fwLog(`Reading local file: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`);
+            
+            const zipBuffer = await file.arrayBuffer();
+            const hash = await computeSha256Hex(zipBuffer);
+            fwLog(`SHA-256: ${hash}`);
+
+            fwLog("Waiting for user to select XIAO bootloader port...");
+            usbStatus.innerText = "● Prompting...";
+            usbStatus.className = "text-muted";
+
+            const port = await navigator.serial.requestPort({
+                filters: XIAO_DFU_PIDS.map(pid => ({ usbVendorId: XIAO_VID, usbProductId: pid }))
+            });
+
+            usbStatus.innerText = "● Port Authorized";
+            usbStatus.style.color = "var(--success)";
+
+            fwLog("Connecting to Web Serial DFU...");
+            const dfu = new window.WebSerialDFU(port, {
+                baudRate: 115200,
+                onProgress: (sent, total) => {
+                    const pct = (sent / total) * 100;
+                    progressBar.style.width = `${pct}%`;
+                    progressPct.innerText = `${Math.round(pct)}%`;
+                },
+                onLog: (line) => fwLog(line)
+            });
+
+            await dfu.flashZip(zipBuffer);
+
+            fwLog(`SUCCESS! Board flashed with ${file.name}.`);
+            fwLog("The XIAO is rebooting into the application now.");
+            progressBar.style.background = "var(--success)";
+            usbStatus.innerText = "● Done";
+
+        } catch (err) {
+            fwLog(`FLASH FAILED: ${err.message}`);
+            progressBar.style.background = "var(--danger)";
+            usbStatus.innerText = "● Error";
+            usbStatus.style.color = "var(--danger)";
+        } finally {
+            btnStartFlash.disabled = false;
+        }
+    };
+</script>
+</body>
+</html>
