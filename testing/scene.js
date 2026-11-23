@@ -350,7 +350,7 @@ export function drawStrikeLaser(cast) {
     scene.add(targetBallMesh);
     impactLasers.push(targetBallMesh);
 
-    // 7. Build the Red Dotted Actual Ball Launch Line
+    /// 7. Build the Red Dotted Actual Ball Launch Line
     let laserGeo = new THREE.BufferGeometry().setFromPoints([backPos, endPos]);
     let laserMat = new THREE.LineDashedMaterial({
         color: 0xff0000,
@@ -366,6 +366,20 @@ export function drawStrikeLaser(cast) {
 
     scene.add(laserMesh);         
     impactLasers.push(laserMesh); 
+
+    // 8. Add Virtual Target Ball on the Actual Launch Line at the Target Distance
+    let launchTargetPos = startPos.clone().add(direction.clone().multiplyScalar(targetDistance));
+    let launchBallGeo = new THREE.SphereGeometry(4.6, 16, 12);
+    let launchBallMat = new THREE.MeshBasicMaterial({
+        color: 0xff0000,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.75
+    });
+    let launchBallMesh = new THREE.Mesh(launchBallGeo, launchBallMat);
+    launchBallMesh.position.copy(launchTargetPos);
+    scene.add(launchBallMesh);
+    impactLasers.push(launchBallMesh);
 }
 
 function rebuildTraceTube(pts, hideBackswing) {

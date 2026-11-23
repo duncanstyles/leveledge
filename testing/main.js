@@ -8,7 +8,7 @@ import {
     loadOfflineMalletFallback, syncConnectedMallet,
     saveActiveMalletSpecs, saveActiveMalletCalibration,
     selectMalletFromBag, removeMalletFromBag,
-    fetchCloudMatches, fetchCloudStrikes, savePracticeCastsToCloud,
+    fetchCloudMatches, fetchCloudStrikes, savePracticeCastsToCloud, updatePracticeStrikeInCloud,
     fetchCloudTraining, deleteCloudSession, getAiCoachFeedback
 } from './cloud.js';
 
@@ -126,7 +126,18 @@ function syncAppConfig() {
 document.body.addEventListener('input', syncAppConfig);
 document.body.addEventListener('change', syncAppConfig);
 
-window.pristinePathAngleRads = 0
+window.pristinePathAngleRads = 0;
+
+// Exact right-handed basis mapping from calibrated sensor ENU frame to Three.js (+X Left, +Y Up, +Z Target)
+const Q_SENSOR_TO_THREE_OUT = new THREE.Quaternion(0.5, 0.5, 0.5, -0.5);
+const Q_SENSOR_TO_THREE_IN  = new THREE.Quaternion(0.5, 0.5, -0.5, -0.5);
+
+function mapFirmwareQuatToThree(q0, q1, q2, q3) {
+    return Q_SENSOR_TO_THREE_OUT.clone()
+        .multiply(new THREE.Quaternion(q1, q2, q3, q0).normalize())
+        .multiply(Q_SENSOR_TO_THREE_IN)
+        .normalize();
+}
 
 initScene();
 
@@ -232,7 +243,15 @@ async function startTrainerSequence() {
         virtualBall.visible = true; 
     } else { virtualBall.visible = false; }
 
-    appState = 2; calibrationPhase = 'RED'; redStartTime = Date.now(); isReviewingLog = false;
+    appState = 2; calibrationPhase = 'RED'; redStartTime = Date.now(); lastJsTime = redStartTime;
+    isLive = true; isReviewingLog = false; playbackMode = false; isPaused = false;
+    impactDetected = false; hasLiftedOff = false; lockedFaceZ = null;
+    window.pendingStrikePacket = null;
+    window.pristineImpactQuat = null;
+    window.pristineImpactQuat_m8 = null;
+    window.pristineStep8ms = null;
+    window.strikeCastGenerated = false;
+    window.followThroughComplete = false;
     
     let camX = isViewFlipped ? -100 : 100; camera.position.set(camX, pivotBaseY - loadedRadius, 0); controls.target.set(0, pivotBaseY - loadedRadius, 0); controls.update();
     
@@ -364,12 +383,90 @@ function updateExperimentalFeatures() {
 let lockedFaceZ = null;
 
 function getDynamicFaceZ() { 
-    // Uses exact posture if locked, otherwise defaults perfectly to the sensor offset
-    return lockedFaceZ !== null ? lockedFaceZ : AppConfig.offsetZCm; 
+    // Uses exact posture if locked, otherwise defaults to half the mallet head length (center shaft to front face)
+    return lockedFaceZ !== null ? lockedFaceZ : ((AppConfig.malletLengthCm || 27.6) / 2.0); 
 }
 // ---------------------------------------------------------------------
 
 function getDynamicBallZ() { return getDynamicFaceZ() + 4.6; }
+
+function getActiveTargetDistM(cast) {
+    if (cast && cast.targetDistM !== undefined && cast.targetDistM !== null && !isNaN(cast.targetDistM)) {
+        return cast.targetDistM;
+    }
+    return inGameMode
+        ? (parseFloat(document.getElementById('matchDistSetup')?.value) || 10.0)
+        : (parseFloat(document.getElementById('trainerDistSetup')?.value) || 5.0);
+}
+
+function getTargetDistanceLabel(cast) {
+    let distM = getActiveTargetDistM(cast);
+    let formatted = Number.isInteger(distM) ? `${distM}` : `${parseFloat(distM.toFixed(1))}`;
+    return `TARGET: ${formatted}m`;
+}
+
+function formatTargetHitMissHTML(cast) {
+    if (!cast || cast.isWhiff) return `Whiff`;
+    let launchRads = cast.trueLaunchRads;
+    if (launchRads === undefined || launchRads === null || isNaN(launchRads)) {
+        if (cast.trueLaunchDeg !== undefined && cast.trueLaunchDeg !== null && !isNaN(cast.trueLaunchDeg)) {
+            launchRads = THREE.MathUtils.degToRad(cast.trueLaunchDeg);
+        } else {
+            return `N/A`;
+        }
+    }
+    let targetDistM = getActiveTargetDistM(cast);
+    let lateralCm = (targetDistM * 100.0) * Math.sin(launchRads);
+    let centerDistCm = Math.abs(lateralCm);
+    const BALL_DIAMETER_CM = 9.2; // 46mm + 46mm combined radii of both balls
+
+    if (centerDistCm <= BALL_DIAMETER_CM) {
+        let side = centerDistCm < 0.5 ? '' : (lateralCm > 0 ? ' L' : ' R');
+        let distStr = centerDistCm < 0.5 ? '0cm' : `${Math.round(centerDistCm)}cm${side}`;
+        return `<span class="text-success">Hit ${distStr}</span>`;
+    } else {
+        let missEdgeCm = centerDistCm - BALL_DIAMETER_CM;
+        let side = lateralCm > 0 ? ' L' : ' R';
+        let distStr = missEdgeCm < 1.0 ? `${missEdgeCm.toFixed(1)}cm${side}` : `${Math.round(missEdgeCm)}cm${side}`;
+        return `<span class="text-danger">Miss ${distStr}</span>`;
+    }
+}
+
+function computeFallbackPreImpactAccelPct(trailIndex, traceArr = rawTracePoints) {
+    if (!traceArr || traceArr.length < 3) return null;
+    let endIdx = Math.min(Math.max(0, trailIndex ?? (traceArr.length - 1)), traceArr.length - 1);
+    let forwardPts = [];
+    for (let i = endIdx; i >= 0 && forwardPts.length < 6; i--) {
+        let pt = traceArr[i];
+        if (!pt) continue;
+        if (!pt.isForward && forwardPts.length > 0) break;
+        if (pt.isForward) forwardPts.unshift(pt);
+    }
+    if (forwardPts.length < 3) return null;
+
+    // Require at least 1 buffer sample after turnaround so zero-speed apex reversal is excluded
+    let usable = forwardPts.length >= 4 ? forwardPts.slice(-3) : null;
+    if (!usable) return null;
+
+    let p0 = usable[0], pM = usable[1], p1 = usable[2];
+    let dt1Sec = ((pM.time ?? 0) - (p0.time ?? 0)) / 1000.0;
+    let dt2Sec = ((p1.time ?? 0) - (pM.time ?? 0)) / 1000.0;
+    if (dt1Sec < 0.015 || dt1Sec > 0.15 || dt2Sec < 0.015 || dt2Sec > 0.15) return null;
+
+    let radiusM = (loadedRadius || 127) / 100.0;
+    let v1 = (p0.rot.angleTo(pM.rot) * radiusM) / dt1Sec;
+    let v2 = (pM.rot.angleTo(p1.rot) * radiusM) / dt2Sec;
+    let vRef = 0.5 * (v1 + v2);
+    if (v1 < 0.25 || vRef < 0.25) return null;
+
+    // In Three.js YXZ Euler, pitch (x) is positive before bottom of arc and negative on upswing
+    let midPitchX = new THREE.Euler().setFromQuaternion(pM.rot, 'YXZ').x;
+    let dtMidSec = 0.5 * (dt1Sec + dt2Sec);
+    let dvGravity = 9.81 * Math.sin(midPitchX) * dtMidSec;
+    let dvPlayer = (v2 - v1) - dvGravity;
+
+    return Math.round(Math.max(-50, Math.min(60, (dvPlayer / vRef) * 100.0)));
+}
 
 function getFrontFaceBackswingMetricsCm(trailIndex, minSearchIndex = 0) {
     if (!rawTracePoints || rawTracePoints.length === 0) return { arcLengthCm: 0, heightCm: 0 };
@@ -509,6 +606,9 @@ async function resetSystemState(silent = false, wipeHistory = false) {
     hasLiftedOff = false;
     lockedFaceZ = null;
     window.pendingStrikePacket = null;
+    window.pristineImpactQuat = null;
+    window.pristineImpactQuat_m8 = null;
+    window.pristineStep8ms = null;
     window.impactHwTime = 0;
     window.lastCompletedSwingIdx = null;
     window.followThroughComplete = false;
@@ -799,8 +899,227 @@ document.getElementById('devResetCalibrationBtn').onclick = async () => {
     }
 };
 
-document.getElementById('openAboutBtn').onclick = () => { document.getElementById('about-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
-document.getElementById('closeAboutBtn').onclick = () => { document.getElementById('about-modal').close(); };
+let activeFirmwareRelease = null;
+
+function isNewerVersion(latest, current) {
+    if (!current || current === 'Not Connected') return true;
+    const a = latest.split('.').map(n => parseInt(n, 10) || 0);
+    const b = current.split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(a.length, b.length); i++) {
+        if ((a[i] || 0) > (b[i] || 0)) return true;
+        if ((a[i] || 0) < (b[i] || 0)) return false;
+    }
+    return false;
+}
+
+function fwLog(msg) {
+    const el = document.getElementById('fwModalLog');
+    if (!el) return;
+    el.textContent += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
+    el.scrollTop = el.scrollHeight;
+}
+
+function setFwProgress(pct, label) {
+    document.getElementById('fwModalProgressWrap')?.classList.remove('hidden');
+    const bar = document.getElementById('fwModalBar');
+    const pctEl = document.getElementById('fwModalPct');
+    const stageEl = document.getElementById('fwModalStage');
+    if (bar) bar.style.width = `${pct}%`;
+    if (pctEl) pctEl.innerText = `${Math.round(pct)}%`;
+    if (stageEl && label) stageEl.innerText = label;
+}
+
+async function computeSha256Hex(arrayBuffer) {
+    const hashBuf = await crypto.subtle.digest('SHA-256', arrayBuffer);
+    return Array.from(new Uint8Array(hashBuf))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+document.getElementById('openAboutBtn').onclick = () => {
+    const statusEl = document.getElementById('update-check-status');
+    if (statusEl) statusEl.innerText = '';
+    const aboutFw = document.getElementById('about-fw-display');
+    if (aboutFw) {
+        aboutFw.innerText = window.bleManager?.firmwareVersion || (window.bleManager?.isConnected() ? 'Connected' : 'Not Connected');
+    }
+    document.getElementById('about-modal').showModal();
+    document.getElementById('menu-drawer').classList.remove('open');
+};
+
+document.getElementById('closeAboutBtn').onclick = () => {
+    document.getElementById('about-modal').close();
+};
+
+document.getElementById('closeFirmwareModalBtn').onclick = () => {
+    document.getElementById('firmware-modal').close();
+};
+
+document.getElementById('checkUpdatesBtn').onclick = async () => {
+    const btn = document.getElementById('checkUpdatesBtn');
+    const statusEl = document.getElementById('update-check-status');
+
+    if (!currentUser) {
+        statusEl.innerText = "Please log in to your LevelEdge Cloud account first.";
+        statusEl.className = "font-mono text-warning";
+        showToast("Log in to check for firmware updates.");
+        return;
+    }
+
+    btn.disabled = true;
+    btn.innerText = "CHECKING...";
+    statusEl.innerText = "Verifying subscription & release server...";
+    statusEl.className = "font-mono text-muted";
+
+    try {
+        const { data: profile, error: profErr } = await supabaseClient
+            .from('player_profiles')
+            .select('is_subscribed')
+            .eq('user_id', currentUser.id)
+            .single();
+
+        if (profErr || !profile?.is_subscribed) {
+            statusEl.innerHTML = "Active <strong class='text-accent'>PRO Subscription</strong> required for firmware updates.";
+            statusEl.className = "font-mono text-danger";
+            return;
+        }
+
+        const { data: latestRel, error: relErr } = await supabaseClient
+            .from('firmware_releases')
+            .select('*')
+            .eq('is_latest', true)
+            .maybeSingle();
+
+        if (relErr || !latestRel) {
+            statusEl.innerText = "Unable to fetch release catalog.";
+            statusEl.className = "font-mono text-danger";
+            return;
+        }
+
+        activeFirmwareRelease = latestRel;
+        const currentFw = window.bleManager?.firmwareVersion || 'Not Connected';
+        const isUpToDate = currentFw !== 'Not Connected' && !isNewerVersion(latestRel.version, currentFw);
+
+        document.getElementById('fwModalCurrent').innerText = currentFw;
+        document.getElementById('fwModalLatest').innerText = `v${latestRel.version}${isUpToDate ? ' (Up to date)' : ''}`;
+        document.getElementById('fwModalNotes').innerText = latestRel.release_notes;
+        document.getElementById('fwModalProgressWrap').classList.add('hidden');
+        document.getElementById('fwModalLog').textContent = `Ready to install v${latestRel.version}.`;
+
+        const dfuBtn = document.getElementById('btnModalEnterDfu');
+        if (currentFw === '9.8.05') {
+            dfuBtn.disabled = true;
+            dfuBtn.innerText = "USB RESET REQUIRED FOR v9.8.05 → v9.9.02+";
+            fwLog("v9.8.05 detected: plug in USB-C and double-tap the reset button on the XIAO, then click Flash Firmware below.");
+        } else {
+            dfuBtn.disabled = false;
+            dfuBtn.innerText = window.bleManager?.isConnected()
+                ? "📡 PREPARE MALLET FOR UPDATE"
+                : "📡 CONNECT BLUETOOTH & ARM FOR UPDATE";
+        }
+
+        document.getElementById('about-modal').close();
+        document.getElementById('firmware-modal').showModal();
+    } finally {
+        btn.disabled = false;
+        btn.innerText = "CHECK FOR FIRMWARE UPDATES";
+    }
+};
+
+document.getElementById('btnModalEnterDfu').onclick = async () => {
+    const dfuBtn = document.getElementById('btnModalEnterDfu');
+    dfuBtn.disabled = true;
+
+    try {
+        if (!window.bleManager?.isConnected()) {
+            fwLog("Connecting to mallet via Bluetooth...");
+            await window.bleManager.connect();
+        }
+
+        if (!window.bleManager?.isConnected()) {
+            fwLog("Bluetooth connection cancelled or failed.");
+            return;
+        }
+
+        fwLog(`Sending update command ('U') to ${window.bleManager.deviceName}...`);
+        const sent = await window.bleManager.sendCommand([0x55], true);
+        if (!sent) throw new Error("Failed to send DFU command over BLE.");
+
+        fwLog("Mallet armed! Plug in USB-C now (or if already plugged in, XIAO-SENSE will mount immediately).");
+        showToast("Mallet armed! Connect USB-C and click Flash.");
+    } catch (err) {
+        fwLog(`BLE error: ${err.message}`);
+    } finally {
+        dfuBtn.disabled = false;
+    }
+};
+
+document.getElementById('btnModalStartFlash').onclick = async () => {
+    if (!activeFirmwareRelease) return;
+    if (!('serial' in navigator)) {
+        showToast("Web Serial API requires desktop Chrome or Edge.");
+        fwLog("Error: navigator.serial is unavailable in this browser.");
+        return;
+    }
+    if (!window.WebSerialDFU) {
+        fwLog("Error: nrfSerialDfu.js is not loaded.");
+        return;
+    }
+
+    const flashBtn = document.getElementById('btnModalStartFlash');
+    flashBtn.disabled = true;
+
+    try {
+        setFwProgress(10, "Downloading firmware package...");
+        fwLog(`Downloading ${activeFirmwareRelease.storage_path}...`);
+
+        const { data: fileBlob, error: dlErr } = await supabaseClient.storage
+            .from('firmware-binaries')
+            .download(activeFirmwareRelease.storage_path);
+
+        if (dlErr || !fileBlob) {
+            throw new Error(`Storage error (${activeFirmwareRelease.storage_path}): ${dlErr?.message || 'Download failed'}`);
+        }
+        const zipBuffer = await fileBlob.arrayBuffer();
+
+        setFwProgress(25, "Verifying SHA-256 checksum...");
+        const actualHash = await computeSha256Hex(zipBuffer);
+        if (actualHash !== activeFirmwareRelease.sha256.toLowerCase()) {
+            throw new Error("SHA-256 mismatch! Aborting flash to protect hardware.");
+        }
+        fwLog("SHA-256 verified OK.");
+
+        setFwProgress(30, "Connecting to mallet USB port...");
+        const authorizedPorts = await navigator.serial.getPorts();
+        let port = authorizedPorts.find(p => p.getInfo().usbVendorId === 0x2886);
+        if (!port) {
+            setFwProgress(30, "Select XIAO nRF52840 in popup...");
+            port = await navigator.serial.requestPort({
+                filters: [{ usbVendorId: 0x2886 }]
+            });
+        }
+
+        const dfu = new window.WebSerialDFU(port, {
+            baudRate: 115200,
+            onProgress: (sent, total) => {
+                const pct = 30 + (sent / total) * 70;
+                setFwProgress(pct, "Flashing nRF52840...");
+            },
+            onLog: (line) => fwLog(line)
+        });
+
+        await dfu.flashZip(zipBuffer);
+
+        setFwProgress(100, "Update Complete!");
+        fwLog(`Successfully flashed v${activeFirmwareRelease.version}! Unplug USB-C now—the app will reconnect automatically.`);
+        showToast(`Firmware updated to v${activeFirmwareRelease.version}!`);
+    } catch (err) {
+        fwLog(`UPDATE FAILED: ${err.message}`);
+        showToast("Firmware update failed. Check log.");
+    } finally {
+        flashBtn.disabled = false;
+    }
+};
 
 document.getElementById('openMalletBtn').onclick = () => { document.getElementById('mallet-modal').showModal(); document.getElementById('menu-drawer').classList.remove('open'); };
 document.getElementById('closeMalletBtn').onclick = () => { document.getElementById('mallet-modal').close(); };
@@ -931,9 +1250,9 @@ function updateMalletScale() {
     if (!mainMalletMesh || !ghostMalletMesh) return;
     let len = AppConfig.malletLengthCm; 
     let wid = AppConfig.malletWidthCm;
-    let offsetZ = AppConfig.offsetZCm;
+    let halfLen = len / 2.0;
 
-    if (typeof setActiveOffsetZ === 'function') setActiveOffsetZ(offsetZ);
+    if (typeof setActiveOffsetZ === 'function') setActiveOffsetZ(halfLen);
     
     setMalletHalfWidth(wid / 2.0);
     if (typeof setMalletDimensions === 'function') setMalletDimensions(len, wid); 
@@ -945,16 +1264,15 @@ function updateMalletScale() {
     mainMalletMesh.scale.set(scaleX, scaleY, scaleZ); 
     ghostMalletMesh.scale.set(scaleX, scaleY, scaleZ);
     
-    // Shift the physical mallet mesh backward so the sensor sits at the true offset
-    let meshShift = offsetZ - (len / 2.0); 
-    mainMalletMesh.position.z = meshShift; 
-    ghostMalletMesh.position.z = meshShift; 
+    // Center shaft sits at the midpoint of the mallet head (Z = 0)
+    mainMalletMesh.position.z = 0; 
+    ghostMalletMesh.position.z = 0; 
 
-    if (handleMesh) handleMesh.position.z = meshShift;
-    if (ghostHandleMesh) ghostHandleMesh.position.z = meshShift;
+    if (handleMesh) handleMesh.position.z = 0;
+    if (ghostHandleMesh) ghostHandleMesh.position.z = 0;
     
-    // Pin the face tracker exactly at the physical front face
-    faceTrackerNode.position.set(0, 0, offsetZ);
+    // Pin the face tracker at the physical front striking face (Head Length / 2)
+    faceTrackerNode.position.set(0, 0, halfLen);
     
     updateSystemGeometry(); 
     rebuildArcPts(loadedRadius, getOptimumArcHalfAngleDeg(loadedRadius));
@@ -1655,11 +1973,9 @@ function animate() {
 
             let len = AppConfig.malletLengthCm;
             let wid = AppConfig.malletWidthCm;
-            let offsetZ = AppConfig.offsetZCm;
 
             let yOffset = (wid / 2.0); // Default for bottom/top/left/right
-            if (wizardStep === 2) yOffset = offsetZ; // Front face (Step 3)
-            if (wizardStep === 3) yOffset = len - offsetZ; // Back face (Step 4)
+            if (wizardStep === 2 || wizardStep === 3) yOffset = len / 2.0; // Front/Back face
             let tableY = pivotBaseY - loadedRadius - 1.5; 
             
             masterPivot.position.set(0, tableY + yOffset, 0); 
@@ -1862,7 +2178,7 @@ function highlightPass(swingIdx, castIdx) {
             let faceDeg = cast.planeTwist !== undefined ? cast.planeTwist : cast.faceAngle;
             let faceAngleStr = fmtSignedDeg(faceDeg);
             let pathDeg = (cast.pathAngleRads || 0) * (180.0 / Math.PI);
-            let swingPathStr = fmtSignedDeg(pathDeg);
+            let hitMissStr = formatTargetHitMissHTML(cast);
             let pathTwistStr = faceDeg !== undefined && faceDeg !== null ? fmtSignedDeg(faceDeg - pathDeg) : `N/A`;
             let devSigmaStr = (!cast.isWhiff && cast.trueLaunchDeg !== undefined && cast.trueLaunchDeg !== null)
                 ? fmtSignedDeg(cast.trueLaunchDeg)
@@ -1873,7 +2189,12 @@ function highlightPass(swingIdx, castIdx) {
                 `${cast.dev.toFixed(1)}cm ${cast.dir}`;
             let velStr = cast.passSpeed ? `${(cast.passSpeed * 3.6).toFixed(1)} kph` : `--`;
             let strikeForceStr = cast.isStrike ? `${(calculateImpactForce(cast.passSpeed || 0, AppConfig.massKg) / 1000).toFixed(2)} kN` : `N/A`;
-            let accelStr = cast.isStrike ? fmtSignedPct(cast.decelFactor) : `N/A`;
+            let accelVal = cast.isStrike
+                ? ((cast.decelFactor !== undefined && cast.decelFactor !== null) ? cast.decelFactor : null)
+                : ((cast.decelFactor !== undefined && cast.decelFactor !== null)
+                    ? cast.decelFactor
+                    : computeFallbackPreImpactAccelPct(cast.trailIndex, swing.rawTracePoints));
+            let accelStr = fmtSignedPct(accelVal);
             
             let pDeltaStr = cast.pDelta !== null && cast.pDelta !== undefined ? formatOffset(cast.pDelta) : `N/A`;
             let tempoStr = cast.tempo > 0 ? `${Math.round(cast.tempo)} BPM` : `--`;
@@ -1886,32 +2207,32 @@ function highlightPass(swingIdx, castIdx) {
             let backArcStr = (arcVal !== undefined && arcVal !== null) ? `${Math.round(arcVal)} cm` : `--`;
             let backLiftStr = (cast.backHeight !== undefined && cast.backHeight !== null) ? `${Math.round(cast.backHeight)} cm` : `--`;
 
+            let targetLabelStr = getTargetDistanceLabel(cast);
             let proBadge = `<span class="text-accent">PRO</span>`;
-            let dispFace  = AppConfig.isSubscribed ? faceAngleStr  : proBadge;
-            let dispPath  = AppConfig.isSubscribed ? swingPathStr  : proBadge;
-            let dispTwist = AppConfig.isSubscribed ? pathTwistStr  : proBadge;
-            let dispAoa   = AppConfig.isSubscribed ? aoaStr        : proBadge;
-            let dispLean  = AppConfig.isSubscribed ? leanStr       : proBadge;
-            let dispDefl  = AppConfig.isSubscribed ? deflStr       : proBadge;
-            let dispAccel = AppConfig.isSubscribed ? accelStr      : proBadge;
-            let dispPDel  = AppConfig.isSubscribed ? pDeltaStr     : proBadge;
-            let dispTempo = AppConfig.isSubscribed ? tempoStr      : proBadge;
+            let dispFace     = AppConfig.isSubscribed ? faceAngleStr  : proBadge;
+            let dispDevSigma = AppConfig.isSubscribed ? devSigmaStr   : proBadge;
+            let dispTwist    = AppConfig.isSubscribed ? pathTwistStr  : proBadge;
+            let dispAoa      = AppConfig.isSubscribed ? aoaStr        : proBadge;
+            let dispLean     = AppConfig.isSubscribed ? leanStr       : proBadge;
+            let dispDefl     = AppConfig.isSubscribed ? deflStr       : proBadge;
+            let dispAccel    = AppConfig.isSubscribed ? accelStr      : proBadge;
+            let dispPDel     = AppConfig.isSubscribed ? pDeltaStr     : proBadge;
+            let dispTempo    = AppConfig.isSubscribed ? tempoStr      : proBadge;
 
             let wasOpen = headerDiv.querySelector('details.more-metrics')?.open ? 'open' : '';
 
             headerDiv.innerHTML = `
                 <div class="card-basic-stats" style="margin-bottom: 4px;">
                     <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Mallet head speed through the bottom of the swing (kph).">Speed</span><span class="stat-val">${velStr}</span></div>
-                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Total horizontal ball launch angle (σ) off the target line, combining face angle, swing path, and collision deflection.">Deviation (σ)</span><span class="stat-val">${devSigmaStr}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Projected lateral miss or hit at the target distance (cm Left/Right of target center).">${targetLabelStr}</span><span class="stat-val">${hitMissStr}</span></div>
                     <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Strike location on the mallet face relative to center (mm Left/Right).">Impact</span><span class="adv-val text-warning">${locStr}</span></div>
                 </div>
                 <details class="more-metrics" ${wasOpen}>
                     <summary>More</summary>
                     <div class="card-basic-stats">
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the target line at impact (+ Left / - Right).">Face Angle</span><span class="stat-val">${dispFace}</span></div>
-                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Horizontal direction the mallet head is moving through impact relative to the target line (+ Left / - Right).">Swing Path</span><span class="stat-val">${dispPath}</span></div>
-                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the swing path (+ Left / - Right).">Twist</span><span class="stat-val">${dispTwist}</span></div>
-                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Vertical angle of attack of the mallet head into the ball (+ Up / - Down).">Strike Angle</span><span class="stat-val text-accent">${dispAoa}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Total horizontal ball launch angle (σ) off the target line, combining face angle, swing path, and collision deflection.">Deviation (σ)</span><span class="stat-val">${dispDevSigma}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the swing path (+ Left / - Right).">Twist</span><span class="stat-val">${dispTwist}</span></div><div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Vertical angle of attack of the mallet head into the ball (+ Up / - Down).">Strike Angle</span><span class="stat-val text-accent">${dispAoa}</span></div>
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Sideways tilt (roll) of the mallet head at impact (Left / Right).">Lean Angle</span><span class="stat-val text-warning">${dispLean}</span></div>
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Degrees the mallet face twisted left (+) or right (-) during ball contact.">Deflection</span><span class="stat-val text-warning">${dispDefl}</span></div>
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Average impact force transferred to the ball during collision (kilonewtons).">Strike Force</span><span class="stat-val">${strikeForceStr}</span></div>
@@ -1931,31 +2252,65 @@ function highlightPass(swingIdx, castIdx) {
 
     if (swing.rawTracePoints && swing.rawTracePoints.length > 0) {
         let centerFrame = Math.min(Math.max(0, cast.trailIndex || 0), swing.rawTracePoints.length - 1);
+        let ghostInvQuat = ghostPivot.quaternion.clone().invert();
+        const getSwingAngleDeg = (pt) => {
+            let localShaft = new THREE.Vector3(0, -1, 0)
+                .applyQuaternion(pt.rot)
+                .applyQuaternion(ghostInvQuat);
+            return THREE.MathUtils.radToDeg(Math.atan2(localShaft.z, -localShaft.y));
+        };
         
-        // 1. SMART SCAN BACKWARD: Find the start of THIS specific backswing
+        // 1. SMART SCAN BACKWARD: Require sustained (>3 deg) forward arc before cutting prior waggle
         let startFrame = centerFrame;
         let inBackswing = false;
+        let fwdRunCount = 0;
+        let fwdRunEndIdx = -1;
+        let fwdRunEndAngle = 0;
         for (let i = centerFrame; i >= 0; i--) {
-            if (!swing.rawTracePoints[i]) continue;
+            let pt = swing.rawTracePoints[i];
+            if (!pt) continue;
             startFrame = i;
-            if (!swing.rawTracePoints[i].isForward) {
-                inBackswing = true; // We are in the backswing
-            } else if (inBackswing && swing.rawTracePoints[i].isForward) {
-                // We bumped into the forward motion of the PREVIOUS waggle. Cut it here!
-                startFrame = i + 1;
-                break;
+            let angleDeg = getSwingAngleDeg(pt);
+            if (!pt.isForward) {
+                if (angleDeg < -2.0) inBackswing = true;
+                fwdRunCount = 0;
+            } else if (inBackswing) {
+                if (fwdRunCount === 0) {
+                    fwdRunEndIdx = i;
+                    fwdRunEndAngle = angleDeg;
+                }
+                fwdRunCount++;
+                let forwardArcSpan = fwdRunEndAngle - angleDeg;
+                if (fwdRunCount >= 3 && forwardArcSpan > 3.0) {
+                    startFrame = fwdRunEndIdx + 1;
+                    break;
+                }
             }
         }
         
-        // 2. SMART SCAN FORWARD: Find the end of THIS follow-through
+        // 2. SMART SCAN FORWARD: Require sustained (>3 deg) backward drop before cropping follow-through
         let endFrame = centerFrame;
+        let backRunCount = 0;
+        let backRunStartIdx = -1;
+        let backRunStartAngle = 0;
         for (let i = centerFrame; i < swing.rawTracePoints.length; i++) {
-            if (!swing.rawTracePoints[i]) continue;
+            let pt = swing.rawTracePoints[i];
+            if (!pt) continue;
             endFrame = i;
-            // If we are past impact, and the mallet starts rebounding backward
-            if (i > centerFrame + 4 && !swing.rawTracePoints[i].isForward) {
-                endFrame = Math.max(centerFrame, i - 1); // Crop right before the rebound
-                break; 
+            if (i > centerFrame + 4 && !pt.isForward) {
+                let angleDeg = getSwingAngleDeg(pt);
+                if (backRunCount === 0) {
+                    backRunStartIdx = i;
+                    backRunStartAngle = angleDeg;
+                }
+                backRunCount++;
+                let dropDeg = backRunStartAngle - angleDeg;
+                if (backRunCount >= 3 && dropDeg > 3.0) {
+                    endFrame = Math.max(centerFrame, backRunStartIdx - 1);
+                    break;
+                }
+            } else {
+                backRunCount = 0;
             }
         }
         
@@ -2041,34 +2396,14 @@ function handleLiveStrike(s) {
         document.getElementById('gm-latest-stats').innerHTML = `<div class="text-muted mb-2 uppercase" style="font-size:0.85rem;">LATEST STRIKE</div><div>Speed: <span class="text-main font-800">${(pristineVel * 3.6).toFixed(1)}</span> kph</div><div>Face: <span class="text-warning font-800">${twistStr}</span></div><div>Est Dist: <span class="text-accent font-800">${estDist.toFixed(0)}</span> m</div><div class="mt-2 text-muted" style="font-size:0.75rem;">Quickly twist clockwise to arm next shot.</div>`;        return; 
     }
 
-    let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0);
+    let impactRawQuat = mapFirmwareQuatToThree(s.q0, s.q1, s.q2, s.q3);
+    let iQuat = baseQuatInverse.clone().multiply(impactRawQuat).normalize();
+    window.pristineImpactQuat_m8 = iQuat.clone();
 
-    let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
-    impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
-
-    let impactEulerNode = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YZX');
-    impactEulerNode.y = -impactEulerNode.y; 
-    impactRawQuat.setFromEuler(impactEulerNode, 'YZX');
-
-    let iQuat = baseQuatInverse.clone().multiply(impactRawQuat);
-
-    // THE FIX: Ignore the raw firmware faceAngle to prevent sign-mismatch explosions. 
-    // Always use the pristine, properly-inverted iQuat.
     let locTwist = getShaftTwist(iQuat);
-    console.log("=== STRIKE PACKET CHECK ===", {
-        firmwareFaceAngle: s.faceAngle,
-        jsQuatFaceAngle: Number(locTwist.toFixed(2)),
-        peakTwist: s.peakTwist,
-        zVel: s.zVel
-    });
     
     window.lastEdgeData = { zVel: pristineVel, appliedForce: appliedF, downwardSwingTime: downTime, decelFactor: decelFact, impactTwist: locTwist, backArc: s.backArc, backswingTime: s.backswingTime };
-
-    // --- NEW: Save the pristine hardware quaternion to override the visual recoil ---
     window.pristineImpactQuat = iQuat;
-    if (window.pristineStep8ms) {
-        window.pristineImpactQuat = window.pristineImpactQuat.clone().multiply(window.pristineStep8ms).normalize();
-    }
 
     // If the face already crossed dynamicFaceZ just before impact, upgrade that cast in-place
     let recentCast = castData.length > 0 ? castData[castData.length - 1] : null;
@@ -2106,7 +2441,8 @@ function handleLiveStrike(s) {
         recentCast.starColor = passRating.color;
 
         let currentTwistTol = parseFloat(document.getElementById('twistToleranceInput').value) || 1.0;
-        let targetDist = inGameMode ? (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : (parseFloat(document.getElementById('trainerDistSetup').value) || 10.0);
+        let targetDist = inGameMode ? (parseFloat(document.getElementById('matchDistSetup').value) || 10.0) : (parseFloat(document.getElementById('trainerDistSetup').value) || 5.0);
+        recentCast.targetDistM = targetDist;
         recentCast.isHit = (Math.abs(liveTargetX_cm) <= AppConfig.sweetSpot) && (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && (recentCast.estDist >= targetDist);
         if (recentCast.isHit && !inGameMode && AppConfig.ledGuidance) playSuccessSound();
 
@@ -2146,16 +2482,7 @@ function handleParsedTelemetry(t) {
     
     prevRawBLEQuat.copy(currentRawBLEQuat);
     currentRawBLEQuat.set(t.q1, t.q2, t.q3, t.q0);
-
-    // 1. Restore the perfectly stable Back-to-Front axis mapping
-    lastRawQuat = new THREE.Quaternion(currentRawBLEQuat.y, -currentRawBLEQuat.z, -currentRawBLEQuat.x, currentRawBLEQuat.w).normalize();
-    lastRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
-    
-    // 2. The Gimbal-Proof Twist Inversion (YZX Order)
-    let liveEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YZX');
-    liveEuler.y = -liveEuler.y; // Inverts the face angle
-    lastRawQuat.setFromEuler(liveEuler, 'YZX');
-    // ------------------------------------------------------------
+    lastRawQuat = mapFirmwareQuatToThree(t.q0, t.q1, t.q2, t.q3);
 
     prevTargetQuaternion.copy(targetQuaternion);
 
@@ -2233,10 +2560,12 @@ function handleParsedTelemetry(t) {
     if (appState === 2) {
         let dtMs = jsNow - lastJsTime; lastJsTime = jsNow; let calibBar = document.getElementById('calibration-bar'); let swingStateTxt = document.getElementById('swing-state');
         if (calibrationPhase === 'RED') {
-            let elapsed = jsNow - redStartTime; let pct = (elapsed / 3000.0) * 66.0; 
+            let elapsed = jsNow - redStartTime; let pct = (elapsed / 600.0) * 66.0; 
             if(calibBar) { calibBar.style.width = Math.min(pct, 66) + "%"; calibBar.style.background = "var(--danger)"; }
-            if (elapsed >= 3000 && t.appState === 6) {
-                calibrationPhase = 'ORANGE'; calibrationHoldTimeMs = 0; orangeStartTime = jsNow; lastStableQuat.copy(lastRawQuat); 
+            if (elapsed >= 250 && t.appState === 6) {
+                calibrationPhase = 'ORANGE'; calibrationHoldTimeMs = 0; orangeStartTime = jsNow; lastStableQuat.copy(lastRawQuat);
+                targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat);
+                currentQuaternion.copy(targetQuaternion);
                 if(swingStateTxt) { swingStateTxt.innerText = "STEADYING..."; swingStateTxt.className = "text-warning text-center font-bold mb-4"; }
                 
                 // --- FIX: Respect the user's database setting! ---
@@ -2245,26 +2574,24 @@ function handleParsedTelemetry(t) {
             }
         } else if (calibrationPhase === 'ORANGE') {
             if (orangeStartTime === 0) orangeStartTime = jsNow;
+            targetQuaternion.copy(baseQuatInverse).multiply(lastRawQuat);
             let angleDiff = lastRawQuat.angleTo(lastStableQuat); let gDiff = Math.abs(magnitude - 1.0);
-            if (angleDiff > 0.12 || gDiff > 0.25) { 
-                calibrationHoldTimeMs = 0; lastStableQuat.copy(lastRawQuat); 
+            if (angleDiff > 0.05 || gDiff > 0.10) { 
+                calibrationHoldTimeMs = 0; lastStableQuat.copy(lastRawQuat);
+                currentQuaternion.copy(targetQuaternion);
                 if(calibBar) { calibBar.style.width = "66%"; calibBar.style.background = "var(--warning)"; } 
             } else { 
-                calibrationHoldTimeMs += dtMs; let orangePct = (calibrationHoldTimeMs / 1000.0) * 34.0; let totalPct = 66.0 + orangePct; 
+                calibrationHoldTimeMs += dtMs; let orangePct = (calibrationHoldTimeMs / 400.0) * 34.0; let totalPct = 66.0 + orangePct; 
                 if(calibBar) { calibBar.style.width = Math.min(totalPct, 100) + "%"; calibBar.style.background = "var(--warning)"; }
             }
             if (jsNow - orangeStartTime > 20000) { resetSystemState(true, false).then(() => { let txt = document.getElementById('swing-state'); if(txt) { txt.innerHTML = "STEADYING FAILED - TOO MUCH MOVEMENT. TRY AGAIN."; txt.className = "text-danger text-center font-bold mb-4"; } }); return; }
             let visualDiff = currentQuaternion.angleTo(targetQuaternion);
-            if (calibrationHoldTimeMs >= 1000 && visualDiff < 0.02) { 
+            if (calibrationHoldTimeMs >= 400 && visualDiff < 0.02) { 
 
                 calibrationPhase = 'NONE'; 
                 
-                // Use the safe Gimbal-Proof YZX order
-                let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YZX');
-                
-                // THE FIX: ONLY Tare the Yaw (Heading). 
-                // Let the accelerometer use true gravity for Pitch and Roll!
-                let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YZX'));
+                let finalEuler = new THREE.Euler().setFromQuaternion(lastRawQuat, 'YXZ');
+                let finalHeading = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, finalEuler.y, 0, 'YXZ'));
                 baseQuatInverse.copy(finalHeading).invert();
                 document.getElementById('calibration-container').classList.add('hidden');
 
@@ -2297,7 +2624,8 @@ function handleParsedTelemetry(t) {
                 ignoreSpeedUntilTime = Date.now() + 500; currentAbsoluteSpeed = 0; prevZ = 0; prevFaceZ = 0; isForwardSwing = true; lastForwardPassTime = 0; impactDetected = false; isLive = true; 
                 playbackMode = false; posHistory = []; currentSwingDeviation = 0; lastComputedTempo = 0; maxTwist = 0; currentSwingDwell = 0; currentSwingAoA = 0;
                 
-                window.pristineImpactQuat = null; // --- NEW: Clear it for the next swing!
+                window.pristineImpactQuat = null;
+                window.pristineImpactQuat_m8 = null;
                 window.pristineStep8ms = null;
                 window.strikeCastGenerated = false;
                 
@@ -2372,9 +2700,8 @@ function handleParsedTelemetry(t) {
         physicsTrackingNode.updateMatrixWorld(true);
     }
     
-    // THE FIX: Make the trace line perfectly track the visual center of the physical mallet mesh
-    let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
-    let centerOffset = new THREE.Vector3(0, -currentDynamicRadius, meshShiftZ).applyQuaternion(targetQuaternion);
+    // Center of the physical mallet head sits on the shaft centerline (Z = 0)
+    let centerOffset = new THREE.Vector3(0, -currentDynamicRadius, 0).applyQuaternion(targetQuaternion);
     let centerPosition = masterPivot.position.clone().add(centerOffset);
     let facePosition = new THREE.Vector3(); faceTrackerNode.getWorldPosition(facePosition);
     let currentZ = centerPosition.z;
@@ -2532,7 +2859,7 @@ function handleParsedTelemetry(t) {
             
             let isTrueStrike = false;
             let appliedF = t.appliedForce;
-            let decelFact = undefined;
+            let decelFact = computeFallbackPreImpactAccelPct(rawTracePoints.length - 1, rawTracePoints);
             let passSpeed = currentAbsoluteSpeed;
             let backArc = 0;
             let backswingTime = 0;
@@ -2609,9 +2936,8 @@ function handleParsedTelemetry(t) {
                 stars: passRating.string, starColor: passRating.color, trailIndex: Math.max(0, rawTracePoints.length - 1), pivotQuat: iQuat.clone(), pivotPos: snapshotPos, extension: extension, time: nowTime,
                 isWhiff: accData.isWhiff, estAccRange: accData.estAccRange, trueAccRange: accData.trueAccRange, trueLaunchDeg: accData.trueLaunchDeg, 
                 estLaunchRads: accData.estLaunchRads, trueLaunchRads: accData.trueLaunchRads, maxAccRange: accData.trueAccRange, estDist: estDist, pDelta: p_delta,
-                rawBLE: iRawBLE, isHit: isHit, decelFactor: decelFact, backArc: backArc, backswingTime: backswingTime, tempo: lastComputedTempo
+                rawBLE: iRawBLE, isHit: isHit, targetDistM: targetDist, decelFactor: decelFact, backArc: backArc, backswingTime: backswingTime, tempo: lastComputedTempo
             };
-
             castData.push(strikeCast);
             
             if(!isDynamicCalibrationActive && !inGameMode) {
@@ -2674,7 +3000,6 @@ function handleParsedTelemetry(t) {
 
                 if (gapAngleDeg > 6.0) {
                     let bridgeSteps = Math.min(10, Math.floor(gapAngleDeg / 4.0));
-                    let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
 
                     for (let s = 1; s < bridgeSteps; s++) {
                         if (rawTracePoints.length >= MAX_TRAIL_POINTS - 1) break;
@@ -2682,7 +3007,7 @@ function handleParsedTelemetry(t) {
                         let qStep = prevPt.rot.clone().slerp(targetQuaternion, alpha);
                         let pStep = prevFrame.pivotPos.clone().lerp(masterPivot.position, alpha);
                         let extStep = prevFrame.extension + (extension - prevFrame.extension) * alpha;
-                        let headOffset = new THREE.Vector3(0, -(loadedRadius + extStep), meshShiftZ).applyQuaternion(qStep);
+                        let headOffset = new THREE.Vector3(0, -(loadedRadius + extStep), 0).applyQuaternion(qStep);
                         let posStep = pStep.clone().add(headOffset);
                         let tStep = (prevPt.time || nowTime) + ((nowTime - (prevPt.time || nowTime)) * alpha);
 
@@ -2723,6 +3048,104 @@ function handleParsedTelemetry(t) {
     }
 
     prevFaceZ = currentFaceZ; prevZ = currentZ; prevMagnitude = magnitude;
+}
+
+function smoothImpactTraceJoin(impactIdx, anchorQuat, anchorExt, anchorPivotPos = null) {
+    if (!anchorQuat || !rawTracePoints || impactIdx < 0 || impactIdx >= rawTracePoints.length) return;
+
+    let safeExt = Number.isFinite(anchorExt) ? anchorExt : 0;
+    let targetPivotX = anchorPivotPos ? anchorPivotPos.x : 0;
+    let targetPivotY = anchorPivotPos ? anchorPivotPos.y : (pivotBaseY + safeExt);
+    let targetPivotZ = anchorPivotPos ? anchorPivotPos.z : 0;
+    let anchoredEuler = new THREE.Euler().setFromQuaternion(anchorQuat, 'YXZ');
+
+    // 1. Smoothly blend yaw, roll, extension & contact pivot Z over up to 4 forward samples leading into impact
+    let preBlendIndices = [];
+    for (let i = impactIdx - 1; i >= Math.max(0, impactIdx - 4); i--) {
+        if (!rawTracePoints[i] || !rawTracePoints[i].isForward) break;
+        preBlendIndices.unshift(i);
+    }
+
+    for (let k = 0; k < preBlendIndices.length; k++) {
+        let idx = preBlendIndices[k];
+        let alpha = (k + 1) / (preBlendIndices.length + 1);
+        let e = new THREE.Euler().setFromQuaternion(rawTracePoints[idx].rot, 'YXZ');
+        e.y = e.y + (anchoredEuler.y - e.y) * alpha;
+        e.z = e.z + (anchoredEuler.z - e.z) * alpha;
+
+        let qSmooth = new THREE.Quaternion().setFromEuler(e, 'YXZ');
+        let curExt = (recordedFrames[idx] && Number.isFinite(recordedFrames[idx].extension)) ? recordedFrames[idx].extension : safeExt;
+        let stepExt = curExt + (safeExt - curExt) * alpha;
+        let stepPivotX = targetPivotX * alpha;
+        let stepPivotY = pivotBaseY + stepExt;
+        let stepPivotZ = targetPivotZ * alpha;
+        let headOffset = new THREE.Vector3(0, -(loadedRadius + stepExt), 0).applyQuaternion(qSmooth);
+
+        rawTracePoints[idx].rot.copy(qSmooth);
+        rawTracePoints[idx].pos.set(stepPivotX, stepPivotY, stepPivotZ).add(headOffset);
+        if (recordedFrames[idx]) {
+            recordedFrames[idx].rotation.copy(qSmooth);
+            recordedFrames[idx].pivotPos.set(stepPivotX, stepPivotY, stepPivotZ);
+            recordedFrames[idx].extension = stepExt;
+        }
+    }
+
+    // 2. Align the impact sample itself so forward pitch progression stays monotonic
+    let eImpact = anchoredEuler.clone();
+    if (preBlendIndices.length > 0) {
+        let prevE = new THREE.Euler().setFromQuaternion(rawTracePoints[preBlendIndices[preBlendIndices.length - 1]].rot, 'YXZ');
+        if (eImpact.x > prevE.x) eImpact.x = prevE.x;
+    }
+    let impactLockedQuat = new THREE.Quaternion().setFromEuler(eImpact, 'YXZ');
+    let impactHeadOffset = new THREE.Vector3(0, -(loadedRadius + safeExt), 0).applyQuaternion(impactLockedQuat);
+
+    rawTracePoints[impactIdx].rot.copy(impactLockedQuat);
+    rawTracePoints[impactIdx].pos.set(targetPivotX, targetPivotY, targetPivotZ).add(impactHeadOffset);
+    if (recordedFrames[impactIdx]) {
+        recordedFrames[impactIdx].rotation.copy(impactLockedQuat);
+        recordedFrames[impactIdx].pivotPos.set(targetPivotX, targetPivotY, targetPivotZ);
+        recordedFrames[impactIdx].extension = safeExt;
+    }
+
+    // 3. Lock yaw/roll/extension across all follow-through points and re-slerp any bridge points cleanly
+    let firstRealPostIdx = -1;
+    for (let i = impactIdx + 1; i < rawTracePoints.length; i++) {
+        if (!rawTracePoints[i]) continue;
+        let ePost = new THREE.Euler().setFromQuaternion(rawTracePoints[i].rot, 'YXZ');
+        ePost.y = anchoredEuler.y;
+        ePost.z = anchoredEuler.z;
+        let qPost = new THREE.Quaternion().setFromEuler(ePost, 'YXZ');
+        let postOffset = new THREE.Vector3(0, -(loadedRadius + safeExt), 0).applyQuaternion(qPost);
+
+        rawTracePoints[i].rot.copy(qPost);
+        rawTracePoints[i].pos.set(targetPivotX, targetPivotY, targetPivotZ).add(postOffset);
+        if (recordedFrames[i]) {
+            recordedFrames[i].rotation.copy(qPost);
+            recordedFrames[i].pivotPos.set(targetPivotX, targetPivotY, targetPivotZ);
+            recordedFrames[i].extension = safeExt;
+        }
+        if (firstRealPostIdx === -1 && !rawTracePoints[i].isBridge) {
+            firstRealPostIdx = i;
+        }
+    }
+
+    if (firstRealPostIdx > impactIdx + 1) {
+        let qEnd = rawTracePoints[firstRealPostIdx].rot;
+        let span = firstRealPostIdx - impactIdx;
+        for (let i = impactIdx + 1; i < firstRealPostIdx; i++) {
+            let alpha = (i - impactIdx) / span;
+            let qBridge = impactLockedQuat.clone().slerp(qEnd, alpha);
+            let bridgeOffset = new THREE.Vector3(0, -(loadedRadius + safeExt), 0).applyQuaternion(qBridge);
+
+            rawTracePoints[i].rot.copy(qBridge);
+            rawTracePoints[i].pos.set(targetPivotX, targetPivotY, targetPivotZ).add(bridgeOffset);
+            if (recordedFrames[i]) {
+                recordedFrames[i].rotation.copy(qBridge);
+                recordedFrames[i].pivotPos.set(targetPivotX, targetPivotY, targetPivotZ);
+                recordedFrames[i].extension = safeExt;
+            }
+        }
+    }
 }
 
 async function finalizeSwingData(nowTime) {
@@ -2782,102 +3205,28 @@ async function finalizeSwingData(nowTime) {
             cleanImpactEuler.z = pristineEuler.z;
             displayPass.pivotQuat.setFromEuler(cleanImpactEuler, 'YXZ');
 
-            let cleanFaceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, getDynamicFaceZ()).applyQuaternion(displayPass.pivotQuat);
+            let halfHeadLen = (AppConfig.malletLengthCm || 27.6) / 2.0;
+            let cleanFaceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, halfHeadLen).applyQuaternion(displayPass.pivotQuat);
             displayPass.pos.copy(displayPass.pivotPos).add(cleanFaceOffset);
         }
 
-        let hardwareTwist = window.lastEdgeData.impactTwist || maxTwist || 0;
+        let hardwareTwist = getShaftTwist(displayPass.pivotQuat);
         let hardwareSpeed = window.lastEdgeData.zVel || displayPass.passSpeed || 0;
 
-        // A. FIX #3: FRACTIONAL YAW DRIFT CORRECTION
-        let driftedTwist = getShaftTwist(displayPass.pivotQuat);
-        let totalYawDriftDeg = driftedTwist - hardwareTwist; 
-        let totalYawDriftRads = THREE.MathUtils.degToRad(totalYawDriftDeg);
-        let pivotCenter = new THREE.Vector3(0, pivotBaseY, 0);
-
-        let totalPts = rawTracePoints.length;
-        let impactIdx = displayPass.trailIndex; 
-
-        // Smoothly unwind the accumulated drift over the duration of the trace
-        for (let i = 0; i < totalPts; i++) {
-            let timeFraction = Math.min(i / (impactIdx || 1), 1.0);
-            let correctiveYawRads = -totalYawDriftRads * timeFraction;
-            let correctiveQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), correctiveYawRads);
-            
-            rawTracePoints[i].rot.premultiply(correctiveQuat);
-            if (recordedFrames[i]) recordedFrames[i].rotation.premultiply(correctiveQuat);
-            
-            // Orbit the mallet position around the top pivot
-            let offsetPos = rawTracePoints[i].pos.clone().sub(pivotCenter);
-            offsetPos.applyQuaternion(correctiveQuat);
-            rawTracePoints[i].pos.copy(pivotCenter).add(offsetPos);
-            
-            if (recordedFrames[i]) {
-                let pOffset = recordedFrames[i].pivotPos.clone().sub(pivotCenter);
-                pOffset.applyQuaternion(correctiveQuat);
-                recordedFrames[i].pivotPos.copy(pivotCenter).add(pOffset);
-            }
-        }
-        
-        castData.forEach(c => {
-            let timeFraction = Math.min(c.trailIndex / (impactIdx || 1), 1.0);
-            let correctiveYawRads = -totalYawDriftRads * timeFraction;
-            let correctiveQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), correctiveYawRads);
-            
-            c.pivotQuat.premultiply(correctiveQuat);
-            
-            let offsetPos = c.pos.clone().sub(pivotCenter);
-            offsetPos.applyQuaternion(correctiveQuat);
-            c.pos.copy(pivotCenter).add(offsetPos);
-            
-            let pOffset = c.pivotPos.clone().sub(pivotCenter);
-            pOffset.applyQuaternion(correctiveQuat);
-            c.pivotPos.copy(pivotCenter).add(pOffset);
-        });
-
-        // B. OFF-CENTER TRANSLATION
-        // THE FIX: Use maxTwist (recoil torque) for deviation, NOT hardwareTwist (face angle)!
+        // Calculate off-center impact location from recoil torque without warping the 3D trace path
         let rawMm = calculateOffCenterImpact(Math.abs(maxTwist), hardwareSpeed);
         displayPass.offCenterMm = Math.abs(rawMm);
 
         displayPass.offCenterLabel = "Center";
         if (displayPass.offCenterMm >= 2.0) {
-            // THE FIX: Evaluate maxTwist for direction, because rawMm is forced absolute!
             displayPass.offCenterLabel = maxTwist > 0 ? "R" : "L";
         }
         
         let hwTargetX_cm = displayPass.offCenterMm / 10.0;
-        // Ball is at x=0: Right-face impact ('R') places mallet center to Player Left (+X); Left-face ('L') places it to Player Right (-X)
         if (displayPass.offCenterLabel === 'L') hwTargetX_cm = -hwTargetX_cm;
         else if (displayPass.offCenterLabel === 'Center') hwTargetX_cm = 0;
 
-        // Measure how far off the Face is from the calculated physical impact
-        ghostBlock.updateMatrixWorld(true);
-        let ghostInvMat = new THREE.Matrix4().copy(ghostBlock.matrixWorld).invert();
-        
-        let correctedImpactPos = displayPass.pos.clone().applyMatrix4(ghostInvMat);
-        let newlyCorrectedDev = correctedImpactPos.x;
-
-        let totalDriftCm = hwTargetX_cm - newlyCorrectedDev;
-        let totalDriftVec = new THREE.Vector3(totalDriftCm, 0, 0).applyQuaternion(ghostPivot.quaternion);
-        appliedDriftY = totalDriftVec.y;
-
-        // Gently slide the trace to touch the ball, fading in the shift so it doesn't jerk
-        for (let i = 0; i < totalPts; i++) {
-            let timeFraction = Math.min(i / (impactIdx || 1), 1.0); 
-            let proportionalShift = totalDriftVec.clone().multiplyScalar(timeFraction);
-            
-            rawTracePoints[i].pos.add(proportionalShift);
-            rawTracePoints[i].driftShiftY = (rawTracePoints[i].driftShiftY || 0) + proportionalShift.y;
-            if (recordedFrames[i]) recordedFrames[i].pivotPos.add(proportionalShift);
-        }
-        
-        castData.forEach(c => {
-            let timeFraction = Math.min(c.trailIndex / (impactIdx || 1), 1.0);
-            let proportionalShift = totalDriftVec.clone().multiplyScalar(timeFraction);
-            c.pos.add(proportionalShift);
-            c.pivotPos.add(proportionalShift);
-        });
+        appliedDriftY = 0;
 
         // C. METRICS RECALCULATION
         displayPass.rawDev = hwTargetX_cm;
@@ -2910,71 +3259,38 @@ async function finalizeSwingData(nowTime) {
         displayPass.isHit = !accData.isWhiff && (Math.abs(hwTargetX_cm) <= AppConfig.sweetSpot) && (Math.abs(accData.trueLaunchDeg) <= currentTwistTol) && (displayPass.estDist >= targetDist);
     }    
 
-    // 3. --- PRISTINE PATH LOCK (WIGGLE CURE) ---
-    // Freeze the follow-through yaw/roll to ignore the physical shockwave without shifting Z/Y.
-    if (displayPass && window.pristineImpactQuat) {
-        let impactIdx = displayPass.trailIndex;
-        let anchoredEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
-
-        for (let i = impactIdx; i < rawTracePoints.length; i++) {
-            if (!recordedFrames[i]) continue;
-            let corruptedEuler = new THREE.Euler().setFromQuaternion(recordedFrames[i].rotation, 'YXZ');
-            
-            corruptedEuler.y = anchoredEuler.y;
-            corruptedEuler.z = anchoredEuler.z;
-            
-            let lockedQuat = new THREE.Quaternion().setFromEuler(corruptedEuler, 'YXZ');
-            
-            rawTracePoints[i].rot.copy(lockedQuat);
-            recordedFrames[i].rotation.copy(lockedQuat);
-            
-            let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
-            let headOffset = new THREE.Vector3(0, -loadedRadius - recordedFrames[i].extension, meshShiftZ).applyQuaternion(lockedQuat);
-            rawTracePoints[i].pos.copy(recordedFrames[i].pivotPos).add(headOffset);
-            
-            if (i === impactIdx) {
-                let perfectEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
-                perfectEuler.y = anchoredEuler.y;
-                perfectEuler.z = anchoredEuler.z;
-                displayPass.pivotQuat.setFromEuler(perfectEuler, 'YXZ');
-                
-                let faceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, getDynamicFaceZ()).applyQuaternion(lockedQuat);
-                displayPass.pos.copy(displayPass.pivotPos).add(faceOffset);
-            }
-        }
-    }
-
+    // 3. --- RESOLVE STRIKE ANGLE & STATIC 3D MALLET IMPACT POSE ---
     if (impactDetected && displayPass) {
         if (window.pristineAoARads !== undefined && window.pristineAoARads !== null) {
             displayPass.aoaDeg = THREE.MathUtils.radToDeg(window.pristineAoARads);
+        } else if (displayPass.pivotQuat) {
+            let crossingEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
+            displayPass.aoaDeg = -THREE.MathUtils.radToDeg(crossingEuler.x);
         } else if (window.pristineImpactQuat) {
             let impEuler = new THREE.Euler().setFromQuaternion(window.pristineImpactQuat, 'YXZ');
             displayPass.aoaDeg = -THREE.MathUtils.radToDeg(impEuler.x);
-        } else if (displayPass.pivotQuat) {
-            let lockedEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
-            displayPass.aoaDeg = -THREE.MathUtils.radToDeg(lockedEuler.x);
         }
         currentSwingAoA = displayPass.aoaDeg;
 
-        if (displayPass.aoaDeg !== null && displayPass.aoaDeg !== undefined && !isNaN(displayPass.aoaDeg)) {
-            let localFaceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, getDynamicFaceZ());
-            let anchoredFacePos = displayPass.pivotPos.clone().add(localFaceOffset.clone().applyQuaternion(displayPass.pivotQuat));
-
-            let strikeEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
-            strikeEuler.x = -THREE.MathUtils.degToRad(displayPass.aoaDeg);
-            displayPass.pivotQuat.setFromEuler(strikeEuler, 'YXZ');
-
-            let tiltedFaceOffset = localFaceOffset.clone().applyQuaternion(displayPass.pivotQuat);
-            displayPass.pivotPos.copy(anchoredFacePos).sub(tiltedFaceOffset);
-            displayPass.pos.copy(anchoredFacePos);
-
-            let impFrameIdx = displayPass.trailIndex;
-            if (recordedFrames[impFrameIdx]) {
-                recordedFrames[impFrameIdx].rotation.copy(displayPass.pivotQuat);
-                recordedFrames[impFrameIdx].pivotPos.copy(displayPass.pivotPos);
-                recordedFrames[impFrameIdx].extension = displayPass.extension;
-            }
+        let poseEuler = new THREE.Euler().setFromQuaternion(displayPass.pivotQuat, 'YXZ');
+        if (window.pristineImpactQuat) {
+            let pristineEuler = new THREE.Euler().setFromQuaternion(window.pristineImpactQuat, 'YXZ');
+            poseEuler.y = pristineEuler.y;
+            poseEuler.z = pristineEuler.z;
         }
+        if (displayPass.aoaDeg !== undefined && displayPass.aoaDeg !== null && !isNaN(displayPass.aoaDeg)) {
+            poseEuler.x = -THREE.MathUtils.degToRad(displayPass.aoaDeg);
+        }
+        displayPass.pivotQuat.setFromEuler(poseEuler, 'YXZ');
+
+        let halfHeadLen = (AppConfig.malletLengthCm || 27.6) / 2.0;
+        let localFaceOffset = new THREE.Vector3(0, -loadedRadius - displayPass.extension, halfHeadLen).applyQuaternion(displayPass.pivotQuat);
+        let contactPlaneZ = getDynamicFaceZ();
+        let contactPivotZ = Math.max(-15, Math.min(15, contactPlaneZ - localFaceOffset.z));
+        displayPass.pivotPos.set(0, pivotBaseY + displayPass.extension, contactPivotZ);
+        displayPass.pos.copy(displayPass.pivotPos).add(localFaceOffset);
+
+        smoothImpactTraceJoin(displayPass.trailIndex, displayPass.pivotQuat, displayPass.extension, displayPass.pivotPos);
     }
 
     castData.forEach((c, idx) => {
@@ -3025,8 +3341,25 @@ async function finalizeSwingData(nowTime) {
     window.lastCompletedSwingIdx = swingIndex;
     
     // --- NEW: Upload practice casts to the cloud! ---
+    // --- Upload complete practice casts & strike metrics to the cloud ---
     if (castData.length > 0) {
-        savePracticeCastsToCloud(castData, lastComputedTempo);
+        const swingCloudCtx = {
+            massKg: AppConfig.massKg,
+            lawnSpeed: AppConfig.lawnSpeed,
+            sweetSpotCm: AppConfig.sweetSpot,
+            twistToleranceDeg: parseFloat(document.getElementById('twistToleranceInput')?.value) || 1.0,
+            targetDistM: getActiveTargetDistM(displayPass),
+            peakG: impactDetected ? currentSwingMaxG : null,
+            peakTwistDps: impactDetected ? maxTwist : null,
+            dwellMs: impactDetected ? currentSwingDwell : null,
+            downwardSwingTimeMs: impactDetected ? (window.lastEdgeData.downwardSwingTime || null) : null,
+            backswingTimeMs: impactDetected ? (window.lastEdgeData.backswingTime || null) : null
+        };
+        savePracticeCastsToCloud(castData, lastComputedTempo, swingCloudCtx).then((cloudSwingId) => {
+            if (cloudSwingId && swingDatabase[swingIndex]) {
+                swingDatabase[swingIndex].cloudSwingId = cloudSwingId;
+            }
+        });
     }
     
     let ssRad = AppConfig.sweetSpot; let devColor = 'var(--danger)';
@@ -3074,7 +3407,7 @@ async function finalizeSwingData(nowTime) {
     let planeTwistHtml = (displayPass && displayPass.planeTwist !== undefined) ? fmtSignedDeg(displayPass.planeTwist) : `N/A`;
     // Twist = Face-to-Path (Face Angle relative to Swing Path)
     let approachDeg = displayPass ? ((displayPass.pathAngleRads || 0) * (180.0 / Math.PI)) : 0;
-    let swingPathHtml = displayPass ? fmtSignedDeg(approachDeg) : `N/A`;
+    let hitMissHtml = displayPass ? formatTargetHitMissHTML(displayPass) : `N/A`;
     let pathTwistHtml = (displayPass && displayPass.planeTwist !== undefined) ? fmtSignedDeg(displayPass.planeTwist - approachDeg) : `N/A`;
     let devSigmaHtml = (displayPass && !displayPass.isWhiff && displayPass.trueLaunchDeg !== undefined && displayPass.trueLaunchDeg !== null)
         ? fmtSignedDeg(displayPass.trueLaunchDeg)
@@ -3092,8 +3425,19 @@ async function finalizeSwingData(nowTime) {
     let pDeltaHtml = displayPass ? `${formatOffset(displayPass.pDelta)}` : `N/A`;
 
     let downTime = window.lastEdgeData.downwardSwingTime || 0;
-    let decel = window.lastEdgeData.decelFactor || 0;
-    let accelHtml = impactDetected ? `${Math.round(decel) > 0 ? '+' : ''}${Math.round(decel)}%` : `N/A`;
+    let rawDecel = impactDetected
+        ? ((displayPass && displayPass.decelFactor !== undefined && displayPass.decelFactor !== null)
+            ? displayPass.decelFactor
+            : window.lastEdgeData.decelFactor)
+        : ((displayPass && displayPass.decelFactor !== undefined && displayPass.decelFactor !== null && displayPass.decelFactor !== 0)
+            ? displayPass.decelFactor
+            : computeFallbackPreImpactAccelPct(displayPass?.trailIndex));
+    if (displayPass && rawDecel !== null && rawDecel !== undefined) {
+        displayPass.decelFactor = rawDecel;
+    }
+    let accelHtml = (rawDecel !== null && rawDecel !== undefined && !isNaN(rawDecel))
+        ? `${Math.round(rawDecel) > 0 ? '+' : ''}${Math.round(rawDecel)}%`
+        : `N/A`;
     let downTimeHtml = impactDetected ? `${downTime} ms` : `N/A`;
 
     let dsPDelta = downTime > 0 ? calculatePendulumDelta(4.0 * (downTime / 1000.0), AppConfig.handleLengthCm) : null;
@@ -3104,11 +3448,13 @@ async function finalizeSwingData(nowTime) {
     let extHtml = `<span>${hwAppliedForce > 0 ? '+' : ''}${hwAppliedForce.toFixed(0)} N</span>`;
     let advMsgHtml = "";
 
+    let targetLabelHtml = getTargetDistanceLabel(displayPass);
+
     // MASK THE DATA IF NOT SUBSCRIBED
     if (!AppConfig.isSubscribed) {
         let proBadge = `<span class="text-accent">PRO</span>`;
         planeTwistHtml = proBadge;
-        swingPathHtml = proBadge;
+        devSigmaHtml = proBadge;
         pathTwistHtml = proBadge;
         aoaHtml = proBadge;
         leanHtml = proBadge;
@@ -3236,16 +3582,15 @@ async function finalizeSwingData(nowTime) {
             <div id="swing-header-${swingIndex}" class="mt-3">
                 <div class="card-basic-stats" style="margin-bottom: 4px;">
                     <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Mallet head speed through the bottom of the swing (kph).">Speed</span><span class="stat-val">${defaultVel}</span></div>
-                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Total horizontal ball launch angle (σ) off the target line, combining face angle, swing path, and collision deflection.">Deviation (σ)</span><span class="stat-val">${devSigmaHtml}</span></div>
+                    <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Projected lateral miss or hit at the target distance (cm Left/Right of target center).">${targetLabelHtml}</span><span class="stat-val">${hitMissHtml}</span></div>
                     <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Strike location on the mallet face relative to center (mm Left/Right).">Impact</span><span class="adv-val text-warning">${impactLocationHtml}</span></div>
                 </div>
                 <details class="more-metrics">
                     <summary>More</summary>
                     <div class="card-basic-stats">
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the target line at impact (+ Left / - Right).">Face Angle</span><span class="stat-val">${planeTwistHtml}</span></div>
-                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Horizontal direction the mallet head is moving through impact relative to the target line (+ Left / - Right).">Swing Path</span><span class="stat-val">${swingPathHtml}</span></div>
-                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the swing path (+ Left / - Right).">Twist</span><span class="stat-val">${pathTwistHtml}</span></div>
-                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Vertical angle of attack of the mallet head into the ball (+ Up / - Down).">Strike Angle</span><span class="stat-val text-accent">${aoaHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Total horizontal ball launch angle (σ) off the target line, combining face angle, swing path, and collision deflection.">Deviation (σ)</span><span class="stat-val">${devSigmaHtml}</span></div>
+                        <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Angle of the mallet face relative to the swing path (+ Left / - Right).">Twist</span><span class="stat-val">${pathTwistHtml}</span></div><div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Vertical angle of attack of the mallet head into the ball (+ Up / - Down).">Strike Angle</span><span class="stat-val text-accent">${aoaHtml}</span></div>
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Sideways tilt (roll) of the mallet head at impact (Left / Right).">Lean Angle</span><span class="stat-val text-warning">${leanHtml}</span></div>
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Degrees the mallet face twisted left (+) or right (-) during ball contact.">Deflection</span><span class="stat-val text-warning">${twistDeflection}</span></div>
                         <div class="stat-block"><span class="stat-lbl tooltip-trigger" onclick="this.classList.toggle('active-tooltip')" data-tooltip="Average impact force transferred to the ball during collision (kilonewtons).">Strike Force</span><span class="stat-val">${forceHtml}</span></div>
@@ -3592,8 +3937,8 @@ window.bleManager.onTraceData = (traceArray) => {
     let impactTime = window.impactHwTime || (rawTracePoints.length > 0 ? rawTracePoints[rawTracePoints.length - 1].time : globalHwTime);
 
     // Separate pre-impact points from any post-impact follow-through points that arrived early
-    // Drop the last 2 samples (0-4ms before trigger) which already contain initial collision impulse
-    let cleanTrace = traceArray.slice(0, Math.max(1, traceArray.length - 2));
+    // Drop the last 3 samples (0-12ms before trigger) so no initial ball-contact impulse contaminates the trace
+    let cleanTrace = traceArray.slice(0, Math.max(1, traceArray.length - 3));
     let burstPoints = [];
     let burstFrames = [];
     let ghostInvQuat = ghostPivot.quaternion.clone().invert();
@@ -3604,18 +3949,11 @@ window.bleManager.onTraceData = (traceArray) => {
         if (!q) return;
 
         let pureQ = new THREE.Quaternion(q.q1, q.q2, q.q3, q.q0);
-        let orientedQ = new THREE.Quaternion(pureQ.y, -pureQ.z, -pureQ.x, pureQ.w).normalize();
-        orientedQ.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI));
+        let orientedQ = mapFirmwareQuatToThree(q.q0, q.q1, q.q2, q.q3);
+        let finalQuat = baseQuatInverse.clone().multiply(orientedQ).normalize();
 
-        let euler = new THREE.Euler().setFromQuaternion(orientedQ, 'YZX');
-        euler.y = -euler.y;
-        orientedQ.setFromEuler(euler, 'YZX');
-
-        let finalQuat = baseQuatInverse.clone().multiply(orientedQ);
-
-        // Track the center of the physical mallet mesh around the shoulder pivot
-        let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
-        let headOffset = new THREE.Vector3(0, -loadedRadius, meshShiftZ).applyQuaternion(finalQuat);
+        // Track the center of the physical mallet head (at the shaft centerline) around the shoulder pivot
+        let headOffset = new THREE.Vector3(0, -loadedRadius, 0).applyQuaternion(finalQuat);
         let trueHeadPos = new THREE.Vector3(0, pivotBaseY, 0).add(headOffset);
         let ptTime = impactTime - ((cleanTrace.length - 1 - idx) * 4);
 
@@ -3671,6 +4009,24 @@ window.bleManager.onTraceData = (traceArray) => {
         }
     }
 
+    // Match the pre-impact dynamic extension at the start of burstPoints and taper smoothly to 0 at impact
+    if (burstPoints.length > 0 && preFrames.length > 0) {
+        let startExt = preFrames[preFrames.length - 1].extension || 0;
+        if (Math.abs(startExt) > 0.001) {
+            let denom = Math.max(1, burstPoints.length - 1);
+            for (let i = 0; i < burstPoints.length; i++) {
+                let extStep = startExt * (1.0 - (i / denom));
+                let q = burstPoints[i].rot;
+                let headOffset = new THREE.Vector3(0, -(loadedRadius + extStep), 0).applyQuaternion(q);
+                burstPoints[i].pos.set(0, pivotBaseY + extStep, 0).add(headOffset);
+                if (burstFrames[i]) {
+                    burstFrames[i].pivotPos.set(0, pivotBaseY + extStep, 0);
+                    burstFrames[i].extension = extStep;
+                }
+            }
+        }
+    }
+
     // Re-bridge the 150ms gap cleanly from the end of burstPoints to the first post-impact point
     let bridgePoints = [];
     let bridgeFrames = [];
@@ -3682,17 +4038,16 @@ window.bleManager.onTraceData = (traceArray) => {
 
         if (gapAngleDeg > 6.0) {
             let bridgeSteps = Math.min(10, Math.floor(gapAngleDeg / 4.0));
-            let meshShiftZ = AppConfig.offsetZCm - (AppConfig.malletLengthCm / 2.0);
             for (let s = 1; s < bridgeSteps; s++) {
                 let alpha = s / bridgeSteps;
                 let qStep = lastBurstPt.rot.clone().slerp(firstPostFr.rotation, alpha);
                 let pStep = lastBurstFr.pivotPos.clone().lerp(firstPostFr.pivotPos, alpha);
                 let extStep = (lastBurstFr.extension || 0) + ((firstPostFr.extension || 0) - (lastBurstFr.extension || 0)) * alpha;
-                let headOffset = new THREE.Vector3(0, -(loadedRadius + extStep), meshShiftZ).applyQuaternion(qStep);
+                let headOffset = new THREE.Vector3(0, -(loadedRadius + extStep), 0).applyQuaternion(qStep);
                 let posStep = pStep.clone().add(headOffset);
                 let tStep = (lastBurstPt.time || impactTime) + (((firstPostFr.time || impactTime) - (lastBurstPt.time || impactTime)) * alpha);
 
-                bridgePoints.push({ pos: posStep, rot: qStep, color: { r: 0.0, g: 1.0, b: 0.0 }, isForward: true, time: tStep });
+                bridgePoints.push({ pos: posStep, rot: qStep, color: { r: 0.0, g: 1.0, b: 0.0 }, isForward: true, isBridge: true, time: tStep });
                 bridgeFrames.push({ rotation: qStep, forceMag: currentSwingMaxG, rawPtIndex: 0, pivotPos: pStep, extension: extStep, rawBLE: firstPostFr.rawBLE, time: tStep });
             }
         }
@@ -3711,57 +4066,61 @@ window.bleManager.onTraceData = (traceArray) => {
         window.peakFollowThroughIdx = rawTracePoints.length - 1;
     }
 
-    // --- 1. SHOCKWAVE-PROOF APPROACH, STRIKE ANGLE & PRE-IMPACT ACCEL AT T=0 IMPACT ---
+    // --- 1. SHOCKWAVE-PROOF APPROACH, STRIKE ANGLE & PRE-IMPACT ACCEL ---
     let bLen = burstPoints.length;
     let computedAccelPct = null;
     if (bLen >= 5) {
-        let qEarly = burstPoints[bLen - 4].rot;
-        let qLate = burstPoints[bLen - 1].rot;
-        let step12ms = qEarly.clone().invert().multiply(qLate);
-        window.pristineStep8ms = new THREE.Quaternion().slerp(step12ms, 2.0 / 3.0);
-        if (window.pristineImpactQuat) {
-            window.pristineImpactQuat = window.pristineImpactQuat.clone().multiply(window.pristineStep8ms).normalize();
+        let qEarly = burstPoints[bLen - 5].rot; // t = -28ms
+        let qLate  = burstPoints[bLen - 1].rot; // t = -12ms
+
+        let baseM8Quat = window.pristineImpactQuat_m8 || qLate;
+        window.pristineImpactQuat = baseM8Quat.clone();
+        if (window.lastEdgeData) {
+            window.lastEdgeData.impactTwist = getShaftTwist(window.pristineImpactQuat);
         }
 
-        // Measure pre-impact Accel (%) across the full downswing (first half vs second half entering impact)
-        let downSamples = (bLen - 1) - apexBurstIdx;
-        let halfSpan = Math.floor(downSamples / 2);
-        if (halfSpan >= 3) {
+        // Measure time-normalized pre-impact Accel (%) safely clear of the backswing turnaround apex
+        let usableDownSamples = (bLen - 1) - (apexBurstIdx + 2);
+        let halfSpan = Math.min(5, Math.floor(usableDownSamples / 2));
+        if (halfSpan >= 2) {
             let idxEnd = bLen - 1;
             let idxMid = idxEnd - halfSpan;
             let idxStart = idxMid - halfSpan;
-            let earlyArc = burstPoints[idxStart].rot.angleTo(burstPoints[idxMid].rot);
-            let lateArc = burstPoints[idxMid].rot.angleTo(burstPoints[idxEnd].rot);
-            if (earlyArc > 0.005) {
-                computedAccelPct = ((lateArc - earlyArc) / earlyArc) * 100.0;
+            let dtEarly = Math.max(4, burstPoints[idxMid].time - burstPoints[idxStart].time);
+            let dtLate  = Math.max(4, burstPoints[idxEnd].time - burstPoints[idxMid].time);
+            let omegaEarly = burstPoints[idxStart].rot.angleTo(burstPoints[idxMid].rot) / dtEarly;
+            let omegaLate  = burstPoints[idxMid].rot.angleTo(burstPoints[idxEnd].rot) / dtLate;
+            if (omegaEarly > 0.0001) {
+                computedAccelPct = Math.max(-50, Math.min(60, ((omegaLate - omegaEarly) / omegaEarly) * 100.0));
             }
         }
 
-        // Measure horizontal Swing Path across a smooth 24ms (6-sample) sole-center chord without yaw amplification
-        let startIdx = Math.max(apexBurstIdx, bLen - 7);
+        // Measure horizontal Swing Path at the shaft centerline and vertical Strike Angle at the front face (Head Length / 2)
+        let ghostInv = ghostPivot.quaternion.clone().invert();
+        let halfHeadLen = (AppConfig.malletLengthCm || 27.6) / 2.0;
+
         let soleVec = new THREE.Vector3(0, -loadedRadius, 0);
-        let pSoleStart = soleVec.clone().applyQuaternion(burstPoints[startIdx].rot);
-        let pSoleLate = soleVec.clone().applyQuaternion(qLate);
-        let pathVec = new THREE.Vector3().subVectors(pSoleLate, pSoleStart);
-        let localPathVel = pathVec.applyQuaternion(ghostPivot.quaternion.clone().invert());
+        let pathChord = new THREE.Vector3().subVectors(
+            soleVec.clone().applyQuaternion(qLate),
+            soleVec.clone().applyQuaternion(qEarly)
+        ).applyQuaternion(ghostInv);
 
-        // Measure vertical Strike Angle at the shaft-line sole extrapolated 12ms to t=0 impact
-        let pSoleMid = soleVec.clone().applyQuaternion(burstPoints[bLen - 3].rot);
-        let aoaVec = new THREE.Vector3().subVectors(pSoleLate, pSoleMid);
-        let worldStep12ms = qLate.clone().multiply(qEarly.clone().invert());
-        aoaVec.applyQuaternion(worldStep12ms);
-        let localAoaVel = aoaVec.applyQuaternion(ghostPivot.quaternion.clone().invert());
+        let faceVec = new THREE.Vector3(0, -loadedRadius, halfHeadLen);
+        let aoaChord = new THREE.Vector3().subVectors(
+            faceVec.clone().applyQuaternion(qLate),
+            faceVec.clone().applyQuaternion(qEarly)
+        ).applyQuaternion(ghostInv);
 
-        if (Math.abs(localPathVel.z) > 0.01) {
-            window.pristinePathAngleRads = Math.atan2(localPathVel.x, Math.abs(localPathVel.z));
+        if (Math.abs(pathChord.z) > 0.01) {
+            window.pristinePathAngleRads = Math.atan2(pathChord.x, Math.abs(pathChord.z));
         }
-        if (Math.abs(localAoaVel.z) > 0.01) {
-            window.pristineAoARads = Math.atan2(localAoaVel.y, Math.abs(localAoaVel.z));
+        if (Math.abs(aoaChord.z) > 0.01) {
+            window.pristineAoARads = Math.atan2(aoaChord.y, Math.abs(aoaChord.z));
             currentSwingAoA = THREE.MathUtils.radToDeg(window.pristineAoARads);
         }
     }
 
-    // --- 2. SYNC STRIKE CAST TO PRISTINE ROTATION WITHOUT OVERWRITING BALL-PLANE PIVOT ---
+    // --- 2. SYNC STRIKE CAST TO T=0 CONTACT ROTATION WITHOUT OVERWRITING BALL-PLANE PIVOT ---
     let impactBurstIdx = prePoints.length + burstPoints.length - 1;
     let finalRecord = burstFrames[burstFrames.length - 1];
     window.lastBurstFinalRecord = finalRecord;
@@ -3770,8 +4129,13 @@ window.bleManager.onTraceData = (traceArray) => {
         let strikeCast = castData.find(c => c.isStrike);
         if (strikeCast) {
             strikeCast.trailIndex = impactBurstIdx;
-            strikeCast.pivotQuat.copy(finalRecord.rotation);
-            if (computedAccelPct !== null && !strikeCast.decelFactor) {
+            let t0Quat = window.pristineImpactQuat || finalRecord.rotation;
+            let t0Twist = getShaftTwist(t0Quat);
+            strikeCast.faceAngle = t0Twist;
+            strikeCast.planeTwist = t0Twist;
+            strikeCast.impactTwist = t0Twist;
+
+            if ((strikeCast.decelFactor === undefined || strikeCast.decelFactor === null) && computedAccelPct !== null) {
                 strikeCast.decelFactor = computedAccelPct;
                 window.lastEdgeData.decelFactor = computedAccelPct;
             }
@@ -3780,44 +4144,65 @@ window.bleManager.onTraceData = (traceArray) => {
             }
             if (window.pristinePathAngleRads !== undefined && window.pristinePathAngleRads !== null) {
                 strikeCast.pathAngleRads = window.pristinePathAngleRads;
-                // Only recalculate launch accuracy if finalizeSwingData already ran and set rawDev to hwTargetX_cm
-                if (appState === 4.5 || appState === 5) {
-                    let accData = calcAccuracyData(strikeCast.rawDev || 0, strikeCast.planeTwist || 0, strikeCast.pathAngleRads, maxTwist, currentSwingDwell);
-                    accData.isWhiff = false;
-                    let passRating = getStarRating(strikeCast.rawDev || 0, accData.trueLaunchDeg, true);
-                    strikeCast.deflectionDeg = accData.collisionDeflection;
-                    strikeCast.trueLaunchDeg = accData.trueLaunchDeg;
-                    strikeCast.trueLaunchRads = accData.trueLaunchRads;
-                    strikeCast.estAccRange = accData.estAccRange;
-                    strikeCast.trueAccRange = accData.trueAccRange;
-                    strikeCast.stars = passRating.string;
-                    strikeCast.starColor = passRating.color;
-                }
             }
 
-            let localFaceOffset = new THREE.Vector3(0, -loadedRadius - strikeCast.extension, getDynamicFaceZ());
-            let anchoredFacePos = strikeCast.pivotPos.clone().add(localFaceOffset.clone().applyQuaternion(strikeCast.pivotQuat));
-
+            // Keep Face Angle (yaw) & Lean Angle (roll) locked to t0Quat while setting shaft pitch to Strike Angle
+            let t0Euler = new THREE.Euler().setFromQuaternion(t0Quat, 'YXZ');
+            let strikePoseEuler = new THREE.Euler().setFromQuaternion(strikeCast.pivotQuat, 'YXZ');
+            strikePoseEuler.y = t0Euler.y;
+            strikePoseEuler.z = t0Euler.z;
             if (strikeCast.aoaDeg !== undefined && strikeCast.aoaDeg !== null && !isNaN(strikeCast.aoaDeg)) {
-                let strikeEuler = new THREE.Euler().setFromQuaternion(strikeCast.pivotQuat, 'YXZ');
-                strikeEuler.x = -THREE.MathUtils.degToRad(strikeCast.aoaDeg);
-                strikeCast.pivotQuat.setFromEuler(strikeEuler, 'YXZ');
+                strikePoseEuler.x = -THREE.MathUtils.degToRad(strikeCast.aoaDeg);
             }
-
-            let faceOffset = localFaceOffset.clone().applyQuaternion(strikeCast.pivotQuat);
-            strikeCast.pivotPos.copy(anchoredFacePos).sub(faceOffset);
-            strikeCast.pos.copy(anchoredFacePos);
+            strikeCast.pivotQuat.setFromEuler(strikePoseEuler, 'YXZ');
 
             if (appState === 4.5 || appState === 5) {
+                let accData = calcAccuracyData(strikeCast.rawDev || 0, t0Twist, strikeCast.pathAngleRads || 0, maxTwist, currentSwingDwell);
+                accData.isWhiff = false;
+                let passRating = getStarRating(strikeCast.rawDev || 0, accData.trueLaunchDeg, true);
+                strikeCast.deflectionDeg = accData.collisionDeflection;
+                strikeCast.trueLaunchDeg = accData.trueLaunchDeg;
+                strikeCast.trueLaunchRads = accData.trueLaunchRads;
+                strikeCast.estAccRange = accData.estAccRange;
+                strikeCast.trueAccRange = accData.trueAccRange;
+                strikeCast.stars = passRating.string;
+                strikeCast.starColor = passRating.color;
+            }
+
+            let halfHeadLen = (AppConfig.malletLengthCm || 27.6) / 2.0;
+            let localFaceOffset = new THREE.Vector3(0, -loadedRadius - strikeCast.extension, halfHeadLen).applyQuaternion(strikeCast.pivotQuat);
+            let contactPlaneZ = getDynamicFaceZ();
+            let contactPivotZ = Math.max(-15, Math.min(15, contactPlaneZ - localFaceOffset.z));
+            strikeCast.pivotPos.set(0, pivotBaseY + strikeCast.extension, contactPivotZ);
+            strikeCast.pos.copy(strikeCast.pivotPos).add(localFaceOffset);
+
+            if (appState === 4.5 || appState === 5) {
+                smoothImpactTraceJoin(impactBurstIdx, strikeCast.pivotQuat, strikeCast.extension, strikeCast.pivotPos);
                 finalReviewPivotQuat.copy(strikeCast.pivotQuat);
                 finalReviewPivotPos.copy(strikeCast.pivotPos);
                 drawStrikeLaser(strikeCast);
 
                 let doneIdx = window.lastCompletedSwingIdx;
                 if (doneIdx !== null && doneIdx !== undefined && swingDatabase[doneIdx]) {
+                    swingDatabase[doneIdx].rawTracePoints = [...rawTracePoints];
+                    swingDatabase[doneIdx].frames = [...recordedFrames];
                     swingDatabase[doneIdx].finalReviewPivotQuat.copy(strikeCast.pivotQuat);
                     swingDatabase[doneIdx].finalReviewPivotPos.copy(strikeCast.pivotPos);
                     let castIdx = swingDatabase[doneIdx].casts.indexOf(strikeCast);
+                    if (castIdx >= 0 && swingDatabase[doneIdx].cloudSwingId) {
+                        updatePracticeStrikeInCloud(swingDatabase[doneIdx].cloudSwingId, castIdx, strikeCast, lastComputedTempo, {
+                            massKg: AppConfig.massKg,
+                            lawnSpeed: AppConfig.lawnSpeed,
+                            sweetSpotCm: AppConfig.sweetSpot,
+                            twistToleranceDeg: parseFloat(document.getElementById('twistToleranceInput')?.value) || 1.0,
+                            targetDistM: getActiveTargetDistM(strikeCast),
+                            peakG: currentSwingMaxG,
+                            peakTwistDps: maxTwist,
+                            dwellMs: currentSwingDwell,
+                            downwardSwingTimeMs: window.lastEdgeData.downwardSwingTime || null,
+                            backswingTimeMs: window.lastEdgeData.backswingTime || null
+                        });
+                    }
                     let castContainer = document.getElementById(`cast-container-${doneIdx}`);
                     if (castContainer && castIdx >= 0) {
                         castContainer.innerHTML = swingDatabase[doneIdx].casts

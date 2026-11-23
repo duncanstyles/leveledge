@@ -24,6 +24,7 @@ class LevelEdgeBLEManager {
         this.deviceName = "Unknown Mallet";
         this.deviceMac = null;
         this.hardwareProfile = null;
+        this.firmwareVersion = null;
 
         this._traceBuffer = new Array(40).fill(null);
         this._chunksReceived = 0;
@@ -288,6 +289,7 @@ class LevelEdgeBLEManager {
         const disconnectedMac = this.deviceMac;
         this.deviceMac = null;
         this.hardwareProfile = null;
+        this.firmwareVersion = null;
 
         if (this.onStateChange) this.onStateChange(false, null, disconnectedMac, null);
         
@@ -382,7 +384,9 @@ class LevelEdgeBLEManager {
 
         if (header === 86) { 
             const rawBytes = new Uint8Array(data.buffer, data.byteOffset + 1, data.byteLength - 1); 
-            if (this.onFirmwareVersion) this.onFirmwareVersion(new TextDecoder().decode(rawBytes));
+            const ver = new TextDecoder().decode(rawBytes).replace(/\0/g, '').trim();
+            this.firmwareVersion = ver;
+            if (this.onFirmwareVersion) this.onFirmwareVersion(ver);
             return; 
         }
 

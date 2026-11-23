@@ -26,12 +26,16 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
     <script src="bleManager.js"></script>
+    <script src="nrfSerialDfu.js"></script>
     <script type="module" src="main.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+</head>
+
 </head>
 <body>
 
@@ -650,16 +654,77 @@
             <div class="font-mono mb-2" style="font-size: 0.9rem;">
                 HTML Version: <span id="version-text" style="cursor: pointer; user-select: none;">`Version ${APP_VERSION}`</span>
             </div>
-            <div class="font-mono mb-5" style="font-size: 0.9rem;">
+            <div class="font-mono mb-4" style="font-size: 0.9rem;">
                 Firmware: <span id="about-fw-display" class="text-accent">Not Connected</span><br>
                 Offline Strokes: <span id="about-storage-display" class="text-accent">--</span><br>
                 <span class="text-muted" style="font-size: 0.75rem;">Min Supported FW: 9.8.03</span>
             </div>
+
+            <div class="mb-5 flex-col gap-2">
+                <button id="checkUpdatesBtn" class="btn-primary">CHECK FOR FIRMWARE UPDATES</button>
+                <div id="update-check-status" class="font-mono text-muted" style="font-size: 0.8rem;"></div>
+            </div>
+
             <div class="text-muted line-height-15" style="font-size: 0.8rem;">
                 &copy; Duncan Styles<br>
                 Leveledge AI Kinematics 2026<br>
                 <a href="https://www.leveledge.ai" target="_blank" class="text-accent" style="text-decoration: none;">www.leveledge.ai</a>
             </div>
+        </div>
+    </dialog>
+
+    <dialog id="firmware-modal" class="modal">
+        <div class="settings-container">
+            <div class="modal-header">
+                <h2>FIRMWARE UPDATE</h2>
+                <button id="closeFirmwareModalBtn" class="btn-primary btn-danger btn-small">CLOSE</button>
+            </div>
+
+            <div class="p-4 mb-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div class="flex justify-between mb-2 font-mono" style="font-size: 0.85rem;">
+                    <span class="text-muted">Installed Firmware:</span>
+                    <strong id="fwModalCurrent" class="text-main">--</strong>
+                </div>
+                <div class="flex justify-between mb-2 font-mono" style="font-size: 0.85rem;">
+                    <span class="text-muted">Latest Release:</span>
+                    <strong id="fwModalLatest" class="text-accent">--</strong>
+                </div>
+                <div id="fwModalNotes" class="text-muted mt-3" style="font-size: 0.8rem; line-height: 1.4; white-space: pre-wrap;">
+                    Loading release notes...
+                </div>
+            </div>
+
+            <div class="p-4 mb-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div class="font-bold mb-2" style="font-size: 0.88rem;">Step 1: Enter Bootloader (DFU) Mode</div>
+                <p class="text-muted mb-3" style="font-size: 0.78rem; line-height: 1.4;">
+                    Plug the USB-C cable into the mallet and your computer.
+                </p>
+                <button id="btnModalEnterDfu" class="drawer-btn justify-center w-full">
+                    📡 PREPARE MALLET FOR UPDATE XXX
+                </button>
+            </div>
+
+            <div class="p-4 mb-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div class="font-bold mb-2" style="font-size: 0.88rem;">Step 2: Install Firmware Over USB</div>
+                <p class="text-muted mb-3" style="font-size: 0.78rem; line-height: 1.4;">
+                    Click Flash Firmware and select <strong>XIAO nRF52840</strong> if prompted
+                </p>
+                <button id="btnModalStartFlash" class="btn-primary">
+                    ⚡ FLASH FIRMWARE OVER USB
+                </button>
+
+                <div id="fwModalProgressWrap" class="hidden mt-4">
+                    <div class="flex justify-between font-mono mb-1" style="font-size: 0.75rem;">
+                        <span id="fwModalStage">Preparing...</span>
+                        <span id="fwModalPct">0%</span>
+                    </div>
+                    <div style="width: 100%; height: 10px; background: var(--canvas-bg); border-radius: 5px; overflow: hidden;">
+                        <div id="fwModalBar" style="width: 0%; height: 100%; background: var(--success); transition: width 0.15s;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <pre id="fwModalLog" class="font-mono text-muted p-4" style="background: var(--bg-base); border-radius: var(--radius-md); border: 1px solid var(--border-color); font-size: 0.72rem; max-height: 130px; overflow-y: auto; white-space: pre-wrap;">Ready.</pre>
         </div>
     </dialog>
 

@@ -25,30 +25,23 @@ export function getStarRating(offsetCm, angleDeg, isStrike = true) {
 }
 
 export function getShaftTwist(q) {
-    // Relies on the global THREE object loaded in your HTML
-    let v = new THREE.Vector3(0, 0, 1).applyQuaternion(q); 
-    let up = new THREE.Vector3(0, 1, 0).applyQuaternion(q); 
-    let projZ = new THREE.Vector3(0, 0, 1).projectOnPlane(up);
-    if (projZ.lengthSq() < 0.0001) return 0; 
-    projZ.normalize(); 
-    let angle = v.angleTo(projZ); 
-    let cross = new THREE.Vector3().crossVectors(projZ, v);
-    if (cross.dot(up) < 0) angle = -angle; 
-    let deg = THREE.MathUtils.radToDeg(angle);
-    if (deg > 90) deg -= 180; else if (deg < -90) deg += 180;
+    // Horizontal face normal heading relative to target line (+Z), immune to pitch & lie angle
+    let v = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+    if ((v.x * v.x + v.z * v.z) < 0.0001) return 0;
+    let deg = THREE.MathUtils.radToDeg(Math.atan2(v.x, v.z));
+    if (deg > 90) deg -= 180;
+    else if (deg < -90) deg += 180;
     return deg;
 }
 
 export function calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwistDegPerSec, dwellMs) {
     let faceWidthCM = parseFloat(document.getElementById('malletWidthInput').value) || 6.0; 
-    let ssTolerance = parseFloat(document.getElementById('sweetSpotInput').value) || 1.5;
     let isWhiff = Math.abs(strikeX) >= (faceWidthCM / 2.0);
     let estAccRange = 0.0; let trueAccRange = 0.0; let trueLaunchDeg = locTwist; let estLaunchThetaRads = 0; let trueLaunchThetaRads = 0; let collisionDeflection = 0;
     if (!isWhiff) {
         let faceAngleRads = locTwist * (Math.PI / 180.0);
-        estLaunchThetaRads = Math.abs(strikeX) > ssTolerance
-            ? (0.85 * faceAngleRads) + (0.15 * (pathAngleRads || 0))
-            : faceAngleRads;
+        let safePathRads = pathAngleRads || 0;
+        estLaunchThetaRads = (0.80 * faceAngleRads) + (0.20 * safePathRads);
         if (Math.abs(estLaunchThetaRads) < 0.0001) estAccRange = 35.0; else estAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(estLaunchThetaRads)));
 
         // strikeX > 0 means mallet is Left of ball (ball struck Right half of face) -> twists face Player Right (-)
@@ -57,9 +50,7 @@ export function calcAccuracyData(strikeX, locTwist, pathAngleRads, maxTwistDegPe
         if (strikeX > 0) collisionDeflection = -collisionDeflection;
 
         let dynamicFaceAngleRads = (locTwist + (collisionDeflection * 0.5)) * (Math.PI / 180.0);
-        trueLaunchThetaRads = Math.abs(strikeX) > ssTolerance
-            ? (0.85 * dynamicFaceAngleRads) + (0.15 * (pathAngleRads || 0))
-            : dynamicFaceAngleRads;
+        trueLaunchThetaRads = (0.80 * dynamicFaceAngleRads) + (0.20 * safePathRads);
         trueLaunchDeg = trueLaunchThetaRads * (180.0 / Math.PI);
         if (Math.abs(trueLaunchThetaRads) < 0.0001) trueAccRange = 35.0; else trueAccRange = Math.min(35.0, 0.092 / Math.abs(Math.sin(trueLaunchThetaRads)));
     }
