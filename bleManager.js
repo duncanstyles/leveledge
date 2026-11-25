@@ -12,7 +12,6 @@ class LevelEdgeBLEManager {
         this.STRIKE_UUID      = "19b30003-e8f2-537e-4f6c-d104768a1214";
         this.CALIBRATION_UUID = "19b30004-e8f2-537e-4f6c-d104768a1214";
         this.IDENTITY_UUID    = "19b30005-e8f2-537e-4f6c-d104768a1214";
-        this.TRACE_UUID       = "19b30006-e8f2-537e-4f6c-d104768a1214";
         this.PROFILE_UUID     = "19b30007-e8f2-537e-4f6c-d104768a1214";
 
         // --- Hardware State ---
@@ -26,9 +25,6 @@ class LevelEdgeBLEManager {
         this.hardwareProfile = null;
         this.firmwareVersion = null;
 
-        this._traceBuffer = new Array(40).fill(null);
-        this._chunksReceived = 0;
-
         // --- Telemetry Tracking ---
         this._lastRawTs = -1;
         this._tsOffset = 0;
@@ -41,7 +37,6 @@ class LevelEdgeBLEManager {
         this.onLiveStrike = null;        // (parsedStrikeObject)
         this.onHistoricalStrike = null;  // (parsedStrikeObject)
         this.onError = null;             // (errorMessage)
-        this.onTraceData = null;         // (assembledTraceArray)
 
         // --- Auto-Reconnect & Concurrency State ---
         this.intentionalDisconnect = false;
@@ -52,7 +47,6 @@ class LevelEdgeBLEManager {
         // --- Bound Handlers for Event Listener Cleanups ---
         this._boundParseTelemetry = this._parseTelemetryPacket.bind(this);
         this._boundParseStrike = this._parseStrikePacket.bind(this);
-        this._boundParseTrace = this._parseTracePacket.bind(this);
     }
 
     isConnected() {
@@ -133,11 +127,6 @@ class LevelEdgeBLEManager {
                 await strikeChar.startNotifications(); 
                 strikeChar.removeEventListener('characteristicvaluechanged', this._boundParseStrike);
                 strikeChar.addEventListener('characteristicvaluechanged', this._boundParseStrike);
-
-                const traceChar = await service.getCharacteristic(this.TRACE_UUID);
-                await traceChar.startNotifications();
-                traceChar.removeEventListener('characteristicvaluechanged', this._boundParseTrace);
-                traceChar.addEventListener('characteristicvaluechanged', this._boundParseTrace);
 
                 this.commandChar = await service.getCharacteristic(this.COMMAND_UUID);
 
@@ -365,7 +354,6 @@ class LevelEdgeBLEManager {
             ax: data.getInt16(10, true) / 100.0,
             ay: data.getInt16(12, true) / 100.0,
             az: data.getInt16(14, true) / 100.0,
-            appliedForce: data.getInt8(16),
             rawAppState: rawAppState,
             appState: isGameMode ? 7 : rawAppState,
             isGameMode: isGameMode,
@@ -410,14 +398,16 @@ class LevelEdgeBLEManager {
             backArc: data.getInt16(6, true) / 10.0,   
             faceAngle: data.getInt16(8, true) / 10.0,
             zVel: data.getInt16(10, true) / 100.0,
-            appliedForce: data.getInt8(12),
+            dynRadius: data.getUint8(12) / 100.0,
             backswingTime: data.getUint16(13, true),
             q0: data.getInt16(15, true) / 10000.0,
             q1: data.getInt16(17, true) / 10000.0,
             q2: data.getInt16(19, true) / 10000.0,
             q3: data.getInt16(21, true) / 10000.0,
             matchID: data.getUint32(23, true),
-            secondsIntoMatch: data.getUint16(27, true),
+            secondsIntoMatch: 0,
+            pathAngle: data.getInt8(27) / 10.0,
+            aoaAngle: data.getInt8(28) / 10.0,
             downwardSwingTime: data.getUint16(29, true),
             decelFactor: data.getInt8(31),
             timestamp: Date.now()
@@ -427,40 +417,6 @@ class LevelEdgeBLEManager {
             if (this.onHistoricalStrike) this.onHistoricalStrike(parsedStrike);
         } else {
             if (this.onLiveStrike) this.onLiveStrike(parsedStrike);
-        }
-    }
-
-    _parseTracePacket(event) {
-        const data = event.target.value; 
-        if (data.byteLength < 32 || data.getUint8(0) !== 84) return;
-
-        const chunkIndex = data.getUint8(1);
-
-        if (chunkIndex === 0) {
-            this._traceBuffer = new Array(40).fill(null);
-            this._chunksReceived = 0;
-        }
-
-        let quatOffset = chunkIndex * 3;
-        for (let q = 0; q < 3; q++) {
-            if (quatOffset + q < 40) {
-                let byteOffset = 2 + (q * 8);
-                this._traceBuffer[quatOffset + q] = {
-                    q0: data.getInt16(byteOffset, true) / 10000.0,
-                    q1: data.getInt16(byteOffset + 2, true) / 10000.0,
-                    q2: data.getInt16(byteOffset + 4, true) / 10000.0,
-                    q3: data.getInt16(byteOffset + 6, true) / 10000.0
-                };
-            }
-        }
-
-        this._chunksReceived++;
-
-        // Fire when the final chunk arrives (even if 1-2 mid-burst packets dropped over BLE)
-        if (chunkIndex === 13 && this._chunksReceived >= 10) {
-            if (this.onTraceData) {
-                this.onTraceData(this._traceBuffer);
-            }
         }
     }
 }

@@ -76,7 +76,12 @@ export let handleMesh = null;      // NEW
 export let ghostHandleMesh = null; // NEW
 export let baseStlSize = new THREE.Vector3(1, 1, 1);
 export let impactLasers = [];
+export let activeTargetBallMesh = null;
+export let rollingBallMesh = null;
 export let controls = null;
+
+let ballAnimState = null;
+let explosionParticles = [];
 
 // --- TRAIL SETUP ---
 export const MAX_TRAIL_POINTS = 5000; 
@@ -302,9 +307,11 @@ export function drawStrikeLaser(cast) {
     
     // 4. Target distance (for green target line & target ball) vs. actual hit distance (for red ball path line)
     let isMatchActive = !document.getElementById('game-mode-dashboard')?.classList.contains('hidden');
-    let targetDistMeters = isMatchActive
-        ? (parseFloat(document.getElementById('matchDistSetup')?.value) || 10.0)
-        : (parseFloat(document.getElementById('trainerDistSetup')?.value) || 10.0);
+    let targetDistMeters = (cast.targetDistM !== undefined && cast.targetDistM !== null && !isNaN(cast.targetDistM))
+        ? cast.targetDistM
+        : (isMatchActive
+            ? (parseFloat(document.getElementById('matchDistSetup')?.value) || 10.0)
+            : (parseFloat(document.getElementById('trainerDistSetup')?.value) || 10.0));
     let targetDistance = (targetDistMeters * 100.0) + 4.6;
 
     let hitDistMeters = Math.max(0.2, cast.estDist ?? targetDistMeters);
@@ -349,6 +356,7 @@ export function drawStrikeLaser(cast) {
     targetBallMesh.position.copy(targetEndPos);
     scene.add(targetBallMesh);
     impactLasers.push(targetBallMesh);
+    activeTargetBallMesh = targetBallMesh;
 
     /// 7. Build the Red Dotted Actual Ball Launch Line
     let laserGeo = new THREE.BufferGeometry().setFromPoints([backPos, endPos]);
@@ -367,19 +375,23 @@ export function drawStrikeLaser(cast) {
     scene.add(laserMesh);         
     impactLasers.push(laserMesh); 
 
-    // 8. Add Virtual Target Ball on the Actual Launch Line at the Target Distance
+    // 8. Add Red Striker Ball on the Actual Launch Line at the Target Distance
     let launchTargetPos = startPos.clone().add(direction.clone().multiplyScalar(targetDistance));
     let launchBallGeo = new THREE.SphereGeometry(4.6, 16, 12);
     let launchBallMat = new THREE.MeshBasicMaterial({
         color: 0xff0000,
         wireframe: true,
         transparent: true,
-        opacity: 0.75
+        opacity: 0.85
     });
-    let launchBallMesh = new THREE.Mesh(launchBallGeo, launchBallMat);
-    launchBallMesh.position.copy(launchTargetPos);
-    scene.add(launchBallMesh);
-    impactLasers.push(launchBallMesh);
+    if (rollingBallMesh) {
+        scene.remove(rollingBallMesh);
+        if (rollingBallMesh.geometry) rollingBallMesh.geometry.dispose();
+        if (rollingBallMesh.material) rollingBallMesh.material.dispose();
+    }
+    rollingBallMesh = new THREE.Mesh(launchBallGeo, launchBallMat);
+    rollingBallMesh.position.copy(launchTargetPos);
+    scene.add(rollingBallMesh);
 }
 
 function rebuildTraceTube(pts, hideBackswing) {
@@ -638,6 +650,213 @@ export function clearImpactLasers() {
         if (m.material) m.material.dispose();
     }); 
     impactLasers.length = 0;
+    activeTargetBallMesh = null;
+    if (rollingBallMesh) {
+        scene.remove(rollingBallMesh);
+        if (rollingBallMesh.geometry) rollingBallMesh.geometry.dispose();
+        if (rollingBallMesh.material) rollingBallMesh.material.dispose();
+        rollingBallMesh = null;
+    }
 }
 
 export function setLoadedRadius(val) { loadedRadius = val; }
+
+function spawnBallExplosion(centerPos) {
+    const colors = [0xff4500, 0xffae00, 0xef4444, 0x38bdf8, 0xffffff];
+    for (let i = 0; i < 48; i++) {
+        const size = 0.7 + Math.random() * 1.1;
+        const geo = new THREE.SphereGeometry(size, 6, 6);
+        const mat = new THREE.MeshBasicMaterial({
+            color: colors[i % colors.length],
+            transparent: true,
+            opacity: 1.0
+        });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(centerPos);
+
+        // Random outward velocity burst (cm/s) biased slightly upward
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.random() * Math.PI * 0.65;
+        const speed = 60 + Math.random() * 180;
+        const vel = new THREE.Vector3(
+            Math.sin(phi) * Math.cos(theta) * speed,
+            Math.cos(phi) * speed + 40,
+            Math.sin(phi) * Math.sin(theta) * speed
+        );
+
+        scene.add(mesh);
+        explosionParticles.push({ mesh, vel, life: 1.0 });
+    }
+}
+
+export function resetBallRollAnimation(addressBallPos = null) {
+    ballAnimState = null;
+    // Keep the blue wireframe virtualBall anchored at the address/strike spot
+    if (virtualBall) {
+        virtualBall.visible = true;
+        if (addressBallPos) virtualBall.position.copy(addressBallPos);
+    }
+    if (rollingBallMesh) {
+        rollingBallMesh.visible = true;
+    }
+    if (activeTargetBallMesh) {
+        activeTargetBallMesh.visible = true;
+    }
+    explosionParticles.forEach(p => {
+        scene.remove(p.mesh);
+        if (p.mesh.geometry) p.mesh.geometry.dispose();
+        if (p.mesh.material) p.mesh.material.dispose();
+    });
+    explosionParticles.length = 0;
+}
+
+export function startBallRollAnimation(cast, onBombHitCallback = null) {
+    if (!cast || !virtualBall) return;
+
+    // Ensure lasers, green target ball, and red striker ball exist
+    if (!activeTargetBallMesh || !rollingBallMesh) drawStrikeLaser(cast);
+    resetBallRollAnimation();
+
+    // Blue wireframe virtualBall remains stationary at startCenter
+    let startCenter = virtualBall.position.clone();
+    let targetHomePos = activeTargetBallMesh
+        ? activeTargetBallMesh.position.clone()
+        : startCenter.clone();
+
+    let launchRads = cast.trueLaunchRads || 0;
+    let dir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), launchRads);
+    if (typeof ghostPivot !== 'undefined' && ghostPivot) {
+        dir.applyQuaternion(ghostPivot.quaternion);
+    }
+    dir.normalize();
+
+    // Compute true initial ball speed (cm/s) & lawn rolling drag deceleration (cm/s^2)
+    let massKg = (parseFloat(document.getElementById('massInput')?.value) || 1000) / 1000.0;
+    let malletSpeedMps = Math.max(0.2, cast.passSpeed || 2.0);
+    let v0Mps = malletSpeedMps * (massKg * 1.8) / (massKg + 0.454);
+    let totalDistM = Math.max(0.15, cast.estDist ?? 2.0);
+
+    // Constant rolling friction deceleration: a = v0^2 / (2 * d)
+    let v0CmPerSec = v0Mps * 100.0;
+    let totalDistCm = totalDistM * 100.0;
+    let decelCmPerSec2 = (v0CmPerSec * v0CmPerSec) / (2.0 * totalDistCm);
+    let stopTimeSec = v0CmPerSec / decelCmPerSec2;
+
+    // Position on the red launch line at the target distance (beside the green target ball)
+    let isMatchActive = !document.getElementById('game-mode-dashboard')?.classList.contains('hidden');
+    let targetDistMeters = (cast.targetDistM !== undefined && cast.targetDistM !== null && !isNaN(cast.targetDistM))
+        ? cast.targetDistM
+        : (isMatchActive
+            ? (parseFloat(document.getElementById('matchDistSetup')?.value) || 10.0)
+            : (parseFloat(document.getElementById('trainerDistSetup')?.value) || 10.0));
+    let targetLinePos = startCenter.clone().addScaledVector(dir, targetDistMeters * 100.0);
+
+    // Place the red ball at the strike point to begin rolling
+    if (rollingBallMesh) {
+        rollingBallMesh.position.copy(startCenter);
+        rollingBallMesh.visible = true;
+    }
+
+    ballAnimState = {
+        startPos: startCenter,
+        targetHomePos,
+        targetLinePos,
+        dir,
+        v0CmPerSec,
+        decelCmPerSec2,
+        totalDistCm,
+        stopTimeSec,
+        elapsedSec: 0,
+        exploded: false,
+        postExplosionTimer: 0,
+        onBombHit: onBombHitCallback
+    };
+}
+
+export function updateBallAndExplosionAnimation(dtSec) {
+    // 1. Update rolling red ball & explosion state
+    if (ballAnimState) {
+        if (!ballAnimState.exploded) {
+            ballAnimState.elapsedSec += dtSec;
+            let t = Math.min(ballAnimState.elapsedSec, ballAnimState.stopTimeSec);
+
+            // Kinematics under constant rolling friction: s(t) = v0*t - 0.5*a*t^2
+            let traveledCm = Math.min(
+                ballAnimState.totalDistCm,
+                (ballAnimState.v0CmPerSec * t) - (0.5 * ballAnimState.decelCmPerSec2 * t * t)
+            );
+
+            if (rollingBallMesh) {
+                rollingBallMesh.visible = true;
+                rollingBallMesh.position.copy(ballAnimState.startPos).addScaledVector(ballAnimState.dir, traveledCm);
+            }
+
+            // Check collision with the green target ball (two 4.6cm radius balls touch at 9.2cm center distance)
+            if (rollingBallMesh && activeTargetBallMesh && activeTargetBallMesh.visible) {
+                let distToTarget = rollingBallMesh.position.distanceTo(activeTargetBallMesh.position);
+                if (distToTarget <= 9.2) {
+                    ballAnimState.exploded = true;
+                    ballAnimState.postExplosionTimer = 0;
+                    let boomPos = rollingBallMesh.position.clone().lerp(activeTargetBallMesh.position, 0.5);
+                    rollingBallMesh.visible = false;
+                    activeTargetBallMesh.visible = false;
+                    spawnBallExplosion(boomPos);
+                    if (typeof ballAnimState.onBombHit === 'function') {
+                        ballAnimState.onBombHit();
+                    }
+                }
+            }
+
+            // Once the red ball comes to a stop, return it to its spot on the red line beside the green ball
+            if (!ballAnimState.exploded && ballAnimState.elapsedSec >= ballAnimState.stopTimeSec) {
+                if (rollingBallMesh) {
+                    rollingBallMesh.position.copy(ballAnimState.targetLinePos);
+                    rollingBallMesh.visible = true;
+                }
+                ballAnimState = null;
+            }
+        } else {
+            // After explosion finishes (~1.1s), restore both balls at the target distance on their respective lines
+            ballAnimState.postExplosionTimer += dtSec;
+            if (ballAnimState.postExplosionTimer >= 1.1) {
+                if (activeTargetBallMesh) {
+                    activeTargetBallMesh.position.copy(ballAnimState.targetHomePos);
+                    activeTargetBallMesh.visible = true;
+                }
+                if (rollingBallMesh) {
+                    rollingBallMesh.position.copy(ballAnimState.targetLinePos);
+                    rollingBallMesh.visible = true;
+                }
+                ballAnimState = null;
+            }
+        }
+    }
+
+    // 2. Update 3D explosion shrapnel particles
+    for (let i = explosionParticles.length - 1; i >= 0; i--) {
+        let p = explosionParticles[i];
+        p.life -= dtSec * 0.85;
+        if (p.life <= 0) {
+            scene.remove(p.mesh);
+            if (p.mesh.geometry) p.mesh.geometry.dispose();
+            if (p.mesh.material) p.mesh.material.dispose();
+            explosionParticles.splice(i, 1);
+            continue;
+        }
+
+        // Apply gravity (-350 cm/s^2) and air drag
+        p.vel.y -= 350.0 * dtSec;
+        p.vel.multiplyScalar(Math.max(0, 1.0 - 1.5 * dtSec));
+        p.mesh.position.addScaledVector(p.vel, dtSec);
+
+        // Bounce off lawn plane (-loadedRadius + pivotBaseY)
+        let floorY = pivotBaseY - loadedRadius + 0.5;
+        if (p.mesh.position.y < floorY) {
+            p.mesh.position.y = floorY;
+            p.vel.y = Math.abs(p.vel.y) * 0.45;
+        }
+
+        p.mesh.material.opacity = Math.max(0, p.life);
+        p.mesh.scale.setScalar(Math.max(0.2, p.life));
+    }
+}
