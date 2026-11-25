@@ -67,3 +67,54 @@ export function playSuccessSound() {
         osc.start(now); osc.stop(now + 0.5 + (i * 0.1));
     });
 }
+
+export function playBombSound(slowMo = false) {
+    if (!audioCtx || !isSoundEnabled) return;
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    const now = audioCtx.currentTime;
+    const timeScale = slowMo ? 2.2 : 1.0;
+    const pitchScale = slowMo ? 0.55 : 1.0;
+    const duration = 1.4 * timeScale;
+
+    // 1. Sub-bass shockwave thump (pitch sweep down)
+    const subOsc = audioCtx.createOscillator();
+    const subGain = audioCtx.createGain();
+    subOsc.type = 'triangle';
+    subOsc.frequency.setValueAtTime(115 * pitchScale, now);
+    subOsc.frequency.exponentialRampToValueAtTime(22 * pitchScale, now + 0.55 * timeScale);
+
+    subGain.gain.setValueAtTime(0.95, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.85 * timeScale);
+
+    subOsc.connect(subGain);
+    subGain.connect(audioCtx.destination);
+    subOsc.start(now);
+    subOsc.stop(now + 0.9 * timeScale);
+
+    // 2. Low-pass filtered explosion rumble & debris burst
+    const bufferSize = Math.floor(audioCtx.sampleRate * duration);
+    const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+        output[i] = Math.random() * 2 - 1;
+    }
+
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = noiseBuffer;
+
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(950 * pitchScale, now);
+    filter.frequency.exponentialRampToValueAtTime(85 * pitchScale, now + duration);
+
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime(0.85, now);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+    noise.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(audioCtx.destination);
+
+    noise.start(now);
+    noise.stop(now + duration);
+}
