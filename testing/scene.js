@@ -730,26 +730,24 @@ export function startBallRollAnimation(cast, onBombHitCallback = null) {
     }
     dir.normalize();
 
-    // Compute true initial ball speed (cm/s) & lawn rolling drag deceleration (cm/s^2)
-    let massKg = (parseFloat(document.getElementById('massInput')?.value) || 1000) / 1000.0;
-    let malletSpeedMps = Math.max(0.2, cast.passSpeed || 2.0);
-    let v0Mps = malletSpeedMps * (massKg * 1.8) / (massKg + 0.454);
-    let totalDistM = Math.max(0.15, cast.estDist ?? 2.0);
-
-    // Constant rolling friction deceleration: a = v0^2 / (2 * d)
-    let v0CmPerSec = v0Mps * 100.0;
-    let totalDistCm = totalDistM * 100.0;
-    let decelCmPerSec2 = (v0CmPerSec * v0CmPerSec) / (2.0 * totalDistCm);
-    let stopTimeSec = v0CmPerSec / decelCmPerSec2;
-
-    // Position on the red launch line at the target distance (beside the green target ball)
     let isMatchActive = !document.getElementById('game-mode-dashboard')?.classList.contains('hidden');
     let targetDistMeters = (cast.targetDistM !== undefined && cast.targetDistM !== null && !isNaN(cast.targetDistM))
         ? cast.targetDistM
         : (isMatchActive
             ? (parseFloat(document.getElementById('matchDistSetup')?.value) || 10.0)
             : (parseFloat(document.getElementById('trainerDistSetup')?.value) || 10.0));
-    let targetLinePos = startCenter.clone().addScaledVector(dir, targetDistMeters * 100.0);
+    let targetDistCm = targetDistMeters * 100.0;
+    let targetLinePos = startCenter.clone().addScaledVector(dir, targetDistCm);
+
+    // Ensure a hit shot always travels at least to the green target ball so it never stops millimeter-short
+    let totalDistM = Math.max(0.25, cast.estDist ?? 2.0);
+    let totalDistCm = totalDistM * 100.0;
+    if (cast.isHit && totalDistCm < targetDistCm + 5.0) {
+        totalDistCm = targetDistCm + 5.0;
+    }
+
+    // Pace roll duration so acceleration & lawn-drag deceleration are clearly visible (1.2s to 3.2s)
+    let stopTimeSec = Math.max(1.2, Math.min(3.2, Math.sqrt(totalDistCm / 100.0) * 0.85));
 
     // Place the red ball at the strike point to begin rolling
     if (rollingBallMesh) {
@@ -762,8 +760,6 @@ export function startBallRollAnimation(cast, onBombHitCallback = null) {
         targetHomePos,
         targetLinePos,
         dir,
-        v0CmPerSec,
-        decelCmPerSec2,
         totalDistCm,
         stopTimeSec,
         elapsedSec: 0,
@@ -778,13 +774,11 @@ export function updateBallAndExplosionAnimation(dtSec) {
     if (ballAnimState) {
         if (!ballAnimState.exploded) {
             ballAnimState.elapsedSec += dtSec;
-            let t = Math.min(ballAnimState.elapsedSec, ballAnimState.stopTimeSec);
+            let u = Math.min(1.0, ballAnimState.elapsedSec / ballAnimState.stopTimeSec);
 
-            // Kinematics under constant rolling friction: s(t) = v0*t - 0.5*a*t^2
-            let traveledCm = Math.min(
-                ballAnimState.totalDistCm,
-                (ballAnimState.v0CmPerSec * t) - (0.5 * ballAnimState.decelCmPerSec2 * t * t)
-            );
+            // Exact constant-deceleration kinematics: v(u) = v0*(1 - u), s(u) = D*(2u - u^2)
+            // Starts at full launch speed (2*D/T) and decelerates linearly to 0 m/s at u = 1
+            let traveledCm = ballAnimState.totalDistCm * (2.0 * u - u * u);
 
             if (rollingBallMesh) {
                 rollingBallMesh.visible = true;
@@ -794,7 +788,7 @@ export function updateBallAndExplosionAnimation(dtSec) {
             // Check collision with the green target ball (two 4.6cm radius balls touch at 9.2cm center distance)
             if (rollingBallMesh && activeTargetBallMesh && activeTargetBallMesh.visible) {
                 let distToTarget = rollingBallMesh.position.distanceTo(activeTargetBallMesh.position);
-                if (distToTarget <= 9.2) {
+                if (distToTarget <= 9.5) {
                     ballAnimState.exploded = true;
                     ballAnimState.postExplosionTimer = 0;
                     let boomPos = rollingBallMesh.position.clone().lerp(activeTargetBallMesh.position, 0.5);
@@ -807,8 +801,8 @@ export function updateBallAndExplosionAnimation(dtSec) {
                 }
             }
 
-            // Once the red ball comes to a stop, return it to its spot on the red line beside the green ball
-            if (!ballAnimState.exploded && ballAnimState.elapsedSec >= ballAnimState.stopTimeSec) {
+            // Once the red ball comes to a complete stop, return it to its spot on the red line beside the green ball
+            if (!ballAnimState.exploded && u >= 1.0) {
                 if (rollingBallMesh) {
                     rollingBallMesh.position.copy(ballAnimState.targetLinePos);
                     rollingBallMesh.visible = true;
