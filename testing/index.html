@@ -6,7 +6,7 @@
     <title>LevelEdge AI</title>
     <script>
         // UPDATE THE VERSION HERE
-        const APP_VERSION = "9.9.02"; // Change this single variable to update the version everywhere
+        const APP_VERSION = "9.10.02"; // Change this single variable to update the version everywhere
         
         document.addEventListener("DOMContentLoaded", () => {
             document.title = `LevelEdge v${APP_VERSION}`;
@@ -34,8 +34,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-</head>
-
 </head>
 <body>
 
@@ -133,6 +131,7 @@
         <div class="flex gap-2">
             <button id="pauseBtn" class="drawer-btn flex-1 justify-center p-3">⏸ PAUSE</button>
             <button id="slowMoBtn" class="drawer-btn flex-1 justify-center p-3">🐌 SLOW</button>
+            <button id="droneReplayBtn" class="drawer-btn flex-1 justify-center p-3">🛸 DRONE</button>
             <button id="exitReplayBtn" class="btn-primary btn-danger flex-1 p-3">🛑 STOP</button>
         </div>
     </div>
@@ -277,7 +276,7 @@
                 </div>
             </div>
             
-            <input type="hidden" id="trainerTwistSetup" value="0.53">
+            <input type="hidden" id="trainerTwistSetup" value="1.05">
             
             <button id="confirmStartTrainerBtn" class="btn-primary" style="border-radius: 50px; padding: 10px; font-size: 0.85rem;">START TRAINER</button>
         </div>
@@ -462,6 +461,10 @@
                     <span class="text-accent font-bold" style="font-size: 0.75rem;">Shared Mallet</span>
                     <button id="removeMalletFromBagBtn" class="btn-primary btn-danger btn-small" style="font-size: 0.72rem; padding: 4px 10px;">Remove From Bag</button>
                 </div>
+                <div id="ownerMalletActions" class="hidden mt-2 flex justify-between items-center">
+                    <span class="text-muted font-bold" style="font-size: 0.75rem;">You Own This Mallet</span>
+                    <button id="releaseMalletBtn" class="btn-primary btn-danger btn-small" style="font-size: 0.72rem; padding: 4px 10px;">Release Mallet</button>
+                </div>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
@@ -549,6 +552,20 @@
                         <option value="expert">Expert (5m, 10m, 15m, 20m)</option>
                     </select>
                 </div>
+
+                <div class="setting-item span-2">
+                    <label for="faultSensitivityInput" class="flex justify-between">
+                        <span>Fault Detection (LED):</span>
+                        <span id="faultSensitivityLabel" class="text-accent">Conservative</span>
+                    </label>
+                    <input type="range" id="faultSensitivityInput" min="0" max="3" step="1" value="1" style="padding: 0; margin-top: 5px;">
+                    <div style="position: relative; height: 15px; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; font-weight: bold;">
+                        <span style="position: absolute; left: 0%;">Off</span>
+                        <span style="position: absolute; left: 33.3%; transform: translateX(-50%);">Conservative</span>
+                        <span style="position: absolute; left: 66.6%; transform: translateX(-50%);">Standard</span>
+                        <span style="position: absolute; right: 0%;">Sensitive</span>
+                    </div>
+                </div>
             </div>
             
             <input type="hidden" id="twistToleranceInput" value="1.0">
@@ -601,6 +618,10 @@
                     <input type="checkbox" id="darkThemeCheck">
                 </div>
                 <div class="setting-item setting-checkbox span-2">
+                    <label for="droneCamCheck">Drone Follow Ball Animation</label>
+                    <input type="checkbox" id="droneCamCheck" checked>
+                </div>
+                <div class="setting-item setting-checkbox span-2">
                     <label for="soundCheck">App Audio (Success Chime & Metronome)</label>
                     <input type="checkbox" id="soundCheck" checked>
                 </div>
@@ -638,7 +659,7 @@
             
             <div id="wizard-step-title" class="text-accent font-800 mb-2" style="font-size: 1.05rem;">Step 1: Bottom Face & Setup</div>
             <div id="wizard-instruction" class="text-muted mb-4" style="font-size: 0.85rem; line-height: 1.4;">Remove the mallet shaft and set a 'True North' heading line on a flat table. Place the BOTTOM face flat on the table with the Front striking face pointing at 'True North'.</div>
-            <div id="wizard-progress" class="font-mono font-bold mb-2" style="font-size: 0.8rem;">Step 1 of 6</div>
+            <div id="wizard-progress" class="font-mono font-bold mb-2" style="font-size: 0.8rem;">Step 1 of 8</div>
             <div class="text-muted mb-4" style="font-size: 0.72rem;">Drag 3D view to inspect required orientation</div>
             <button id="wizardCaptureBtn" class="btn-primary" style="padding: 10px 16px; font-size: 0.9rem;">CAPTURE BOTTOM</button>
         </div>

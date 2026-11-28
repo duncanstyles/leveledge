@@ -21,7 +21,10 @@ export const ghostBlock = new THREE.Group();
 export const ghostHeadJoint = new THREE.Group(); 
 
 export const targetEnvironmentGroup = new THREE.Group();
-export let ghostRail = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 })); 
+export let ghostRail = new THREE.Line(
+    new THREE.BufferGeometry(),
+    new THREE.LineDashedMaterial({ color: 0x38bdf8, dashSize: 3, gapSize: 2, transparent: true, opacity: 0.85 })
+);
 export let floorGrid = new THREE.GridHelper(100, 40, 0x38bdf8, 0x94a3b8);
 
 function createScaledVerticalGrid(heightCm = 75, lengthCm = 200, stepCm = 2.5, centerColor = 0x38bdf8, gridColor = 0x94a3b8) {
@@ -82,6 +85,29 @@ export let controls = null;
 
 let ballAnimState = null;
 let explosionParticles = [];
+let droneCamEnabled = true;
+let droneCamActive = false;
+let droneSavedCamPos = null;
+let droneSavedTarget = null;
+
+export function setDroneCamEnabled(enabled) {
+    droneCamEnabled = !!enabled;
+    if (!droneCamEnabled) {
+        releaseDroneCamera(true);
+    }
+}
+
+export function releaseDroneCamera(restoreView = false) {
+    if (!droneCamActive) return;
+    droneCamActive = false;
+    if (restoreView && droneSavedCamPos && droneSavedTarget && controls) {
+        camera.position.copy(droneSavedCamPos);
+        controls.target.copy(droneSavedTarget);
+        controls.update();
+    }
+    droneSavedCamPos = null;
+    droneSavedTarget = null;
+}
 
 // --- TRAIL SETUP ---
 export const MAX_TRAIL_POINTS = 5000; 
@@ -358,40 +384,38 @@ export function drawStrikeLaser(cast) {
     impactLasers.push(targetBallMesh);
     activeTargetBallMesh = targetBallMesh;
 
-    /// 7. Build the Red Dotted Actual Ball Launch Line
-    let laserGeo = new THREE.BufferGeometry().setFromPoints([backPos, endPos]);
-    let laserMat = new THREE.LineDashedMaterial({
-        color: 0xff0000,
-        linewidth: 5,
-        dashSize: 4,
-        gapSize: 2,
-        transparent: true,
-        opacity: 0.8
-    });
+    if (!cast.isWhiff) {
+        // 7. Build the Red Dotted Actual Ball Launch Line
+        let laserGeo = new THREE.BufferGeometry().setFromPoints([backPos, endPos]);
+        let laserMat = new THREE.LineDashedMaterial({
+            color: 0xff0000,
+            linewidth: 5,
+            dashSize: 4,
+            gapSize: 2,
+            transparent: true,
+            opacity: 0.8
+        });
 
-    let laserMesh = new THREE.Line(laserGeo, laserMat);
-    laserMesh.computeLineDistances(); 
+        let laserMesh = new THREE.Line(laserGeo, laserMat);
+        laserMesh.computeLineDistances(); 
 
-    scene.add(laserMesh);         
-    impactLasers.push(laserMesh); 
+        scene.add(laserMesh);         
+        impactLasers.push(laserMesh); 
 
-    // 8. Add Red Striker Ball on the Actual Launch Line at the Target Distance
-    let launchTargetPos = startPos.clone().add(direction.clone().multiplyScalar(targetDistance));
-    let launchBallGeo = new THREE.SphereGeometry(4.6, 16, 12);
-    let launchBallMat = new THREE.MeshBasicMaterial({
-        color: 0xff0000,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.85
-    });
-    if (rollingBallMesh) {
-        scene.remove(rollingBallMesh);
-        if (rollingBallMesh.geometry) rollingBallMesh.geometry.dispose();
-        if (rollingBallMesh.material) rollingBallMesh.material.dispose();
+        // 8. Add Red Striker Ball on the Actual Launch Line at the Target Distance
+        let launchTargetPos = startPos.clone().add(direction.clone().multiplyScalar(targetDistance));
+        let launchBallGeo = new THREE.SphereGeometry(4.6, 16, 12);
+        let launchBallMat = new THREE.MeshBasicMaterial({
+            color: 0xff0000,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.85
+        });
+        rollingBallMesh = new THREE.Mesh(launchBallGeo, launchBallMat);
+        rollingBallMesh.userData.targetLinePos = launchTargetPos.clone();
+        rollingBallMesh.position.copy(launchTargetPos);
+        scene.add(rollingBallMesh);
     }
-    rollingBallMesh = new THREE.Mesh(launchBallGeo, launchBallMat);
-    rollingBallMesh.position.copy(launchTargetPos);
-    scene.add(rollingBallMesh);
 }
 
 function rebuildTraceTube(pts, hideBackswing) {
@@ -496,6 +520,7 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
     // PERFORMANCE FIX: Check the UI toggle ONCE before the loop, not 5000 times!
     let hideBackswingToggle = document.getElementById('hideBackswingCheck');
     let hideBackswing = hideBackswingToggle ? hideBackswingToggle.checked : true;
+    let lastValidTangent = new THREE.Vector3(0, 0, 1);
     
     for (let i = 0; i <= sampleCount; i++) {
         if (i >= MAX_TRAIL_POINTS) break;
@@ -545,22 +570,40 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
             rightPts.push(faceCenter.clone().add(vRightOffset));
             leftPts.push(faceCenter.clone().add(vLeftOffset));
 
-            let pathTangent = new THREE.Vector3();
-            let segmentLength = 0; 
-            
-            if (i < sampleCount) {
-                pathTangent.subVectors(smoothPoints[i+1], smoothPoints[i]);
-                segmentLength = pathTangent.length();
-                pathTangent.normalize();
-            } else {
-                pathTangent.subVectors(smoothPoints[i], smoothPoints[i-1]);
-                segmentLength = pathTangent.length();
-                pathTangent.normalize();
+            // Smoothed tangent over ±3 samples within the same swing direction (prevents impact-zone spikes)
+            let curForward = !!pts[idx1].isForward;
+            let iPrev = i;
+            let iNext = i;
+            for (let step = 1; step <= 3; step++) {
+                if (i - step >= 0) {
+                    let pIdx = Math.floor(((i - step) / sampleCount) * (pts.length - 1));
+                    if (!!pts[pIdx].isForward === curForward) iPrev = i - step;
+                }
+                if (i + step <= sampleCount) {
+                    let nIdx = Math.floor(((i + step) / sampleCount) * (pts.length - 1));
+                    if (!!pts[nIdx].isForward === curForward) iNext = i + step;
+                }
             }
-            
+
+            let pathTangent = new THREE.Vector3().subVectors(smoothPoints[iNext], smoothPoints[iPrev]);
+            let chordLen = pathTangent.length();
+            let segmentLength = chordLen / Math.max(1, iNext - iPrev);
+
+            if (chordLen > 0.2) {
+                pathTangent.divideScalar(chordLen);
+                if (!curForward) pathTangent.negate();
+                if (pathTangent.dot(vNormal) > 0.5) {
+                    lastValidTangent.copy(pathTangent);
+                } else {
+                    pathTangent.copy(lastValidTangent);
+                }
+            } else {
+                pathTangent.copy(lastValidTangent);
+            }
+
             let vUp = new THREE.Vector3(0, 1, 0).applyQuaternion(qInterp);
             let vLeft = new THREE.Vector3().crossVectors(vUp, pathTangent).normalize();
-            if (vLeft.lengthSq() < 0.001) vLeft = new THREE.Vector3(1,0,0).applyQuaternion(qInterp); 
+            if (vLeft.lengthSq() < 0.001) vLeft = new THREE.Vector3(1, 0, 0).applyQuaternion(qInterp);
 
             let progress = i / sampleCount; 
             let edgeFade = 1.0;
@@ -574,6 +617,7 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
             }
 
             let totalLateralExposure = vNormal.dot(vLeft) * (activeOffsetZ * 2.0) * twistMagnifier * edgeFade * speedFade;
+            totalLateralExposure = Math.max(-15.0, Math.min(15.0, totalLateralExposure));
             
             let pRoot = faceCenter.clone();
             let pEdge = faceCenter.clone();
@@ -626,23 +670,29 @@ export function updateSmoothTrail(limitIndex = rawTracePoints.length) {
     twistRibbonGeometry.setDrawRange(0, twistVertexIndex);
 }
 
-export function rebuildArcPts(radius, halfAngleDeg = 60) {
-    let arcPts = []; 
-    // Shift the origin of the perfect ghost arc forward by malletHalfLength
-    let baseVec = new THREE.Vector3(0, -radius, activeOffsetZ); 
+export function rebuildArcPts(radius, halfAngleDeg = 60, faceZ = activeOffsetZ) {
+    let arcPts = [];
+    let zOrigin = (typeof faceZ === 'number' && !isNaN(faceZ)) ? faceZ : activeOffsetZ;
+    let baseVec = new THREE.Vector3(0, -radius, zOrigin);
     let maxDeg = Math.max(10, Math.min(110, halfAngleDeg || 60));
-    let step = Math.max(1, maxDeg / 30);
-    
-    for (let aDeg = -maxDeg; aDeg <= maxDeg + 0.001; aDeg += step) { 
-        let a = THREE.MathUtils.degToRad(aDeg); 
-        let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1,0,0), a); 
+    let steps = 60;
+
+    for (let i = 0; i <= steps; i++) {
+        let aDeg = -maxDeg + (2 * maxDeg * (i / steps));
+        let a = THREE.MathUtils.degToRad(aDeg);
+        let v = baseVec.clone().applyAxisAngle(new THREE.Vector3(1, 0, 0), a);
         arcPts.push(v);
     }
-    let curve = new THREE.CatmullRomCurve3(arcPts); let tubeGeo = new THREE.TubeGeometry(curve, 60, 0.15, 8, false); 
-    if (ghostRail.geometry) ghostRail.geometry.dispose(); ghostRail.geometry = tubeGeo;
+
+    let curve = new THREE.CatmullRomCurve3(arcPts);
+    let lineGeo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(120));
+    if (ghostRail.geometry) ghostRail.geometry.dispose();
+    ghostRail.geometry = lineGeo;
+    ghostRail.computeLineDistances();
 }
 
 export function clearImpactLasers() {
+    ballAnimState = null;
     impactLasers.forEach(m => {
         scene.remove(m);
         // THE FIX: Explicitly destroy the geometry and material to prevent GPU memory leaks
@@ -660,6 +710,22 @@ export function clearImpactLasers() {
 }
 
 export function setLoadedRadius(val) { loadedRadius = val; }
+
+export function positionGhostReferenceBehindBall(extensionCm = 0, faceZ = malletHalfLength) {
+    const safeExt = Number.isFinite(extensionCm) ? extensionCm : 0;
+    const zFace = (typeof faceZ === 'number' && !isNaN(faceZ)) ? faceZ : malletHalfLength;
+    ghostPivot.quaternion.identity();
+    ghostPivot.position.set(0, pivotBaseY + safeExt, 0);
+    ghostBlock.position.set(0, -(loadedRadius + safeExt), 0);
+    // Place front striking face (+malletHalfLength) flush against the back of the ball (zFace)
+    ghostHeadJoint.quaternion.identity();
+    ghostHeadJoint.position.set(0, 0, zFace - malletHalfLength);
+}
+
+export function resetGhostHeadToPivot() {
+    ghostHeadJoint.quaternion.identity();
+    ghostHeadJoint.position.set(0, 0, 0);
+}
 
 function spawnBallExplosion(centerPos) {
     const colors = [0xff4500, 0xffae00, 0xef4444, 0x38bdf8, 0xffffff];
@@ -689,14 +755,17 @@ function spawnBallExplosion(centerPos) {
     }
 }
 
-export function resetBallRollAnimation(addressBallPos = null) {
+export function resetBallRollAnimation(preImpact = false) {
     ballAnimState = null;
-    // Keep the blue wireframe virtualBall anchored at the address/strike spot
-    if (virtualBall) {
-        virtualBall.visible = true;
-        if (addressBallPos) virtualBall.position.copy(addressBallPos);
-    }
+    releaseDroneCamera(false);
+    if (impactLasers[2]) impactLasers[2].visible = !preImpact;
+    if (virtualBall) virtualBall.visible = true;
     if (rollingBallMesh) {
+        if (preImpact && virtualBall) {
+            rollingBallMesh.position.copy(virtualBall.position);
+        } else if (rollingBallMesh.userData.targetLinePos) {
+            rollingBallMesh.position.copy(rollingBallMesh.userData.targetLinePos);
+        }
         rollingBallMesh.visible = true;
     }
     if (activeTargetBallMesh) {
@@ -715,7 +784,7 @@ export function startBallRollAnimation(cast, onBombHitCallback = null) {
 
     // Ensure lasers, green target ball, and red striker ball exist
     if (!activeTargetBallMesh || !rollingBallMesh) drawStrikeLaser(cast);
-    resetBallRollAnimation();
+    resetBallRollAnimation(true);
 
     // Blue wireframe virtualBall remains stationary at startCenter
     let startCenter = virtualBall.position.clone();
@@ -755,6 +824,12 @@ export function startBallRollAnimation(cast, onBombHitCallback = null) {
         rollingBallMesh.visible = true;
     }
 
+    if (droneCamEnabled && !droneCamActive) {
+        droneCamActive = true;
+        droneSavedCamPos = camera.position.clone();
+        droneSavedTarget = controls ? controls.target.clone() : new THREE.Vector3(0, pivotBaseY - loadedRadius, 0);
+    }
+
     ballAnimState = {
         startPos: startCenter,
         targetHomePos,
@@ -769,7 +844,7 @@ export function startBallRollAnimation(cast, onBombHitCallback = null) {
     };
 }
 
-export function updateBallAndExplosionAnimation(dtSec) {
+export function updateBallAndExplosionAnimation(dtSec, onAnimationComplete = null) {
     // 1. Update rolling red ball & explosion state
     if (ballAnimState) {
         if (!ballAnimState.exploded) {
@@ -808,6 +883,7 @@ export function updateBallAndExplosionAnimation(dtSec) {
                     rollingBallMesh.visible = true;
                 }
                 ballAnimState = null;
+                if (typeof onAnimationComplete === 'function') onAnimationComplete();
             }
         } else {
             // After explosion finishes (~1.1s), restore both balls at the target distance on their respective lines
@@ -822,7 +898,37 @@ export function updateBallAndExplosionAnimation(dtSec) {
                     rollingBallMesh.visible = true;
                 }
                 ballAnimState = null;
+                if (typeof onAnimationComplete === 'function') onAnimationComplete();
             }
+        }
+        if (impactLasers[2]) impactLasers[2].visible = !ballAnimState;
+    }
+
+    // 1b. Update Drone Follow camera while ball is rolling or exploding
+    if (droneCamActive && controls) {
+        if (ballAnimState) {
+            const currentBallPos = (rollingBallMesh && rollingBallMesh.visible)
+                ? rollingBallMesh.position
+                : ballAnimState.startPos;
+            const forwardDir = ballAnimState.dir;
+            const followDistCm = 38.0;
+            const followHeightCm = 24.0;
+            const lookAheadCm = 45.0;
+
+            const desiredCamPos = currentBallPos.clone()
+                .addScaledVector(forwardDir, -followDistCm)
+                .add(new THREE.Vector3(0, followHeightCm, 0));
+
+            const desiredLookAt = currentBallPos.clone()
+                .addScaledVector(forwardDir, lookAheadCm)
+                .add(new THREE.Vector3(0, 2.0, 0));
+
+            const blend = Math.min(1.0, dtSec * 6.0);
+            camera.position.lerp(desiredCamPos, blend);
+            controls.target.lerp(desiredLookAt, blend);
+            controls.update();
+        } else {
+            releaseDroneCamera(true);
         }
     }
 

@@ -78,6 +78,10 @@ function readPreferencesFromDOM() {
         followThruSec: parseFloat(document.getElementById('durationInput')?.value) || 1.0,
         flatMag: parseFloat(document.getElementById('flatMagInput')?.value) || 1.0,
         twistTolerance: parseFloat(document.getElementById('twistToleranceInput')?.value) || 1.0,
+        faultSensitivity: (() => {
+            const v = parseInt(document.getElementById('faultSensitivityInput')?.value, 10);
+            return isNaN(v) ? 1 : v;
+        })(),
     };
 }
 
@@ -101,6 +105,7 @@ function applyPreferencesToDOM(prefs) {
     setVal('durationInput', prefs.followThruSec);
     setVal('flatMagInput', prefs.flatMag);
     setVal('twistToleranceInput', prefs.twistTolerance);
+    setVal('faultSensitivityInput', prefs.faultSensitivity);
 }
 
 export async function loadPlayerProfile() {
@@ -376,6 +381,27 @@ export async function syncConnectedMallet(bleMac, bleName, flashProfile) {
             cloudMallet = created;
         }
     } else {
+        // Auto-claim if the previous owner released this mallet
+        if (!cloudMallet.owner_id) {
+            const { data: claimed, error: claimErr } = await supabaseClient
+                .from('mallets')
+                .update({
+                    owner_id: currentUser.id,
+                    ble_name: bleName || cloudMallet.ble_name,
+                    allow_sharing: true,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', cloudMallet.id)
+                .is('owner_id', null)
+                .select()
+                .single();
+
+            if (!claimErr && claimed) {
+                cloudMallet = claimed;
+                showToast(`Ownership claimed for ${cloudMallet.name}!`);
+            }
+        }
+
         if (!cloudMallet.is_calibrated && flashProfile?.isCalibrated) {
             const { data: promoted } = await supabaseClient
                 .from('mallets')
@@ -614,6 +640,61 @@ export async function removeMalletFromBag(malletId) {
     showToast("Mallet removed from your bag.");
 }
 
+export async function releaseMalletOwnership(malletId) {
+    if (!currentUser || !malletId) return false;
+
+    const releasedMac = activeMallet?.id === malletId ? activeMallet.ble_mac : null;
+
+    const { error: relErr } = await supabaseClient
+        .from('mallets')
+        .update({
+            owner_id: null,
+            allow_sharing: true,
+            updated_at: new Date().toISOString()
+        })
+        .eq('id', malletId)
+        .eq('owner_id', currentUser.id);
+
+    if (relErr) {
+        showToast("Could not release mallet: " + relErr.message);
+        return false;
+    }
+
+    await supabaseClient
+        .from('player_mallets')
+        .delete()
+        .eq('user_id', currentUser.id)
+        .eq('mallet_id', malletId);
+
+    if (releasedMac) {
+        localStorage.removeItem(`LVE_Mallet_${releasedMac}`);
+    }
+
+    await fetchPlayerMallets();
+    const fallback = playerMallets[0]?.mallet || null;
+    activeMallet = fallback;
+
+    await supabaseClient
+        .from('player_profiles')
+        .update({ active_mallet_id: fallback?.id || null, updated_at: new Date().toISOString() })
+        .eq('user_id', currentUser.id);
+
+    if (fallback) {
+        const cacheMac = fallback.ble_mac || 'OFFLINE-DEFAULT';
+        localStorage.setItem('LVE_LastMac', cacheMac);
+        localStorage.setItem(`LVE_Mallet_${cacheMac}`, JSON.stringify(fallback));
+        if (window.applyMalletToUI) window.applyMalletToUI(fallback, false);
+    } else {
+        localStorage.removeItem('LVE_LastMac');
+        document.getElementById('ownerMalletActions')?.classList.add('hidden');
+        document.getElementById('sharedMalletActions')?.classList.add('hidden');
+        if (window.renderMalletSelector) window.renderMalletSelector();
+    }
+
+    showToast("Mallet released. Ready for the new owner to connect.");
+    return true;
+}
+
 // ============================================================================
 // 3. MATCHES, TRAINING & AI COACH
 // ============================================================================
@@ -700,16 +781,14 @@ export async function fetchCloudStrikes(matchUUID, mMass, mSpeed, mDate) {
         let dsPDelta = downVal > 0 ? calculatePendulumDelta(4.0 * (downVal / 1000.0), handleLen) : null;
         let dsPDeltaHtml = dsPDelta !== null ? formatOffset(dsPDelta) : 'N/A';
 
-        let pureImpactSensor = new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0); 
-        let impactRawQuat = new THREE.Quaternion(pureImpactSensor.y, -pureImpactSensor.z, -pureImpactSensor.x, pureImpactSensor.w).normalize();
-        impactRawQuat.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI)); 
+        const qSensorToThreeOut = new THREE.Quaternion(0.5, 0.5, 0.5, -0.5);
+        const qSensorToThreeIn  = new THREE.Quaternion(0.5, 0.5, -0.5, -0.5);
+        let impactRawQuat = qSensorToThreeOut.clone()
+            .multiply(new THREE.Quaternion(s.q1, s.q2, s.q3, s.q0).normalize())
+            .multiply(qSensorToThreeIn)
+            .normalize();
 
-        // 1. Apply the Gimbal-Proof Twist Inversion (YZX Order) matching main.js
-        let liveEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YZX');
-        liveEuler.y = -liveEuler.y;
-        impactRawQuat.setFromEuler(liveEuler, 'YZX');
-
-        // 2. Calculate AoA matching main.js (YXZ Euler X-axis)
+        // Calculate AoA matching main.js (YXZ Euler X-axis)
         let impactEuler = new THREE.Euler().setFromQuaternion(impactRawQuat, 'YXZ');
         let strokeAoA = -THREE.MathUtils.radToDeg(impactEuler.x);
         
@@ -1033,7 +1112,7 @@ export async function fetchCloudTraining() {
 
             let hitMissStr = `N/A`;
             if (cast.isWhiff) {
-                hitMissStr = `Whiff`;
+                hitMissStr = `Mishit`;
             } else {
                 let launchRads = cast.trueLaunchRads;
                 if ((launchRads === undefined || launchRads === null || isNaN(launchRads)) &&
@@ -1066,7 +1145,7 @@ export async function fetchCloudTraining() {
                     locStr = cast.dev < 0.2 ? `Center` : `${(cast.dev * 10).toFixed(0)}mm ${cast.dir || ''}`.trim();
                 }
             } else if (cast.dev !== undefined && cast.dev !== null) {
-                locStr = `${cast.dev.toFixed(1)}cm ${cast.dir || ''}`.trim();
+                locStr = cast.isWhiff ? `${cast.dev.toFixed(1)}cm M` : `${cast.dev.toFixed(1)}cm ${cast.dir || ''}`.trim();
             }
 
             let faceDeg = cast.planeTwist !== undefined ? cast.planeTwist : cast.faceAngle;
@@ -1077,7 +1156,7 @@ export async function fetchCloudTraining() {
                 : (faceDeg !== undefined && faceDeg !== null ? fmtSignedDeg(faceDeg - pathDeg) : `N/A`);
             let devSigmaStr = (!cast.isWhiff && cast.trueLaunchDeg !== undefined && cast.trueLaunchDeg !== null)
                 ? fmtSignedDeg(cast.trueLaunchDeg)
-                : (cast.isWhiff ? `Whiff` : `N/A`);
+                : (cast.isWhiff ? `Mishit` : `N/A`);
 
             let hasAoa = cast.isStrike && cast.aoaDeg !== undefined && cast.aoaDeg !== null;
             let cAoa = hasAoa ? cast.aoaDeg : 0;
@@ -1290,11 +1369,49 @@ export async function deleteCloudSession(swingId) {
     }
 }
 
-export async function getAiCoachFeedback(recentCasts, targetDist) {
+export async function getAiCoachFeedback(recentCasts, targetDist, context = {}) {
     if (!currentUser) return "Please log in to consult the AI Coach.";
-    
+
+    const cleanPasses = (recentCasts || []).map((c, idx) => {
+        const faceDeg = c.planeTwist ?? c.faceAngle ?? null;
+        const pathDeg = (c.pathAngleRads || 0) * (180.0 / Math.PI);
+        const launchRads = c.trueLaunchRads ?? (c.trueLaunchDeg !== undefined && c.trueLaunchDeg !== null
+            ? (c.trueLaunchDeg * Math.PI / 180.0)
+            : null);
+        const lateralCm = (!c.isWhiff && launchRads !== null)
+            ? parseFloat(((targetDist * 100.0) * Math.sin(launchRads)).toFixed(1))
+            : null;
+        const impactLoc = c.isStrike
+            ? (c.dev < 0.2 ? "Center" : `${Math.round(c.dev * 10)}mm ${c.dir || ""}`.trim())
+            : (c.isWhiff ? `${(c.dev || 0).toFixed(1)}cm Mishit` : (c.dev < 0.2 ? "Center" : `${c.dev.toFixed(1)}cm ${c.dir || ""}`.trim()));
+
+        return {
+            pass: c.isStrike ? "Ball Strike" : `Practice Cast #${idx + 1}`,
+            isStrike: !!c.isStrike,
+            isWhiff: !!c.isWhiff,
+            isHit: !!c.isHit,
+            speedKph: c.passSpeed ? parseFloat((c.passSpeed * 3.6).toFixed(1)) : null,
+            estDistM: c.estDist !== undefined && c.estDist !== null ? parseFloat(c.estDist.toFixed(1)) : null,
+            impactLocation: impactLoc,
+            faceAngleDeg: faceDeg !== null ? parseFloat(faceDeg.toFixed(1)) : null,
+            swingPathDeg: parseFloat(pathDeg.toFixed(1)),
+            faceToPathDeg: faceDeg !== null ? parseFloat((faceDeg - pathDeg).toFixed(1)) : null,
+            launchDeviationDeg: (!c.isWhiff && c.trueLaunchDeg !== undefined && c.trueLaunchDeg !== null) ? parseFloat(c.trueLaunchDeg.toFixed(1)) : null,
+            targetLateralErrorCm: lateralCm,
+            strikeAngleAoaDeg: (c.isStrike && c.aoaDeg !== undefined && c.aoaDeg !== null) ? parseFloat(c.aoaDeg.toFixed(1)) : null,
+            shaftLean: (c.lean !== undefined && c.lean !== null) ? `${c.lean.toFixed(1)}° ${c.leanDir || ""}`.trim() : null,
+            collisionDeflectionDeg: (c.isStrike && c.deflectionDeg !== undefined && c.deflectionDeg !== null) ? parseFloat(c.deflectionDeg.toFixed(1)) : null,
+            preImpactAccelPct: (c.decelFactor !== undefined && c.decelFactor !== null && !isNaN(c.decelFactor)) ? Math.round(c.decelFactor) : null,
+            tempoBpm: c.tempo > 0 ? Math.round(c.tempo) : null,
+            pendulumDeltaCm: (c.pDelta !== undefined && c.pDelta !== null && !isNaN(c.pDelta)) ? Math.round(c.pDelta) : null,
+            backswingArcCm: (c.backArcLength ?? c.backArc) ? Math.round(c.backArcLength ?? c.backArc) : null,
+            backswingLiftCm: (c.backHeight !== undefined && c.backHeight !== null) ? Math.round(c.backHeight) : null,
+            faultDetected: !!c.faultDetected
+        };
+    });
+
     const { data, error } = await supabaseClient.functions.invoke('swift-function', {
-        body: { swings: recentCasts, targetDistance: targetDist }
+        body: { swings: cleanPasses, targetDistance: targetDist, context }
     });
 
     if (error) {

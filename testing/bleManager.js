@@ -391,10 +391,12 @@ class LevelEdgeBLEManager {
         if (data.byteLength < 32) return;
         if (header !== 72 && header !== 83) return;
 
+        const rawDwellByte = data.getUint8(5);
         const parsedStrike = {
             peakG: data.getInt16(1, true) / 100.0,
             peakTwist: data.getInt16(3, true) / 10.0,
-            dwell: data.getUint8(5),
+            dwell: rawDwellByte & 0x7F,
+            faultDetected: (rawDwellByte & 0x80) !== 0,
             backArc: data.getInt16(6, true) / 10.0,   
             faceAngle: data.getInt16(8, true) / 10.0,
             zVel: data.getInt16(10, true) / 100.0,
@@ -406,8 +408,8 @@ class LevelEdgeBLEManager {
             q3: data.getInt16(21, true) / 10000.0,
             matchID: data.getUint32(23, true),
             secondsIntoMatch: 0,
-            pathAngle: data.getInt8(27) / 10.0,
-            aoaAngle: data.getInt8(28) / 10.0,
+            pathAngle: data.getInt8(27) / 4.0,
+            aoaAngle: data.getInt8(28) / 4.0,
             downwardSwingTime: data.getUint16(29, true),
             decelFactor: data.getInt8(31),
             timestamp: Date.now()

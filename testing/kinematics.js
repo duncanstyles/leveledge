@@ -110,19 +110,46 @@ export function calculateTrueDwell(zVel, peakG, massKg) {
     return Math.max(0.5, Math.min(5.0, dwellMs));
 }
 
-export function calculateOffCenterImpact(peakTwistDegPerSec, speedMps) {
-    if (speedMps <= 0.5 || Math.abs(peakTwistDegPerSec) < 10) return 0; 
-    
-    let distanceMm = (peakTwistDegPerSec / speedMps) * 0.1125;
-    
+export function calculateOffCenterImpact(
+    peakTwistDegPerSec,
+    speedMps,
+    massGOverride = null,
+    headLengthCmOverride = null,
+    faceWidthCmOverride = null
+) {
+    if (speedMps <= 0.5 || Math.abs(peakTwistDegPerSec) < 10) return 0;
+
+    // Reference mallet baseline where 0.1125 was originally tuned
+    const REF_BALL_MASS_G = 454.0;
+    const REF_MALLET_MASS_G = 1350.0;
+    const REF_HEAD_LEN_CM = 25.0;
+    const REF_FACE_WID_CM = 6.0;
+    const REF_INERTIA_TERM = (REF_MALLET_MASS_G + REF_BALL_MASS_G) *
+                             (REF_HEAD_LEN_CM * REF_HEAD_LEN_CM + REF_FACE_WID_CM * REF_FACE_WID_CM);
+
+    let massEl = document.getElementById('massInput');
+    let lenEl  = document.getElementById('malletLengthInput');
+    let widEl  = document.getElementById('malletWidthInput');
+
+    let massG       = massGOverride       ?? (massEl ? parseFloat(massEl.value) : REF_MALLET_MASS_G);
+    let headLenCM   = headLengthCmOverride ?? (lenEl ? parseFloat(lenEl.value)  : REF_HEAD_LEN_CM);
+    let faceWidthCM = faceWidthCmOverride  ?? (widEl ? parseFloat(widEl.value)  : REF_FACE_WID_CM);
+
+    if (!isFinite(massG) || massG <= 200) massG = REF_MALLET_MASS_G;
+    if (!isFinite(headLenCM) || headLenCM <= 5) headLenCM = REF_HEAD_LEN_CM;
+    if (!isFinite(faceWidthCM) || faceWidthCM <= 2) faceWidthCM = REF_FACE_WID_CM;
+
+    let inertiaTerm = (massG + REF_BALL_MASS_G) * (headLenCM * headLenCM + faceWidthCM * faceWidthCM);
+    let inertiaScale = inertiaTerm / REF_INERTIA_TERM;
+
+    let distanceMm = (peakTwistDegPerSec / speedMps) * 0.1125 * inertiaScale;
+
     // Dynamically calculate the physical edge based on stored mallet width
-    let faceWidthCM = parseFloat(document.getElementById('malletWidthInput').value) || 6.0;
     let maxDeviationMm = (faceWidthCM * 10.0) / 2.0;
-    
     if (distanceMm > maxDeviationMm) return maxDeviationMm;
     if (distanceMm < -maxDeviationMm) return -maxDeviationMm;
-    
-    return distanceMm; 
+
+    return distanceMm;
 }
 
 export function anchorSwingToImpact(swing) {
